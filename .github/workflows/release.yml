@@ -1,0 +1,41 @@
+name: release
+# Public CI builds every release (ADR-021): four platform binaries, one
+# SHA256SUMS, and GitHub build-provenance attestations. What a stranger runs
+# is what this workflow built from this public source.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.22" }
+      - name: Build all platforms
+        run: |
+          set -eu
+          mkdir -p dist
+          for target in darwin/arm64 darwin/amd64 linux/arm64 linux/amd64; do
+            GOOS=${target%/*} GOARCH=${target#*/} CGO_ENABLED=0 \
+              go build -trimpath -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" \
+              -o "dist/ks-${target%/*}-${target#*/}" .
+          done
+          cd dist && sha256sum ks-* > SHA256SUMS && cat SHA256SUMS
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: "dist/ks-*"
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/ks-* dist/SHA256SUMS \
+            --title "ks ${GITHUB_REF_NAME}" \
+            --notes "Thin KeepState client. Verify: \`sha256sum -c SHA256SUMS\`. Provenance: attested by public CI (see the Attestations tab)."
