@@ -48,9 +48,12 @@ if [ "$GOT" != "$EXPECTED" ]; then
 fi
 echo "Checksum OK ($GOT)"
 
-# install location: /usr/local/bin when writable, else ~/.local/bin
-DEST="/usr/local/bin"
-if [ ! -w "$DEST" ]; then
+# install location: KS_INSTALL_DIR if set, else /usr/local/bin when writable,
+# else ~/.local/bin
+DEST="${KS_INSTALL_DIR:-/usr/local/bin}"
+if [ -n "${KS_INSTALL_DIR:-}" ]; then
+  mkdir -p "$DEST"
+elif [ ! -w "$DEST" ]; then
   DEST="$HOME/.local/bin"
   mkdir -p "$DEST"
 fi
