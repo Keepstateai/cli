@@ -6,7 +6,7 @@ const fs = require("fs");
 const path = require("path");
 const https = require("https");
 
-const REPO = process.env.KS_INSTALL_REPO || "esrygrtc/cli";
+const REPO = process.env.KS_INSTALL_REPO || "keepstateai/cli";
 const BASE = process.env.KS_INSTALL_BASE || `https://github.com/${REPO}/releases/latest/download`;
 const os = { darwin: "darwin", linux: "linux" }[process.platform];
 const arch = { arm64: "arm64", x64: "amd64" }[process.arch];

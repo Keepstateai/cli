@@ -5,7 +5,7 @@
 # mismatch aborts with nothing installed. Uninstall is one line (ks uninstall).
 set -eu
 
-REPO="${KS_INSTALL_REPO:-esrygrtc/cli}"
+REPO="${KS_INSTALL_REPO:-keepstateai/cli}"
 BASE="${KS_INSTALL_BASE:-https://github.com/$REPO/releases/latest/download}"
 
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')

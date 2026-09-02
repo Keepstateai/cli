@@ -20,7 +20,7 @@ import (
 	"time"
 )
 
-const releaseRepo = "esrygrtc/cli"
+const releaseRepo = "keepstateai/cli"
 
 func assetName() string {
 	return "ks-" + runtime.GOOS + "-" + runtime.GOARCH

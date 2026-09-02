@@ -15,11 +15,11 @@ curl -fsSL https://keepstate.ai/install | sh
 ```
 
 ```sh
-brew install esrygrtc/tap/ks
+brew install keepstateai/tap/ks
 ```
 
 ```sh
-npm install -g @keepstate/cli
+npm install -g @keepstateai/cli
 ```
 
 Every path downloads the same public-CI-built binary and verifies its
