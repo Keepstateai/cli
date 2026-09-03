@@ -3,10 +3,23 @@
   "version": "0.1.1",
   "description": "KeepState CLI (ks) — durable agent sessions. Thin shim that downloads the checksum-verified release binary.",
   "license": "MIT",
-  "repository": { "type": "git", "url": "https://github.com/keepstateai/cli" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/keepstateai/cli.git"
+  },
   "homepage": "https://keepstate.ai",
-  "bin": { "ks": "run.js" },
-  "scripts": { "postinstall": "node install.js" },
-  "os": ["darwin", "linux"],
-  "cpu": ["arm64", "x64"]
+  "bin": {
+    "ks": "run.js"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "cpu": [
+    "arm64",
+    "x64"
+  ]
 }

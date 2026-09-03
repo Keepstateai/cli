@@ -64,6 +64,8 @@ usage:
   ks kill <id> [--force]      destroy a session (guarded: checkpoint first)
   ks meter <id> [--json]      spend, budget, key sources
   ks exec <id> <cmd...>       run one command in the session
+  ks attach <id>              interactive terminal into the session (tmux)
+  ks fork <id> [-n N] [--steer FILE]   branch a checkpoint into children
   ks doctor                   connectivity, token, version
   ks update                   self-update (checksum-verified)
   ks logout                   remove the stored token

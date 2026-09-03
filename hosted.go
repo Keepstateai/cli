@@ -137,17 +137,33 @@ func runHosted(cr hostedCreds, verb string) bool {
 			fmt.Fprintln(os.Stderr, "exec:", e)
 			os.Exit(1)
 		}
+	case "fork":
+		id := arg(2, "ks fork <session> [-n N] [--steer FILE]")
+		n := flagValue("-n", "1")
+		path := "/api/sessions/" + id + "/fork?n=" + n
+		if f := flagValue("--steer", ""); f != "" {
+			b, err := os.ReadFile(f)
+			if err != nil {
+				die(err)
+			}
+			// one steer, applied to every child (the hosted form keeps it
+			// simple; per-branch steer files are a bench-only affordance).
+			steers, _ := json.Marshal([]string{string(b)})
+			path += "&steers=" + urlQueryEscape(string(steers))
+		}
+		var children []map[string]any
+		if err := hostedCall(cr, "POST", path, nil, &children); err != nil {
+			die(err)
+		}
+		for _, c := range children {
+			fmt.Fprintf(os.Stderr, "child %v: parent=%v (on the fleet)\n", c["id"], c["parent"])
+			fmt.Println(c["id"])
+		}
 	case "attach":
 		id := arg(2, "ks attach <session>")
-		// Interactive attach to a hosted guest is not wired yet (it needs a
-		// terminal proxy through the control plane). Say so honestly rather
-		// than failing against a local daemon that is not there.
-		fmt.Fprintf(os.Stderr, `Interactive attach to a hosted session is not available yet.
-Your session %s is running on the KeepState fleet. To send it work today,
-ask the operator to open an interactive channel; a hosted `+"`ks attach`"+`
-(terminal proxy through the control plane) is on the roadmap.
-`, id)
-		os.Exit(2)
+		if err := hostedAttach(cr, id); err != nil {
+			die(err)
+		}
 	default:
 		return false
 	}
