@@ -55,7 +55,11 @@ func hostedAttach(cr hostedCreds, id string) error {
 		return err
 	}
 	cols, rows := termSize()
-	path := fmt.Sprintf("/api/sessions/%s/attach?cols=%d&rows=%d", id, cols, rows)
+	term := os.Getenv("TERM")
+	if term == "" {
+		term = "xterm-256color"
+	}
+	path := fmt.Sprintf("/api/sessions/%s/attach?cols=%d&rows=%d&term=%s", id, cols, rows, url.QueryEscape(term))
 
 	// raw dial so we can hijack: TLS for https, plain TCP for http (dev).
 	var conn net.Conn
@@ -105,23 +109,28 @@ func hostedAttach(cr hostedCreds, id string) error {
 	defer restore()
 	fmt.Fprintf(os.Stderr, "\r\n[attached to %s · detach with your tmux prefix then d]\r\n", id)
 
-	// remote -> local (includes anything already buffered after the 101)
-	done := make(chan struct{}, 1)
+	// The attach ends when the REMOTE side closes (tmux detach or the shell
+	// exits), never when local stdin ends — a piped or ^D'd stdin must not
+	// tear the session down before the guest has processed it.
+	remoteDone := make(chan struct{})
 	go func() {
 		if n := br.Buffered(); n > 0 {
 			b := make([]byte, n)
 			_, _ = io.ReadFull(br, b)
 			_, _ = os.Stdout.Write(b)
 		}
-		_, _ = io.Copy(os.Stdout, conn)
-		done <- struct{}{}
+		_, _ = io.Copy(os.Stdout, conn) // remote -> local, incl. bytes after the 101
+		close(remoteDone)
 	}()
-	// local -> remote
 	go func() {
-		_, _ = io.Copy(conn, os.Stdin)
-		done <- struct{}{}
+		_, _ = io.Copy(conn, os.Stdin) // local -> remote
+		// stdin ended: half-close the write side so the guest sees EOF but
+		// its output still reaches us until it closes.
+		if cw, ok := conn.(interface{ CloseWrite() error }); ok {
+			_ = cw.CloseWrite()
+		}
 	}()
-	<-done
+	<-remoteDone
 	restore()
 	fmt.Fprintf(os.Stderr, "\r\n[detached from %s]\r\n", id)
 	return nil
