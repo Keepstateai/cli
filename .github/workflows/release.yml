@@ -1,25 +1,32 @@
 name: release
-# Public CI builds every release (ADR-021): four platform binaries, one
-# SHA256SUMS, and GitHub build-provenance attestations. What a stranger runs
-# is what this workflow built from this public source.
+# Public CI builds and publishes every release (ADR-021, founder order
+# 2026-09-03): one tag push produces the four platform binaries with
+# SHA256SUMS and build-provenance attestations, the GitHub release, the
+# npm package (via OIDC trusted publishing — NO npm token anywhere), and
+# the Homebrew tap formula bump. What a stranger runs is what this public
+# source built.
 on:
   push:
     tags: ["v*"]
 
 permissions:
   contents: write
-  id-token: write
+  id-token: write      # OIDC: build-provenance attestation AND npm trusted publishing
   attestations: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with: { go-version: "1.22" }
       - name: Test (manifest drift fails the release)
         run: go test ./...
+      - id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
       - name: Build all platforms
         run: |
           set -eu
@@ -40,4 +47,95 @@ jobs:
         run: |
           gh release create "${GITHUB_REF_NAME}" dist/ks-* dist/SHA256SUMS \
             --title "ks ${GITHUB_REF_NAME}" \
-            --notes "Thin KeepState client. Verify: \`sha256sum -c SHA256SUMS\`. Provenance: attested by public CI (see the Attestations tab)."
+            --notes "Thin KeepState client. Verify: \`sha256sum -c SHA256SUMS\`. Provenance: attested by public CI (see the Attestations tab). Install: \`curl -fsSL keepstate.ai/install.sh | sh\`, \`brew install keepstateai/tap/ks\`, or \`npm i -g @keepstateai/cli\`."
+
+  # npm via OIDC trusted publishing: no NODE_AUTH_TOKEN, no npm secret.
+  # npm accepts the publish only when the OIDC claim (this repo, this
+  # workflow, a v* tag ref) matches the trusted publisher configured on
+  # npmjs.com. A run from a fork, a branch, or another workflow presents a
+  # different claim and is refused — that IS the sabotage guarantee.
+  npm:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@latest
+      - name: Sync shim version to the tag
+        working-directory: npm
+        run: npm version "${{ needs.build.outputs.version }}" --no-git-tag-version --allow-same-version
+      - name: Publish (OIDC, provenance)
+        working-directory: npm
+        run: npm publish --provenance --access public
+
+  # Homebrew tap: bump keepstateai/homebrew-tap's formula to the new
+  # version + darwin/linux sha256s. Needs a token with write access to the
+  # tap repo (secret HOMEBREW_TAP_TOKEN). Absent secret => skipped with a
+  # notice, never a silent no-op.
+  brew:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Guard on the tap token
+        id: guard
+        run: |
+          if [ -z "${{ secrets.HOMEBREW_TAP_TOKEN }}" ]; then
+            echo "::warning::HOMEBREW_TAP_TOKEN not set; the tap formula was NOT bumped for ${GITHUB_REF_NAME}. Set the secret to automate the tap."
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Fetch release checksums
+        if: steps.guard.outputs.skip != '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          V="${{ needs.build.outputs.version }}"
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${V}"
+          for a in darwin-arm64 darwin-amd64 linux-arm64 linux-amd64; do
+            curl -fsSL "$base/ks-$a" -o "ks-$a"
+          done
+          {
+            echo "V=$V"
+            echo "SHA_DARWIN_ARM64=$(sha256sum ks-darwin-arm64 | cut -d' ' -f1)"
+            echo "SHA_DARWIN_AMD64=$(sha256sum ks-darwin-amd64 | cut -d' ' -f1)"
+            echo "SHA_LINUX_ARM64=$(sha256sum ks-linux-arm64 | cut -d' ' -f1)"
+            echo "SHA_LINUX_AMD64=$(sha256sum ks-linux-amd64 | cut -d' ' -f1)"
+          } >> "$GITHUB_ENV"
+      - name: Update the tap formula
+        if: steps.guard.outputs.skip != '1'
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -eu
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/keepstateai/homebrew-tap.git" tap
+          cd tap
+          python3 - <<'PY'
+          import os, re
+          p = "Formula/ks.rb"
+          s = open(p).read()
+          v = os.environ["V"]
+          s = re.sub(r'version "[^"]+"', f'version "{v}"', s)
+          repl = {
+            "darwin-arm64": os.environ["SHA_DARWIN_ARM64"],
+            "darwin-amd64": os.environ["SHA_DARWIN_AMD64"],
+            "linux-arm64":  os.environ["SHA_LINUX_ARM64"],
+            "linux-amd64":  os.environ["SHA_LINUX_AMD64"],
+          }
+          # bump each asset URL's version and the sha256 line that follows it
+          for asset, sha in repl.items():
+            s = re.sub(rf'(ks-{asset}"\n\s*sha256 ")[0-9a-f]+(")',
+                       lambda m, sha=sha: m.group(1)+sha+m.group(2), s)
+          s = re.sub(r'/download/v[^/]+/', f'/download/v{v}/', s)
+          open(p, "w").write(s)
+          PY
+          git config user.name "keepstate-ci"
+          git config user.email "ci@keepstate.ai"
+          git commit -am "ks ${V}: bump formula (automated from cli release)"
+          git push
