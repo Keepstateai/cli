@@ -1,0 +1,19 @@
+{
+  "$comment": "The machine-readable command manifest of ks. One row per verb the binary dispatches; manifest_test.go fails the build if this file and the source disagree in either direction. Downstream (keepstate.ai/docs/cli and its verb-count lint) renders FROM this file and must never hand-type a verb.",
+  "schema": 1,
+  "commands": [
+    { "verb": "login", "aliases": [], "usage": "ks login [--ctl URL]", "summary": "sign in (browser device flow)", "status": "available", "surface": "client" },
+    { "verb": "run", "aliases": [], "usage": "ks run [--image I] [--budget N]", "summary": "start a hosted session", "status": "available", "surface": "hosted" },
+    { "verb": "checkpoint", "aliases": ["save"], "usage": "ks checkpoint <id> [--stop]", "summary": "save the session (durably); --stop parks it", "status": "available", "surface": "hosted" },
+    { "verb": "wake", "aliases": ["resume"], "usage": "ks wake <id>", "summary": "resume a parked session (mid-sentence)", "status": "available", "surface": "hosted" },
+    { "verb": "kill", "aliases": [], "usage": "ks kill <id> [--force]", "summary": "destroy a session (guarded: checkpoint first)", "status": "available", "surface": "hosted" },
+    { "verb": "meter", "aliases": [], "usage": "ks meter <id> [--json]", "summary": "spend, budget, key sources", "status": "available", "surface": "hosted" },
+    { "verb": "exec", "aliases": [], "usage": "ks exec <id> <cmd...>", "summary": "run one command in the session", "status": "available", "surface": "hosted" },
+    { "verb": "attach", "aliases": [], "usage": "ks attach <session>", "summary": "reconnect a terminal to a running session", "status": "planned", "surface": "hosted", "note": "the verb exists and states its own unavailability (exit 2); a terminal proxy through the control plane is the roadmap item" },
+    { "verb": "doctor", "aliases": [], "usage": "ks doctor", "summary": "connectivity, token, version", "status": "available", "surface": "client" },
+    { "verb": "update", "aliases": [], "usage": "ks update", "summary": "self-update (checksum-verified)", "status": "available", "surface": "client" },
+    { "verb": "logout", "aliases": [], "usage": "ks logout", "summary": "remove the stored token", "status": "available", "surface": "client" },
+    { "verb": "uninstall", "aliases": [], "usage": "ks uninstall", "summary": "how to remove ks completely", "status": "available", "surface": "client" },
+    { "verb": "version", "aliases": [], "usage": "ks version", "summary": "print the version", "status": "available", "surface": "client" }
+  ]
+}
