@@ -38,6 +38,14 @@ safe and recommended (removes a long-lived credential from a laptop);
 it does not affect CI, which authenticates per-run with a short-lived
 OIDC token.
 
+## Gotcha: no registry-url on setup-node
+
+Do NOT pass `registry-url` to `actions/setup-node` for the publish job.
+It writes an `.npmrc` with `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}`,
+and an unset token then shadows trusted publishing (npm uses the empty
+token and gets a 404 instead of exchanging the OIDC id-token). Trusted
+publishing needs no authToken.
+
 ## Homebrew tap automation (optional)
 
 Set repo secret `HOMEBREW_TAP_TOKEN` (a fine-grained PAT with

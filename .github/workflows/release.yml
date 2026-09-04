@@ -62,10 +62,14 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+      # NO registry-url: setup-node's registry-url writes an .npmrc with
+      # //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}; an unset token
+      # then SHADOWS trusted publishing (npm uses the empty token and gets a
+      # 404 instead of exchanging the OIDC id-token). Trusted publishing
+      # needs no authToken at all — npm >= 11.5.1 detects the OIDC context.
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          registry-url: "https://registry.npmjs.org"
       - name: Upgrade npm for trusted publishing
         run: npm install -g npm@latest
       - name: Sync shim version to the tag
