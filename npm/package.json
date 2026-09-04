@@ -1,11 +1,11 @@
 {
   "name": "@keepstateai/cli",
   "version": "0.1.1",
-  "description": "KeepState CLI (ks) — durable agent sessions. Thin shim that downloads the checksum-verified release binary.",
+  "description": "KeepState CLI (ks) \u2014 durable agent sessions. Thin shim that downloads the checksum-verified release binary.",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/keepstateai/cli.git"
+    "url": "git+https://github.com/Keepstateai/cli.git"
   },
   "homepage": "https://keepstate.ai",
   "bin": {
