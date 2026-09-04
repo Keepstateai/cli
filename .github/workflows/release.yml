@@ -62,18 +62,29 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      # npm's canonical trusted-publishing setup. registry-url tells npm the
-      # registry; npm >= 11.5.1 does the OIDC exchange when a trusted
-      # publisher is configured on npmjs.com for THIS repo+workflow, and
-      # ignores the empty authToken. If the publisher is NOT configured, npm
-      # falls back to the (empty) token and fails — which is exactly the
-      # symptom seen on v0.1.2/v0.1.3 before the publisher was registered.
+      # Trusted-publishing debug (founder order 2026-09-04): decode the OIDC
+      # token the runner would present and print ONLY the claims the npmjs.com
+      # trusted-publisher form matches against. The token value itself is
+      # never printed (it stays in a shell variable; only four decoded claims
+      # are echoed).
+      - name: Show OIDC claims (repository, job_workflow_ref, ref, environment ONLY)
+        run: |
+          set -eu
+          resp=$(curl -sSf -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=npm:registry.npmjs.org")
+          payload=$(printf '%s' "$resp" | jq -r '.value' | cut -d. -f2 | tr '_-' '/+')
+          case $(( ${#payload} % 4 )) in 2) payload="$payload==";; 3) payload="$payload=";; esac
+          printf '%s' "$payload" | base64 -d | jq '{repository, job_workflow_ref, ref, environment}'
+      # NO registry-url (founder order item 4): setup-node's registry-url
+      # writes an .npmrc authToken placeholder, and trusted publishing needs
+      # no NODE_AUTH_TOKEN at all.
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          registry-url: "https://registry.npmjs.org"
-      - name: Upgrade npm for trusted publishing
-        run: npm install -g npm@latest
+      - name: Upgrade npm and print the version (>= 11.5.1 required for OIDC)
+        run: |
+          npm install -g npm@latest
+          npm --version
       - name: Sync shim version to the tag
         working-directory: npm
         run: npm version "${{ needs.build.outputs.version }}" --no-git-tag-version --allow-same-version
