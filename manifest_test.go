@@ -85,3 +85,69 @@ func TestManifestMatchesDispatch(t *testing.T) {
 		}
 	}
 }
+
+// TestProvenanceOfStatedFacts: the manifest is what the public docs page
+// renders, so a number or a promise in it is a public claim. Two fields
+// carry claims rather than descriptions, and neither may appear without
+// saying where it came from. Founder ruling 2026-09-09 (DEC-01 findings 2
+// and 3): document the kill guard as the safety property it is, and state
+// the per-tier session budgets, with a guard on each.
+func TestProvenanceOfStatedFacts(t *testing.T) {
+	raw, err := os.ReadFile("commands.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m struct {
+		Commands []struct {
+			Verb           string `json:"verb"`
+			Safety         string `json:"safety"`
+			SafetyMeasured string `json:"safetyMeasured"`
+			BudgetDefaults *struct {
+				Unit           string `json:"unit"`
+				Free           int    `json:"free"`
+				Paid           int    `json:"paid"`
+				FreeProvenance string `json:"freeProvenance"`
+				PaidProvenance string `json:"paidProvenance"`
+				Override       string `json:"override"`
+			} `json:"budgetDefaults"`
+		} `json:"commands"`
+	}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	sawSafety, sawBudget := false, false
+	for _, c := range m.Commands {
+		if c.Safety != "" {
+			sawSafety = true
+			if c.SafetyMeasured == "" {
+				t.Errorf("%s states a safety property with no safetyMeasured: a promise the docs page "+
+					"repeats must say when it was last confirmed", c.Verb)
+			}
+		}
+		if c.SafetyMeasured != "" && c.Safety == "" {
+			t.Errorf("%s records a measurement of a safety property it does not state", c.Verb)
+		}
+		if b := c.BudgetDefaults; b != nil {
+			sawBudget = true
+			if b.Free <= 0 || b.Paid <= 0 {
+				t.Errorf("%s budgetDefaults must state both tiers as positive numbers, got free=%d paid=%d",
+					c.Verb, b.Free, b.Paid)
+			}
+			if b.Unit == "" || b.Override == "" {
+				t.Errorf("%s budgetDefaults must name its unit and how to override it", c.Verb)
+			}
+			if b.FreeProvenance == "" || b.PaidProvenance == "" {
+				t.Errorf("%s budgetDefaults states numbers without provenance for each tier; the product "+
+					"constitution carried a single wrong number for exactly this reason", c.Verb)
+			}
+		}
+	}
+	// The two rulings are only satisfied if the manifest actually carries
+	// them. An empty manifest must not pass this test quietly.
+	if !sawSafety {
+		t.Error("no verb states a safety property; the kill guard is a ruled entry (DEC-01 finding 2)")
+	}
+	if !sawBudget {
+		t.Error("no verb states budgetDefaults; the per-tier budgets are a ruled entry (DEC-01 finding 3)")
+	}
+}

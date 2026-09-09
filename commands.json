@@ -1,20 +1,134 @@
 {
-  "$comment": "The machine-readable command manifest of ks. One row per verb the binary dispatches; manifest_test.go fails the build if this file and the source disagree in either direction. Downstream (keepstate.ai/docs/cli and its verb-count lint) renders FROM this file and must never hand-type a verb.",
-  "schema": 1,
-  "commands": [
-    { "verb": "login", "aliases": [], "usage": "ks login [--ctl URL]", "summary": "sign in (browser device flow)", "status": "available", "surface": "client" },
-    { "verb": "run", "aliases": [], "usage": "ks run [--image I] [--budget N]", "summary": "start a hosted session", "status": "available", "surface": "hosted" },
-    { "verb": "checkpoint", "aliases": ["save"], "usage": "ks checkpoint <id> [--stop]", "summary": "save the session (durably); --stop parks it", "status": "available", "surface": "hosted" },
-    { "verb": "wake", "aliases": ["resume"], "usage": "ks wake <id>", "summary": "resume a parked session (mid-sentence)", "status": "available", "surface": "hosted" },
-    { "verb": "kill", "aliases": [], "usage": "ks kill <id> [--force]", "summary": "destroy a session (guarded: checkpoint first)", "status": "available", "surface": "hosted" },
-    { "verb": "meter", "aliases": [], "usage": "ks meter <id> [--json]", "summary": "spend, budget, key sources", "status": "available", "surface": "hosted" },
-    { "verb": "exec", "aliases": [], "usage": "ks exec <id> <cmd...>", "summary": "run one command in the session", "status": "available", "surface": "hosted" },
-    { "verb": "attach", "aliases": [], "usage": "ks attach <session>", "summary": "interactive terminal into a running session (tmux)", "status": "available", "surface": "hosted", "note": "relays the guest tmux over a control-plane upgrade tunnel; live resize is a v1 limitation" },
-    { "verb": "fork", "aliases": [], "usage": "ks fork <session> [-n N] [--steer FILE]", "summary": "branch a checkpoint into diverging children", "status": "available", "surface": "hosted", "note": "paid plans only; each child is another running session" },
-    { "verb": "doctor", "aliases": [], "usage": "ks doctor", "summary": "connectivity, token, version", "status": "available", "surface": "client" },
-    { "verb": "update", "aliases": [], "usage": "ks update", "summary": "self-update (checksum-verified)", "status": "available", "surface": "client" },
-    { "verb": "logout", "aliases": [], "usage": "ks logout", "summary": "remove the stored token", "status": "available", "surface": "client" },
-    { "verb": "uninstall", "aliases": [], "usage": "ks uninstall", "summary": "how to remove ks completely", "status": "available", "surface": "client" },
-    { "verb": "version", "aliases": [], "usage": "ks version", "summary": "print the version", "status": "available", "surface": "client" }
-  ]
+ "$comment": "The machine-readable command manifest of ks. One row per verb the binary dispatches; manifest_test.go fails the build if this file and the source disagree in either direction. Downstream (keepstate.ai/docs/cli and its verb-count lint) renders FROM this file and must never hand-type a verb. Rows may carry `safety` (a refusal the product makes on the customer's behalf, which the docs page renders as the safety property it is) and `budgetDefaults` (the per-tier session token budget). Both are DESCRIPTIONS OF MEASURED OR SOURCED BEHAVIOUR, and manifest_test.go fails if a row states one without saying where the number came from.",
+ "schema": 1,
+ "commands": [
+  {
+   "verb": "login",
+   "aliases": [],
+   "usage": "ks login [--ctl URL]",
+   "summary": "sign in (browser device flow)",
+   "status": "available",
+   "surface": "client"
+  },
+  {
+   "verb": "run",
+   "aliases": [],
+   "usage": "ks run [--image I] [--budget N]",
+   "summary": "start a hosted session",
+   "status": "available",
+   "surface": "hosted",
+   "budgetDefaults": {
+    "unit": "tokens",
+    "free": 500000,
+    "paid": 2000000,
+    "freeProvenance": "measured 2026-09-09 on the released client against a disposable free-tier account (DEC-01 command gate)",
+    "paidProvenance": "stated by the control plane, ctl/broker.go, and the ratified price book v1.2. NOT measured: no paid account was exercised.",
+    "override": "ks run --budget N"
+   }
+  },
+  {
+   "verb": "checkpoint",
+   "aliases": [
+    "save"
+   ],
+   "usage": "ks checkpoint <id> [--stop]",
+   "summary": "save the session (durably); --stop parks it",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "wake",
+   "aliases": [
+    "resume"
+   ],
+   "usage": "ks wake <id>",
+   "summary": "resume a parked session (mid-sentence)",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "kill",
+   "aliases": [],
+   "usage": "ks kill <id> [--force]",
+   "summary": "destroy a session (guarded: checkpoint first)",
+   "status": "available",
+   "surface": "hosted",
+   "safety": "Refuses a session that has no saved checkpoint, because killing it would destroy unsaved work, and names both ways out: `ks checkpoint <id> --stop` saves and stops it, `ks kill <id> --force` destroys it anyway.",
+   "safetyMeasured": "2026-09-09, DEC-01 command gate, released client against a disposable account. The guard is enforced by the daemon, not the client, so it holds for every caller including the console."
+  },
+  {
+   "verb": "meter",
+   "aliases": [],
+   "usage": "ks meter <id> [--json]",
+   "summary": "spend, budget, key sources",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "exec",
+   "aliases": [],
+   "usage": "ks exec <id> <cmd...>",
+   "summary": "run one command in the session",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "attach",
+   "aliases": [],
+   "usage": "ks attach <session>",
+   "summary": "interactive terminal into a running session (tmux)",
+   "status": "available",
+   "surface": "hosted",
+   "note": "relays the guest tmux over a control-plane upgrade tunnel; live resize is a v1 limitation"
+  },
+  {
+   "verb": "fork",
+   "aliases": [],
+   "usage": "ks fork <session> [-n N] [--steer FILE]",
+   "summary": "branch a checkpoint into diverging children",
+   "status": "available",
+   "surface": "hosted",
+   "note": "paid plans only; each child is another running session"
+  },
+  {
+   "verb": "doctor",
+   "aliases": [],
+   "usage": "ks doctor",
+   "summary": "connectivity, token, version",
+   "status": "available",
+   "surface": "client"
+  },
+  {
+   "verb": "update",
+   "aliases": [],
+   "usage": "ks update",
+   "summary": "self-update (checksum-verified)",
+   "status": "available",
+   "surface": "client"
+  },
+  {
+   "verb": "logout",
+   "aliases": [],
+   "usage": "ks logout",
+   "summary": "remove the stored token",
+   "status": "available",
+   "surface": "client"
+  },
+  {
+   "verb": "uninstall",
+   "aliases": [],
+   "usage": "ks uninstall",
+   "summary": "how to remove ks completely",
+   "status": "available",
+   "surface": "client"
+  },
+  {
+   "verb": "version",
+   "aliases": [],
+   "usage": "ks version",
+   "summary": "print the version",
+   "status": "available",
+   "surface": "client"
+  }
+ ]
 }
