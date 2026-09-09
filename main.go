@@ -18,6 +18,24 @@ func main() {
 		os.Exit(2)
 	}
 	verb := os.Args[1]
+
+	// PATCH LAW, founder ruling 2026-09-09 (DEC-01 measurement finding 1).
+	// `ks run --help` STARTED A BILLABLE SESSION: run takes no required
+	// argument, so --help fell through the flag reads straight into
+	// POST /api/sessions. This is the `ks demo --help` defect from v0.1.1 in
+	// a different verb, which is why the guard here is GENERAL rather than a
+	// case for run: --help anywhere in the arguments prints usage and exits
+	// before any verb is dispatched, so no verb can have a side effect.
+	//
+	// Asserted for every verb in commands.json by the help-no-side-effect
+	// guard, so this class cannot appear a third time.
+	for _, a := range os.Args[2:] {
+		if a == "--help" || a == "-h" || a == "help" {
+			usage()
+			os.Exit(0)
+		}
+	}
+
 	switch verb {
 	case "login":
 		if err := runLogin(); err != nil {
