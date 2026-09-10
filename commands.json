@@ -75,7 +75,7 @@
   {
    "verb": "attach",
    "aliases": [],
-   "usage": "ks attach <session>",
+   "usage": "ks attach <id>",
    "summary": "interactive terminal into a running session (tmux)",
    "status": "available",
    "surface": "hosted",
@@ -84,7 +84,7 @@
   {
    "verb": "fork",
    "aliases": [],
-   "usage": "ks fork <session> [-n N] [--steer FILE]",
+   "usage": "ks fork <id> [-n N] [--steer FILE]",
    "summary": "branch a checkpoint into diverging children",
    "status": "available",
    "surface": "hosted",
