@@ -6,7 +6,39 @@
 set -eu
 
 REPO="${KS_INSTALL_REPO:-keepstateai/cli}"
-BASE="${KS_INSTALL_BASE:-https://github.com/$REPO/releases/latest/download}"
+
+# KS-063: install a NAMED release, not "latest".
+#
+# This used to fetch releases/latest/download while the install page named a
+# specific version. They agreed by coincidence, not by construction: between a
+# tag push and the page rebuild they can differ, and "latest" is not a version
+# anyone can check against a checksum they were shown.
+#
+# The version is resolved from keepstate.ai/cli-version.txt, which the website
+# generates from the SAME release truth its install page renders. So the
+# version you are told and the version you get are one value from one source.
+# The file is a bare version string; anything unexpected is refused rather
+# than pasted into a URL. If it cannot be reached, we fall back to latest and
+# SAY SO, because a silent fallback is how the original problem started.
+PIN_URL="${KS_INSTALL_PIN_URL:-https://keepstate.ai/cli-version.txt}"
+if [ -n "${KS_INSTALL_BASE:-}" ]; then
+  BASE="$KS_INSTALL_BASE"
+  KS_VERSION="${KS_VERSION:-(explicit base)}"
+else
+  KS_VERSION="${KS_VERSION:-}"
+  if [ -z "$KS_VERSION" ]; then
+    KS_VERSION=$(curl -fsSL -m 8 "$PIN_URL" 2>/dev/null | tr -d ' \t\r\n' || true)
+  fi
+  case "$KS_VERSION" in
+    v[0-9]*.[0-9]*.[0-9]*)
+      BASE="https://github.com/$REPO/releases/download/$KS_VERSION" ;;
+    *)
+      echo "note: could not resolve a pinned version from $PIN_URL; using the latest release." >&2
+      KS_VERSION="latest"
+      BASE="https://github.com/$REPO/releases/latest/download" ;;
+  esac
+fi
+echo "Installing ks $KS_VERSION"
 
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
