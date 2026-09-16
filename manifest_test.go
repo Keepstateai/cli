@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"os"
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -28,10 +29,34 @@ func sourceVerbs(t *testing.T, path string) map[string]bool {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return caseArms(string(src))
+}
+
+// subcommandArms extracts the case arms of one dispatch function only, so
+// a string switch elsewhere in the file (over a state word, say) is never
+// mistaken for a verb.
+func subcommandArms(t *testing.T, path, fn string) map[string]bool {
+	t.Helper()
+	src, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := strings.Index(string(src), "func "+fn+"(")
+	if start < 0 {
+		t.Fatalf("%s: no func %s", path, fn)
+	}
+	body := string(src)[start:]
+	if end := strings.Index(body, "\n}\n"); end >= 0 {
+		body = body[:end]
+	}
+	return caseArms(body)
+}
+
+func caseArms(src string) map[string]bool {
 	verbs := map[string]bool{}
 	re := regexp.MustCompile(`(?m)^\s*case ((?:"[a-z-]+"(?:, )?)+):`)
 	q := regexp.MustCompile(`"([a-z-]+)"`)
-	for _, m := range re.FindAllStringSubmatch(string(src), -1) {
+	for _, m := range re.FindAllStringSubmatch(src, -1) {
 		for _, v := range q.FindAllStringSubmatch(m[1], -1) {
 			if v[1][0] == '-' { // flag spellings (-v, --help) are meta, not verbs
 				continue
@@ -60,6 +85,18 @@ func TestManifestMatchesDispatch(t *testing.T) {
 	for _, meta := range []string{"help"} {
 		delete(dispatch, meta)
 	}
+	// subcommands: "cruise init" is the arm "cruise" in main.go and the arm
+	// "init" in runCruise; a bare "cruise" row is not a verb of its own
+	subs := map[string]map[string]bool{"cruise": subcommandArms(t, "cruise.go", "runCruise")}
+	for head := range subs {
+		if !dispatch[head] {
+			t.Errorf("main.go has no case arm for %q, the head of its subcommands", head)
+		}
+		delete(dispatch, head)
+		for sub := range subs[head] {
+			dispatch[head+" "+sub] = true
+		}
+	}
 
 	manifested := map[string]bool{}
 	for _, c := range m.Commands {
@@ -78,10 +115,48 @@ func TestManifestMatchesDispatch(t *testing.T) {
 		if c.Status != "available" && c.Status != "planned" {
 			t.Errorf("verb %q has status %q outside the enum", c.Verb, c.Status)
 		}
+		if c.Surface != "client" && c.Surface != "hosted" {
+			t.Errorf("verb %q has surface %q outside the enum", c.Verb, c.Surface)
+		}
 	}
 	for v := range dispatch {
 		if !manifested[v] {
 			t.Errorf("source dispatches %q but commands.json has no row for it", v)
+		}
+	}
+}
+
+// TestFlagsAreDescribed: a row that lists flags lists each with its
+// meaning, and every flag it lists appears in the row's usage line, so
+// the docs page never renders a flag the binary does not take.
+func TestFlagsAreDescribed(t *testing.T) {
+	raw, err := os.ReadFile("commands.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m struct {
+		Commands []struct {
+			Verb  string `json:"verb"`
+			Usage string `json:"usage"`
+			Flags []struct {
+				Flag    string `json:"flag"`
+				Summary string `json:"summary"`
+			} `json:"flags"`
+		} `json:"commands"`
+	}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range m.Commands {
+		for _, f := range c.Flags {
+			name := strings.Fields(f.Flag)
+			if len(name) == 0 || f.Summary == "" {
+				t.Errorf("%s: a flag row needs a flag and a summary", c.Verb)
+				continue
+			}
+			if !strings.Contains(c.Usage, name[0]) {
+				t.Errorf("%s: flag %s is described but absent from the usage line %q", c.Verb, name[0], c.Usage)
+			}
 		}
 	}
 }

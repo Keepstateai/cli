@@ -1,5 +1,5 @@
 {
- "$comment": "The machine-readable command manifest of ks. One row per verb the binary dispatches; manifest_test.go fails the build if this file and the source disagree in either direction. Downstream (keepstate.ai/docs/cli and its verb-count lint) renders FROM this file and must never hand-type a verb. Rows may carry `safety` (a refusal the product makes on the customer's behalf, which the docs page renders as the safety property it is) and `budgetDefaults` (the per-tier session token budget). Both are DESCRIPTIONS OF MEASURED OR SOURCED BEHAVIOUR, and manifest_test.go fails if a row states one without saying where the number came from.",
+ "$comment": "The machine-readable command manifest of ks. One row per verb the binary dispatches; manifest_test.go fails the build if this file and the source disagree in either direction. Downstream (keepstate.ai/docs/cli and its verb-count lint) renders FROM this file and must never hand-type a verb. Rows may carry `safety` (a refusal the product makes on the customer's behalf, which the docs page renders as the safety property it is) and `budgetDefaults` (the per-tier session token budget). Both are DESCRIPTIONS OF MEASURED OR SOURCED BEHAVIOUR, and manifest_test.go fails if a row states one without saying where the number came from. A two-word verb (`cruise init`) is a subcommand: the first word is the case arm in main.go, the second the case arm in cruise.go's runCruise; both directions are checked. Rows may carry `flags`, one entry per flag with its one-line meaning.",
  "schema": 1,
  "commands": [
   {
@@ -89,6 +89,119 @@
    "status": "available",
    "surface": "hosted",
    "note": "paid plans only; each child is another running session"
+  },
+  {
+   "verb": "cruise init",
+   "aliases": [],
+   "usage": "ks cruise init [--goal TEXT] [--tests CMD] [--paths GLOB...] [--ladder family:model,...] [--spend USD]",
+   "summary": "draft the acceptance manifest from the repository into .keepstate/cruise.json",
+   "status": "available",
+   "surface": "client",
+   "flags": [
+    {
+     "flag": "--goal TEXT",
+     "summary": "the goal the agent is given; without it, the draft's previous goal, else \"make the check pass: CMD\""
+    },
+    {
+     "flag": "--tests CMD",
+     "summary": "the command that decides done, when init should not detect it (pytest, npm test, go test)"
+    },
+    {
+     "flag": "--paths GLOB...",
+     "summary": "the paths an attempt may change; default every tracked file except the tests and .keepstate"
+    },
+    {
+     "flag": "--ladder family:model,...",
+     "summary": "the rungs in order; default the model table's default ladder"
+    },
+    {
+     "flag": "--spend USD",
+     "summary": "the spend ceiling in dollars; default 2"
+    }
+   ],
+   "note": "makes no request and never calls a model; a repository with no check is refused with exit 2 and nothing written"
+  },
+  {
+   "verb": "cruise approve",
+   "aliases": [],
+   "usage": "ks cruise approve",
+   "summary": "lock the draft: its digest and the time into .keepstate/cruise.lock",
+   "status": "available",
+   "surface": "client",
+   "note": "makes no request; refused when the workspace changed since init"
+  },
+  {
+   "verb": "cruise run",
+   "aliases": [],
+   "usage": "ks cruise run",
+   "summary": "upload the workspace and the locked manifest; start the job",
+   "status": "available",
+   "surface": "hosted",
+   "safety": "Refuses, before any request: a draft without a lock (run `ks cruise approve`), a workspace over 50 MiB (.git and .keepstate excluded), a test file changed since approve (the tests_digest differs), a draft changed since approve, and a workspace changed since approve.",
+   "safetyMeasured": "2026-09-16, cruise_test.go (TestCruiseRunRefusals) against a recording control plane: each refusal exits non-zero with zero requests."
+  },
+  {
+   "verb": "cruise status",
+   "aliases": [],
+   "usage": "ks cruise status [JOB]",
+   "summary": "the job (or the newest): state, rung, each attempt, save points, spend, verdict, artifact",
+   "status": "available",
+   "surface": "hosted",
+   "note": "absent values read \"unavailable\", never zero"
+  },
+  {
+   "verb": "cruise logs",
+   "aliases": [],
+   "usage": "ks cruise logs JOB",
+   "summary": "the event stream, one event per line: seq, ts, type, detail",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "cruise cancel",
+   "aliases": [],
+   "usage": "ks cruise cancel JOB",
+   "summary": "cancel a job",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "cruise resume",
+   "aliases": [],
+   "usage": "ks cruise resume JOB [--ladder family:model,...]",
+   "summary": "resume a job from review, on the same or a wider ladder",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--ladder family:model,...",
+     "summary": "the rungs to continue on, in order"
+    }
+   ]
+  },
+  {
+   "verb": "cruise artifact",
+   "aliases": [],
+   "usage": "ks cruise artifact JOB [--out FILE]",
+   "summary": "download the accepted tarball",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--out FILE",
+     "summary": "where to write it; default JOB.tar.gz"
+    }
+   ],
+   "safety": "Verifies the download's sha256 against the job's artifact_sha before the named file exists; a mismatch is refused and nothing is written.",
+   "safetyMeasured": "2026-09-16, cruise_test.go (TestCruiseArtifactVerifiesBeforeWriting) against a control plane serving a tampered artifact."
+  },
+  {
+   "verb": "cruise models",
+   "aliases": [],
+   "usage": "ks cruise models",
+   "summary": "the model table the control plane serves: families, rungs, default ladder",
+   "status": "available",
+   "surface": "hosted"
   },
   {
    "verb": "doctor",

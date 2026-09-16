@@ -26,6 +26,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -82,7 +83,9 @@ func buildAndAuth(t *testing.T, srv *httptest.Server) (bin, cfg string) {
 	return bin, cfg
 }
 
-func manifestVerbs(t *testing.T) []string {
+// manifestVerbs returns every verb and alias as the argument list that
+// invokes it: a subcommand row ("cruise init") is two arguments.
+func manifestVerbs(t *testing.T) [][]string {
 	t.Helper()
 	b, err := os.ReadFile("commands.json")
 	if err != nil {
@@ -97,15 +100,29 @@ func manifestVerbs(t *testing.T) []string {
 	if err := json.Unmarshal(b, &m); err != nil {
 		t.Fatal(err)
 	}
-	var names []string
+	var names [][]string
 	for _, c := range m.Commands {
-		names = append(names, c.Verb)
-		names = append(names, c.Aliases...)
+		names = append(names, strings.Fields(c.Verb))
+		for _, a := range c.Aliases {
+			names = append(names, strings.Fields(a))
+		}
 	}
 	if len(names) == 0 {
 		t.Fatal("commands.json lists no verbs; the guard would assert nothing")
 	}
 	return names
+}
+
+// runQuiet runs the binary with the given arguments against the signed-in
+// config and reports whether it exited in time, its error and its output.
+func runQuiet(t *testing.T, bin, cfg string, env []string, args ...string) (timedOut bool, err error, out []byte) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), helpDeadline)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Env = append(append(os.Environ(), "XDG_CONFIG_HOME="+cfg), env...)
+	out, err = cmd.CombinedOutput()
+	return ctx.Err() != nil, err, out
 }
 
 func TestHelpHasNoSideEffect(t *testing.T) {
@@ -118,31 +135,83 @@ func TestHelpHasNoSideEffect(t *testing.T) {
 	forms := []string{"--help", "-h", "help"}
 	for _, v := range verbs {
 		for _, f := range forms {
-			t.Run(v+" "+f, func(t *testing.T) {
+			name := strings.Join(v, " ")
+			t.Run(name+" "+f, func(t *testing.T) {
 				before := len(rec.seen())
-				ctx, cancel := context.WithTimeout(context.Background(), helpDeadline)
-				defer cancel()
-				cmd := exec.CommandContext(ctx, bin, v, f)
-				cmd.Env = append(os.Environ(), "XDG_CONFIG_HOME="+cfg)
-				out, err := cmd.CombinedOutput()
-				if ctx.Err() != nil {
+				timedOut, err, out := runQuiet(t, bin, cfg, nil, append(append([]string{}, v...), f)...)
+				if timedOut {
 					t.Errorf("`ks %s %s` did not exit within %s; help must print and stop, never block",
-						v, f, helpDeadline)
+						name, f, helpDeadline)
 				} else if err != nil {
-					t.Errorf("`ks %s %s` exited with error %v; help must succeed\n%s", v, f, err, out)
+					t.Errorf("`ks %s %s` exited with error %v; help must succeed\n%s", name, f, err, out)
 				}
 				if got := rec.seen(); len(got) != before {
 					t.Errorf("`ks %s %s` made %d request(s) to the control plane: %v\nhelp must never act",
-						v, f, len(got)-before, got[before:])
+						name, f, len(got)-before, got[before:])
 				}
 				if len(out) == 0 {
-					t.Errorf("`ks %s %s` printed nothing; help must print usage", v, f)
+					t.Errorf("`ks %s %s` printed nothing; help must print usage", name, f)
 				}
 			})
 		}
 	}
 	t.Logf("%d verbs and aliases x %d help forms = %d invocations, %d control-plane requests",
 		len(verbs), len(forms), len(verbs)*len(forms), len(rec.seen()))
+}
+
+// TestCruiseHelpFormsHaveNoSideEffect covers the help paths that are not a
+// manifest verb followed by a help word: a bare `ks cruise` (which prints
+// usage and exits 2, like a bare `ks`), `ks cruise --help` and `-h`, and
+// `ks help cruise`. Gate CR-7 counts exactly these.
+func TestCruiseHelpFormsHaveNoSideEffect(t *testing.T) {
+	rec := &recorder{}
+	srv := httptest.NewServer(rec)
+	defer srv.Close()
+	bin, cfg := buildAndAuth(t, srv)
+
+	forms := [][]string{{"cruise"}, {"cruise", "--help"}, {"cruise", "-h"}, {"help", "cruise"}, {"cruise", "nonsense", "--help"}}
+	for _, args := range forms {
+		name := strings.Join(args, " ")
+		t.Run(name, func(t *testing.T) {
+			before := len(rec.seen())
+			timedOut, _, out := runQuiet(t, bin, cfg, nil, args...)
+			if timedOut {
+				t.Errorf("`ks %s` did not exit within %s", name, helpDeadline)
+			}
+			if got := rec.seen(); len(got) != before {
+				t.Errorf("`ks %s` made %d request(s): %v", name, len(got)-before, got[before:])
+			}
+			if !strings.Contains(string(out), "ks cruise init") {
+				t.Errorf("`ks %s` did not print the cruise usage:\n%s", name, out)
+			}
+		})
+	}
+}
+
+// The cruise controls: the recorder sees a cruise verb that acts, and the
+// CR-7 sabotage hook makes `ks cruise run --help` act, so a green run of
+// the tests above is a measurement.
+func TestCruiseSideEffectIsDetectable(t *testing.T) {
+	rec := &recorder{}
+	srv := httptest.NewServer(rec)
+	defer srv.Close()
+	bin, cfg := buildAndAuth(t, srv)
+
+	_, _, out := runQuiet(t, bin, cfg, nil, "cruise", "status", "job_x")
+	if got := rec.seen(); len(got) == 0 {
+		t.Fatalf("`ks cruise status job_x` made no request; the cruise guard would be vacuous\n%s", out)
+	} else if got[0] != "GET /api/jobs/job_x" {
+		t.Errorf("`ks cruise status job_x` asked for %v, want GET /api/jobs/job_x", got)
+	}
+
+	before := len(rec.seen())
+	_, _, out = runQuiet(t, bin, cfg, []string{"KS_CLI_SABOTAGE_HELP=1"}, "cruise", "run", "--help")
+	if got := rec.seen(); len(got) != before+1 {
+		t.Errorf("the sabotage hook made %d request(s), want exactly 1 (gate CR-7 --sabotage proves the counter bites)\n%s", len(got)-before, out)
+	}
+	if !strings.Contains(string(out), "ks cruise init") {
+		t.Errorf("the sabotage hook must still print the cruise usage:\n%s", out)
+	}
 }
 
 // The control. Without it, a broken recorder or a binary that cannot reach

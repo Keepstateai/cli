@@ -31,12 +31,19 @@ func main() {
 	// guard, so this class cannot appear a third time.
 	for _, a := range os.Args[2:] {
 		if a == "--help" || a == "-h" || a == "help" {
-			usage()
+			if verb == "cruise" {
+				sabotageHelpHook() // test-only, KS_CLI_SABOTAGE_HELP=1: gate CR-7's sabotage
+				cruiseUsage()
+			} else {
+				usage()
+			}
 			os.Exit(0)
 		}
 	}
 
 	switch verb {
+	case "cruise":
+		runCruise()
 	case "login":
 		if err := runLogin(); err != nil {
 			die(err)
@@ -56,7 +63,11 @@ func main() {
 	case "version", "--version", "-v":
 		fmt.Println("ks", version)
 	case "help", "--help", "-h":
-		usage()
+		if len(os.Args) > 2 && os.Args[2] == "cruise" {
+			cruiseUsage()
+		} else {
+			usage()
+		}
 	default:
 		cr, ok := hostedToken()
 		if !ok {
@@ -84,6 +95,9 @@ usage:
   ks exec <id> <cmd...>       run one command in the session
   ks attach <id>              interactive terminal into the session (tmux)
   ks fork <id> [-n N] [--steer FILE]   branch a checkpoint into children
+  ks cruise <verb>            accepted work on the fleet: init, approve, run,
+                              status, logs, cancel, resume, artifact, models
+                              (ks cruise --help)
   ks doctor                   connectivity, token, version
   ks update                   self-update (checksum-verified)
   ks logout                   remove the stored token

@@ -22,47 +22,96 @@ type hostedCreds struct {
 
 // hostedToken reads the credential stored by `ks login` — a 0600 file in
 // the user's config dir on every platform. This client is hosted-only:
-// without a login there is nothing to talk to.
+// without a login there is nothing to talk to. A second source is read
+// when the first is absent: ~/.keepstate/hosted.json {ctl, token}, the
+// endpoint file the gates and the bench write.
 func hostedToken() (hostedCreds, bool) {
 	var c hostedCreds
-	b, err := os.ReadFile(filepath.Join(configHome(), "keepstate", "token.json"))
+	paths := []string{filepath.Join(configHome(), "keepstate", "token.json")}
+	if home, err := os.UserHomeDir(); err == nil {
+		paths = append(paths, filepath.Join(home, ".keepstate", "hosted.json"))
+	}
+	for _, p := range paths {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		if json.Unmarshal(b, &c) == nil && c.Token != "" && c.CTL != "" {
+			return c, true
+		}
+	}
+	return hostedCreds{}, false
+}
+
+// hostedDo sends one authenticated request and returns the response
+// unread, for callers that stream a body (an artifact download). The
+// caller closes resp.Body.
+func hostedDo(cr hostedCreds, method, path, contentType string, body io.Reader) (*http.Response, error) {
+	req, err := http.NewRequest(method, strings.TrimRight(cr.CTL, "/")+path, body)
 	if err != nil {
-		return c, false
+		return nil, err
 	}
-	if json.Unmarshal(b, &c) != nil || c.Token == "" {
-		return c, false
+	req.Header.Set("Authorization", "Bearer "+cr.Token)
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
-	return c, true
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("control plane unreachable: %w", err)
+	}
+	return resp, nil
+}
+
+// hostedError turns a non-2xx response into a clean message. The control
+// plane answers in two shapes: {"message": ...} (the session verbs, e.g.
+// the kill guard's actionable text) and {"error": {"type", "message"}}
+// (the job routes); a bare {"error": "..."} is read too. Anything else is
+// the status line and the raw body.
+func hostedError(method, path string, resp *http.Response, raw []byte) error {
+	var e struct {
+		Message string          `json:"message"`
+		Error   json.RawMessage `json:"error"`
+	}
+	if json.Unmarshal(raw, &e) == nil {
+		if e.Message != "" {
+			return fmt.Errorf("%s", e.Message)
+		}
+		var typed struct{ Type, Message string }
+		if len(e.Error) > 0 && json.Unmarshal(e.Error, &typed) == nil && typed.Message != "" {
+			if typed.Type != "" {
+				return fmt.Errorf("%s (%s)", typed.Message, typed.Type)
+			}
+			return fmt.Errorf("%s", typed.Message)
+		}
+		var s string
+		if len(e.Error) > 0 && json.Unmarshal(e.Error, &s) == nil && s != "" {
+			return fmt.Errorf("%s", s)
+		}
+	}
+	return fmt.Errorf("hosted %s %s: %s: %s", method, path, resp.Status, strings.TrimSpace(string(raw)))
 }
 
 // hostedCall makes an authenticated broker request. path is like
-// "/api/sessions" or "/api/sessions/<id>/meter".
+// "/api/sessions" or "/api/sessions/<id>/meter". body is marshalled as
+// JSON, except a []byte, which is sent as the JSON it already is.
 func hostedCall(cr hostedCreds, method, path string, body any, out any) error {
 	var r io.Reader
-	if body != nil {
-		b, _ := json.Marshal(body)
+	switch b := body.(type) {
+	case nil:
+	case []byte:
 		r = bytes.NewReader(b)
+	default:
+		enc, _ := json.Marshal(b)
+		r = bytes.NewReader(enc)
 	}
-	req, err := http.NewRequest(method, strings.TrimRight(cr.CTL, "/")+path, r)
+	resp, err := hostedDo(cr, method, path, "application/json", r)
 	if err != nil {
 		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+cr.Token)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("control plane unreachable: %w", err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if resp.StatusCode/100 != 2 {
-		// Surface a clean server message when there is one (e.g. the kill
-		// guard's actionable text) rather than a raw HTTP dump.
-		var e struct{ Message, Error string }
-		if json.Unmarshal(raw, &e) == nil && e.Message != "" {
-			return fmt.Errorf("%s", e.Message)
-		}
-		return fmt.Errorf("hosted %s %s: %s: %s", method, path, resp.Status, strings.TrimSpace(string(raw)))
+		return hostedError(method, path, resp, raw)
 	}
 	if out != nil && len(raw) > 0 {
 		return json.Unmarshal(raw, out)
