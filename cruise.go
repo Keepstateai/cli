@@ -831,6 +831,14 @@ func cruiseInit() {
 	if err != nil {
 		die(err)
 	}
+	// v1 pins root-level test files only: the verifier copies each pinned
+	// test flat into the checked tree, and the worker refuses a nested one.
+	for _, f := range files {
+		if ck.isTest(f.rel) && strings.Contains(f.rel, "/") {
+			fmt.Fprintf(os.Stderr, "ks cruise init: test file %s is nested; this version pins test files at the repository root only.\n", f.rel)
+			os.Exit(2)
+		}
+	}
 
 	// 3. the goal: named, kept from the previous draft, or the check itself
 	goal := strings.TrimSpace(flagValue("--goal", ""))
@@ -899,6 +907,10 @@ func cruiseInit() {
 			"config_hash":    hex.EncodeToString(cfgSum[:]),
 			"tests_digest":   tests,
 			"checks_origin":  "repo",
+			// the policy the control plane and the worker enforce; its
+			// canonical bytes are what config_hash is the sha256 of
+			"allowed_paths":    allowed,
+			"prohibited_paths": prohibited,
 		},
 		"limits": map[string]any{
 			"time_s":                  cruiseTimeS,
