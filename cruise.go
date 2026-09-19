@@ -80,6 +80,14 @@ func cruiseUsage() { fmt.Print(cruiseUsageText) }
 // "ks cruise run --help" performs one GET before printing help, which is
 // the defect class the help guard exists to prevent, so the gate can
 // prove its zero-request counter bites. Test-only; never set otherwise.
+//
+// KS-003 asks that such switches leave production builds. This one cannot
+// leave on the builder's authority: gate CR-7 builds the client with a plain
+// go build and its sabotage leg is exactly this hook, so moving it behind a
+// build tag needs the gate amended to build with that tag, and only the
+// human amends a gate (BACKLOG-59 carries the proposed amendment). Until
+// then the hook stays inert: it does nothing unless the variable is set,
+// and even then the help is still printed.
 func sabotageHelpHook() {
 	if os.Getenv("KS_CLI_SABOTAGE_HELP") != "1" || len(os.Args) < 3 || os.Args[2] != "run" {
 		return

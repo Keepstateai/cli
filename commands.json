@@ -101,10 +101,16 @@
   {
    "verb": "exec",
    "aliases": [],
-   "usage": "ks exec <session> [--] <command...>",
+   "usage": "ks exec [--shell] <session> [--] <command...>",
    "summary": "run one command in the session",
    "status": "available",
-   "surface": "hosted"
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--shell",
+     "summary": "send the one argument verbatim for the session's shell to interpret (pipes, globs, variables); without it every argument reaches the program exactly as typed"
+    }
+   ]
   },
   {
    "verb": "attach",

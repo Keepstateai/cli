@@ -188,14 +188,34 @@ func hostedMeter(cr hostedCreds, inv *Invocation) {
 		mtr["session"], commas(asInt(mtr["spent"])), commas(asInt(mtr["budget"])), commas(asInt(mtr["billed_calls"])), mtr["key_sources"])
 }
 
-// hostedExec sends the literal command. Everything after the session id
-// belongs to the command (the parser never reads it as a KS option), so a
-// program's own --help reaches the program. The control plane's route takes
-// one command string; the argument vector is joined with spaces, which is
-// the contract KS-003 tightens.
+// hostedExec sends the command in one of two documented forms. Without
+// --shell, every argument after the session reaches the program exactly as
+// typed: the vector is rendered as a POSIX shell string in which each word
+// is quoted, so the guest's shell splits it back into the same vector
+// (spaces, empty arguments, $, ;, quotes, newlines and Unicode included).
+// With --shell, exactly one argument is sent verbatim for the guest's shell
+// to interpret: pipes, globs and variables are its business. A single
+// argument that looks like a shell line, sent without --shell, is refused
+// rather than guessed: it would run as a program named after the whole
+// line, which nobody means.
 func hostedExec(cr hostedCreds, inv *Invocation) {
 	id := inv.Arg(0)
-	cmd := strings.Join(inv.Rest, " ")
+	var cmd string
+	switch {
+	case inv.Bool("shell"):
+		if len(inv.Rest) != 1 {
+			(&UsageError{Cmd: inv.Cmd, Message: fmt.Sprintf("--shell takes exactly one argument, the shell line; got %d.", len(inv.Rest))}).print()
+			os.Exit(2)
+		}
+		cmd = inv.Rest[0]
+	case len(inv.Rest) == 1 && looksLikeShellLine(inv.Rest[0]):
+		(&UsageError{Cmd: inv.Cmd,
+			Message:    fmt.Sprintf("%q looks like a shell line, not a program name.", inv.Rest[0]),
+			Suggestion: "Pass --shell before the session to have its shell interpret it, or write each argument separately after --."}).print()
+		os.Exit(2)
+	default:
+		cmd = shellJoin(inv.Rest)
+	}
 	var res map[string]any
 	if err := hostedCall(cr, "POST", "/api/sessions/"+id+"/exec", map[string]string{"Cmd": cmd}, &res); err != nil {
 		die(err)
@@ -207,6 +227,41 @@ func hostedExec(cr hostedCreds, inv *Invocation) {
 		fmt.Fprintln(os.Stderr, "exec:", e)
 		os.Exit(1)
 	}
+}
+
+// shellJoin renders an argument vector as one POSIX shell string that a
+// shell splits back into exactly that vector. A word made only of
+// characters no shell treats specially is left bare; anything else is
+// single-quoted, with each single quote closed, escaped and reopened.
+func shellJoin(args []string) string {
+	words := make([]string, len(args))
+	for i, a := range args {
+		words[i] = shellQuote(a)
+	}
+	return strings.Join(words, " ")
+}
+
+func shellQuote(a string) string {
+	if a == "" {
+		return "''"
+	}
+	safe := true
+	for _, r := range a {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("_@%+=:,./-", r)) {
+			safe = false
+			break
+		}
+	}
+	if safe {
+		return a
+	}
+	return "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
+}
+
+// looksLikeShellLine: whitespace or a shell metacharacter inside a single
+// argument, which is the old joined form arriving as one word.
+func looksLikeShellLine(a string) bool {
+	return strings.ContainsAny(a, " \t\n|&;<>()$`\\\"'*?[]#~{}")
 }
 
 func hostedFork(cr hostedCreds, inv *Invocation) {

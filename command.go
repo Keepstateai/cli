@@ -54,16 +54,18 @@ type Arg struct {
 
 // Command is one row of the schema.
 type Command struct {
-	Path    []string   // {"run"} or {"cruise", "init"}
-	Aliases [][]string // {{"save"}} for checkpoint; each alias is a full path
-	Summary string
-	Args    []Arg
-	Rest    string // when set, every token after the positionals is literal and belongs to the named thing ("command")
-	Flags   []Flag
-	Surface string // client | hosted
-	Nothing string // the closing line of a refusal: what did NOT happen ("No session was started.")
-	Group   bool   // a head with subcommands and no handler of its own
-	Run     func(inv *Invocation)
+	Path     []string   // {"run"} or {"cruise", "init"}
+	Aliases  [][]string // {{"save"}} for checkpoint; each alias is a full path
+	Summary  string
+	Args     []Arg
+	Rest     string // when set, every token after the positionals is literal and belongs to the named thing ("command")
+	Flags    []Flag
+	Surface  string   // client | hosted
+	Nothing  string   // the closing line of a refusal: what did NOT happen ("No session was started.")
+	Effects  string   // what the command changes or bills; "nothing" for a read
+	Examples []string // safe examples, each a full command line
+	Group    bool     // a head with subcommands and no handler of its own
+	Run      func(inv *Invocation)
 }
 
 func (c *Command) Name() string { return strings.Join(c.Path, " ") }
@@ -73,19 +75,30 @@ func (c *Command) Name() string { return strings.Join(c.Path, " ") }
 func (c *Command) Usage() string {
 	var b strings.Builder
 	b.WriteString("ks " + c.Name())
-	for _, a := range c.Args {
-		if a.Required {
-			b.WriteString(" <" + a.Name + ">")
-		} else {
-			b.WriteString(" [" + a.Name + "]")
+	args := func() {
+		for _, a := range c.Args {
+			if a.Required {
+				b.WriteString(" <" + a.Name + ">")
+			} else {
+				b.WriteString(" [" + a.Name + "]")
+			}
 		}
 	}
-	for _, f := range c.Flags {
-		b.WriteString(" [" + f.render() + "]")
+	flags := func() {
+		for _, f := range c.Flags {
+			b.WriteString(" [" + f.render() + "]")
+		}
 	}
+	// a command with a literal rest reads its options BEFORE its positionals,
+	// because everything after them belongs to the rest; the synopsis says so
 	if c.Rest != "" {
+		flags()
+		args()
 		b.WriteString(" [--] <" + c.Rest + "...>")
+		return b.String()
 	}
+	args()
+	flags()
 	return b.String()
 }
 
@@ -506,6 +519,15 @@ func commandHelp(c *Command) {
 				name += " (also --" + strings.Join(f.Aliases, ", --") + ")"
 			}
 			fmt.Printf("  %-34s %s\n", name, f.Summary)
+		}
+	}
+	if c.Effects != "" {
+		fmt.Printf("\neffects:\n  %s\n", c.Effects)
+	}
+	if len(c.Examples) > 0 {
+		fmt.Println("\nexamples:")
+		for _, e := range c.Examples {
+			fmt.Printf("  %s\n", e)
 		}
 	}
 	fmt.Println("\nHelp makes no request and changes nothing.")
