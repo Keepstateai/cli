@@ -28,6 +28,29 @@ type hostedCreds struct {
 // without a login there is nothing to talk to. A second source is read
 // when the first is absent: ~/.keepstate/hosted.json {ctl, token}, the
 // endpoint file the gates and the bench write.
+// hostedTokenQuiet reports whether any credential source is still readable,
+// without the refusals hostedToken makes on an unsafe or unreadable one.
+func hostedTokenQuiet() (hostedCreds, bool) {
+	for _, p := range []string{tokenPath(), legacyTokenPath()} {
+		if p == "" {
+			continue
+		}
+		var c hostedCreds
+		b, err := os.ReadFile(p)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				return hostedCreds{Source: p}, true // present and unreadable is still present
+			}
+			continue
+		}
+		if json.Unmarshal(b, &c) == nil && c.Token != "" && c.CTL != "" {
+			c.Source = p
+			return c, true
+		}
+	}
+	return hostedCreds{}, false
+}
+
 func hostedToken() (hostedCreds, bool) {
 	paths := []string{tokenPath()}
 	if p := legacyTokenPath(); p != "" {
@@ -85,24 +108,25 @@ func hostedDo(cr hostedCreds, method, path, contentType string, body io.Reader) 
 // (the job routes); a bare {"error": "..."} is read too. Anything else is
 // the status line and the raw body.
 func hostedError(method, path string, resp *http.Response, raw []byte) error {
+	mut := method != "GET"
 	var e struct {
 		Message string          `json:"message"`
 		Error   json.RawMessage `json:"error"`
 	}
 	if json.Unmarshal(raw, &e) == nil {
 		if e.Message != "" {
-			return &hostedErr{Status: resp.StatusCode, Message: e.Message}
+			return &hostedErr{Status: resp.StatusCode, Message: e.Message, Mutation: mut}
 		}
 		var typed struct{ Type, Message string }
 		if len(e.Error) > 0 && json.Unmarshal(e.Error, &typed) == nil && typed.Message != "" {
-			return &hostedErr{Status: resp.StatusCode, Type: typed.Type, Message: typed.Message}
+			return &hostedErr{Status: resp.StatusCode, Type: typed.Type, Message: typed.Message, Mutation: mut}
 		}
 		var s string
 		if len(e.Error) > 0 && json.Unmarshal(e.Error, &s) == nil && s != "" {
-			return &hostedErr{Status: resp.StatusCode, Message: s}
+			return &hostedErr{Status: resp.StatusCode, Message: s, Mutation: mut}
 		}
 	}
-	return &hostedErr{Status: resp.StatusCode, Message: fmt.Sprintf("%s %s: %s: %s", method, path, resp.Status, strings.TrimSpace(string(raw)))}
+	return &hostedErr{Status: resp.StatusCode, Message: fmt.Sprintf("%s %s: %s: %s", method, path, resp.Status, strings.TrimSpace(string(raw))), Mutation: mut}
 }
 
 // hostedCall makes an authenticated broker request. path is like
@@ -126,7 +150,7 @@ func hostedCall(cr hostedCreds, method, path string, body any, out any) error {
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := ordinaryClient().Do(req)
 	if err != nil {
-		return fmt.Errorf("control plane unreachable: %w", err)
+		return transportErr{err: err, mutation: method != "GET"}
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))

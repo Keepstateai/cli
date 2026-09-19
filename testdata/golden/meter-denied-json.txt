@@ -1,4 +1,4 @@
 exit 3
 --- stdout ---
-{"error":{"code":"http_403","message":"forbidden","work_started":false,"next_action":"ks login","http_status":403},"request_id":"req_…","schema_version":2}
+{"error":{"code":"http_403","message":"forbidden","work_started":"no","next_action":"ks login","http_status":403},"request_id":"req_…","schema_version":2}
 --- stderr ---

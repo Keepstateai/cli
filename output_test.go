@@ -132,7 +132,7 @@ func TestExitTableAndNoInput(t *testing.T) {
 		if got != code {
 			t.Errorf("meter %s: exit %d, want %d\n%s", sess, got, code, errs)
 		}
-		if !strings.Contains(errs, "No remote work was started.") {
+		if !strings.Contains(errs, "Remote work started: no.") {
 			t.Errorf("meter %s: the failure does not say whether work started:\n%s", sess, errs)
 		}
 		stdout, _, got := auditExec(t, bin, cfg, t.TempDir(), nil, "meter", sess, "--json")

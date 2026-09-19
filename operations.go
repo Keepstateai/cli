@@ -122,10 +122,25 @@ func recordOperation(op localOp) error {
 // ---------------------------------------------------------------------
 
 // transportErr reports whether the request failed before a response was
-// read, which is the only case in which the outcome is unknown.
-type transportErr struct{ err error }
+// read, which is the only case in which the outcome is unknown. mutation
+// says whether the request could have started remote work.
+type transportErr struct {
+	err      error
+	mutation bool
+}
 
 func (e transportErr) Error() string { return e.err.Error() }
+
+// uncertain: the reply was lost after the request may have been acted on.
+// A transport failure on a mutation, or a 502/504 from a control plane that
+// could not hear back from its fleet, are the two shapes.
+func uncertain(err error, resp *http.Response) bool {
+	var te transportErr
+	if errors.As(err, &te) {
+		return te.mutation
+	}
+	return resp != nil && (resp.StatusCode == http.StatusBadGateway || resp.StatusCode == http.StatusGatewayTimeout)
+}
 
 func doBounded(cr hostedCreds, method, path string, headers map[string]string, body []byte) (*http.Response, []byte, error) {
 	req, err := http.NewRequest(method, strings.TrimRight(cr.CTL, "/")+path, bytes.NewReader(body))
@@ -139,14 +154,40 @@ func doBounded(cr hostedCreds, method, path string, headers map[string]string, b
 	}
 	resp, err := ordinaryClient().Do(req)
 	if err != nil {
-		return nil, nil, transportErr{err}
+		return nil, nil, transportErr{err: err, mutation: method != "GET"}
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
-		return nil, nil, transportErr{err}
+		return nil, nil, transportErr{err: err, mutation: method != "GET"}
 	}
 	return resp, raw, nil
+}
+
+// replaySupported asks the control plane, live and just before the first
+// attempt, whether it enforces the Idempotency-Key it is about to be sent.
+// Replaying the same key is only safe where the receiver deduplicates it:
+// on a control plane that ignores the header, a replay is a second session
+// (review R01, 2026-09-20). A cached answer, a client version or the fact
+// that the header is being sent prove nothing here; only the live registry
+// does, and a registry that cannot be read means no.
+func replaySupported(cr hostedCreds) (bool, string) {
+	set, err := fetchCapabilities(cr)
+	if err != nil {
+		if errors.Is(err, errNoOperations) {
+			return false, "this control plane publishes no capability registry, so it cannot confirm that it deduplicates operation keys"
+		}
+		return false, "the capability registry could not be read (" + sanitize(err.Error()) + "), so replay support is unconfirmed"
+	}
+	row := set.find("operations.idempotent")
+	switch {
+	case row == nil:
+		return false, "this control plane does not list operations.idempotent, so it does not deduplicate operation keys"
+	case row.Availability == "available":
+		return true, ""
+	default:
+		return false, "this control plane reports operations.idempotent as " + row.Availability
+	}
 }
 
 // retryAfter reads Retry-After in seconds, bounded, with 20% jitter.
@@ -186,34 +227,67 @@ func hostedMutate(cr hostedCreds, method, path string, body any, out any) error 
 		return fmt.Errorf("could not record the operation locally before sending it (%v); nothing was sent", err)
 	}
 	headers := map[string]string{"Idempotency-Key": key, "Prefer": "respond-async"}
+	// Replay support is decided LAZILY, only when a first attempt fails
+	// uncertainly, so the happy path costs no extra request. Then it is the
+	// LIVE registry that decides, never a cached answer or the fact that the
+	// header is being sent: replaying a key a server ignores is a second
+	// session (review R01). A registry that cannot be read means no.
 	var resp *http.Response
 	var body2 []byte
 	var lastErr error
+	var replay, replayChecked bool
+	var why string
 	for attempt := 0; attempt < mutationAttempts; attempt++ {
 		if attempt > 0 {
 			progress("retrying the same operation (%s), attempt %d of %d", key, attempt+1, mutationAttempts)
 			time.Sleep(retryAfter(resp, attempt-1))
 		}
 		r, b, err := doBounded(cr, method, path, headers, raw)
-		if err != nil {
-			lastErr = err
-			resp = nil
+		if err == nil && !(r.StatusCode == http.StatusTooManyRequests || r.StatusCode == http.StatusServiceUnavailable) && !uncertain(nil, r) {
+			resp, body2 = r, b
+			break // a clean answer (2xx or a definite non-2xx): stop
+		}
+		if err == nil && (r.StatusCode == http.StatusTooManyRequests || r.StatusCode == http.StatusServiceUnavailable) {
+			// the server answered and refused before doing any work: safe to
+			// retry whatever its deduplication contract, up to the bound
+			resp, body2, lastErr = r, b, hostedError(method, path, r, b)
 			continue
 		}
-		resp, body2 = r, b
-		if r.StatusCode == http.StatusTooManyRequests || r.StatusCode == http.StatusServiceUnavailable {
+		// uncertain: a transport failure on a mutation, or a 502/504 from a
+		// control plane that could not hear back from its fleet. The work may
+		// have started; retry ONLY where the receiver deduplicates the key.
+		lastErr = err
+		if err == nil {
 			lastErr = hostedError(method, path, r, b)
-			continue
 		}
-		break
+		resp = nil
+		if !replayChecked {
+			replay, why = replaySupported(cr)
+			replayChecked = true
+		}
+		if !replay {
+			break // one attempt: report the unknown outcome, never resend
+		}
 	}
 	if resp == nil || resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable {
-		// the outcome is unknown: read it back rather than resend
-		if o, err := fetchOperation(cr, key); err == nil {
-			return settleOperation(cr, o, key, out)
+		if resp != nil && !uncertain(lastErr, resp) {
+			return lastErr // answered and refused: the refusal, not an uncertainty
 		}
-		fail(&cliError{Code: exitTemporary, Kind: "outcome_unknown", Message: "the request did not complete: " + sanitize(fmt.Sprint(lastErr)) + ". The operation may exist on the control plane",
-			WorkStarted: false, OperationID: key, NextAction: "ks operation show " + key})
+		// the outcome is unknown: read it back where that is possible, say so
+		// plainly where it is not; a fresh submission is never the answer
+		if replay {
+			if o, err := fetchOperation(cr, key); err == nil {
+				return settleOperation(cr, o, key, out)
+			}
+			fail(&cliError{Code: exitTemporary, Kind: "outcome_unknown", Message: "the request did not complete: " + sanitize(fmt.Sprint(lastErr)) + ". The operation may exist on the control plane",
+				WorkStarted: workUnknown, OperationID: key, NextAction: "ks operation show " + key})
+		}
+		reason := why
+		if reason == "" {
+			reason = "this control plane does not confirm that it deduplicates operation keys"
+		}
+		fail(&cliError{Code: exitTemporary, Kind: "outcome_unknown", Message: "the request did not complete: " + sanitize(fmt.Sprint(lastErr)) + ". It was sent once and not retried, because " + reason + "; the work may or may not have started",
+			WorkStarted: workUnknown, OperationID: key, NextAction: "check the console's session list before running this again; operation " + key + " is recorded locally in " + operationsPath()})
 	}
 	if resp.StatusCode == http.StatusAccepted {
 		var receipt struct {
@@ -321,13 +395,16 @@ func waitOperation(cr hostedCreds, id, key string, out any) error {
 	for {
 		select {
 		case <-sig:
-			fail(&cliError{Code: exitInterrupt, Kind: "interrupted", Message: "interrupted locally; the operation continues on the control plane", WorkStarted: true, OperationID: id, NextAction: "ks operation show " + id})
+			fail(&cliError{Code: exitInterrupt, Kind: "interrupted", Message: "interrupted locally; the operation continues on the control plane", WorkStarted: workYes, OperationID: id, NextAction: "ks operation show " + id})
 		case <-time.After(interval):
 		}
 		o, err := fetchOperation(cr, id)
 		if err != nil {
 			if errors.Is(err, errNoOperations) {
-				return err
+				// the route vanished under an accepted operation (a rollback):
+				// the work is on the control plane; nothing here may resubmit it
+				fail(&cliError{Code: exitTemporary, Kind: "outcome_unknown", Message: fmt.Sprintf("operation %s was accepted, and this control plane no longer serves operation records, so its outcome cannot be read back here", id),
+					WorkStarted: workUnknown, OperationID: id, NextAction: "do not resubmit; check the console, or ks operation show " + id + " once the control plane serves records again"})
 			}
 			progress("reading the operation: %v (still waiting)", err)
 		} else if o.State == "succeeded" || o.State == "failed" {
@@ -335,7 +412,7 @@ func waitOperation(cr hostedCreds, id, key string, out any) error {
 		}
 		if time.Now().After(deadline) {
 			fail(&cliError{Code: exitTemporary, Kind: "still_running", Message: fmt.Sprintf("operation %s is still running after %s; it continues on the control plane", id, bound.Round(time.Second)),
-				WorkStarted: true, OperationID: id, NextAction: "ks operation show " + id})
+				WorkStarted: workYes, OperationID: id, NextAction: "ks operation show " + id})
 		}
 	}
 }

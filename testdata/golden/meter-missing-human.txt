@@ -2,4 +2,4 @@ exit 1
 --- stdout ---
 --- stderr ---
 error: not found
-No remote work was started.
+Remote work started: no.

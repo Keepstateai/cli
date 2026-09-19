@@ -100,20 +100,28 @@ type cliError struct {
 	Code        int    `json:"-"`
 	Kind        string `json:"code"`
 	Message     string `json:"message"`
-	WorkStarted bool   `json:"work_started"`
+	WorkStarted string `json:"work_started"` // yes | no | unknown; unknown is a real answer, never rounded to no
 	NextAction  string `json:"next_action,omitempty"`
 	OperationID string `json:"operation_id,omitempty"`
 	HTTPStatus  int    `json:"http_status,omitempty"`
 }
 
+const (
+	workNo      = "no"
+	workYes     = "yes"
+	workUnknown = "unknown"
+)
+
 func (e *cliError) Error() string { return e.Message }
 
 // hostedErr carries the control plane's status and typed reason so the
-// exit code follows the table rather than the message.
+// exit code follows the table rather than the message. Mutation marks a
+// request that could have started remote work.
 type hostedErr struct {
-	Status  int
-	Type    string
-	Message string
+	Status   int
+	Type     string
+	Message  string
+	Mutation bool
 }
 
 func (e *hostedErr) Error() string {
@@ -127,19 +135,26 @@ func (e *hostedErr) Error() string {
 func classify(err error) *cliError {
 	var ce *cliError
 	if errors.As(err, &ce) {
+		if ce.WorkStarted == "" {
+			ce.WorkStarted = workNo
+		}
 		return ce
 	}
 	var ue *UsageError
 	if errors.As(err, &ue) {
-		return &cliError{Code: exitUsage, Kind: "usage", Message: ue.Message, NextAction: ue.Suggestion}
+		return &cliError{Code: exitUsage, Kind: "usage", Message: ue.Message, NextAction: ue.Suggestion, WorkStarted: workNo}
 	}
 	var te transportErr
 	if errors.As(err, &te) {
-		return &cliError{Code: exitTemporary, Kind: "unreachable", Message: "the control plane did not answer: " + sanitize(te.err.Error())}
+		ws := workNo
+		if te.mutation {
+			ws = workUnknown // the request may have arrived; nothing came back
+		}
+		return &cliError{Code: exitTemporary, Kind: "unreachable", Message: "the control plane did not answer: " + sanitize(te.err.Error()), WorkStarted: ws}
 	}
 	var he *hostedErr
 	if errors.As(err, &he) {
-		c := &cliError{Kind: he.Type, Message: sanitize(he.Message), HTTPStatus: he.Status}
+		c := &cliError{Kind: he.Type, Message: sanitize(he.Message), HTTPStatus: he.Status, WorkStarted: workNo}
 		if c.Kind == "" {
 			c.Kind = "http_" + fmt.Sprint(he.Status)
 		}
@@ -151,7 +166,14 @@ func classify(err error) *cliError {
 			c.Code = exitConflict
 		case he.Status == http.StatusUnprocessableEntity:
 			c.Code = exitIntegrity
-		case he.Status == http.StatusBadGateway || he.Status == http.StatusServiceUnavailable || he.Status == http.StatusGatewayTimeout:
+		case he.Status == http.StatusBadGateway || he.Status == http.StatusGatewayTimeout:
+			// the control plane answered for a fleet it could not hear from:
+			// the fleet may have done the work before the door closed
+			c.Code = exitTemporary
+			if he.Mutation {
+				c.WorkStarted = workUnknown
+			}
+		case he.Status == http.StatusServiceUnavailable:
 			c.Code = exitTemporary
 		default:
 			c.Code = exitFailed
@@ -159,13 +181,13 @@ func classify(err error) *cliError {
 		return c
 	}
 	if errors.Is(err, errNoOperations) {
-		return &cliError{Code: exitFailed, Kind: "no_operation_records", Message: err.Error()}
+		return &cliError{Code: exitFailed, Kind: "no_operation_records", Message: err.Error(), WorkStarted: workNo}
 	}
 	msg := sanitize(err.Error())
 	if strings.Contains(msg, "CHECKSUM MISMATCH") || strings.Contains(msg, "sha256") && strings.Contains(msg, "refused") {
-		return &cliError{Code: exitIntegrity, Kind: "integrity", Message: msg}
+		return &cliError{Code: exitIntegrity, Kind: "integrity", Message: msg, WorkStarted: workNo}
 	}
-	return &cliError{Code: exitFailed, Kind: "failed", Message: msg}
+	return &cliError{Code: exitFailed, Kind: "failed", Message: msg, WorkStarted: workNo}
 }
 
 // fail prints the error in the mode's shape and exits by the table.
@@ -180,10 +202,13 @@ func fail(err error) {
 		if ce.OperationID != "" {
 			fmt.Fprintln(os.Stderr, "operation:", ce.OperationID)
 		}
-		if ce.WorkStarted {
-			fmt.Fprintln(os.Stderr, "Remote work may have started.")
-		} else {
-			fmt.Fprintln(os.Stderr, "No remote work was started.")
+		switch ce.WorkStarted {
+		case workYes:
+			fmt.Fprintln(os.Stderr, "Remote work started: yes.")
+		case workUnknown:
+			fmt.Fprintln(os.Stderr, "Remote work started: unknown. Do not rerun this command blindly.")
+		default:
+			fmt.Fprintln(os.Stderr, "Remote work started: no.")
 		}
 		if ce.NextAction != "" {
 			fmt.Fprintln(os.Stderr, "Next:", ce.NextAction)

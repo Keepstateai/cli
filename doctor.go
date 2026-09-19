@@ -117,38 +117,60 @@ func runDoctor() int {
 // server-side revocation is attempted and reported on its own. A
 // revocation the network lost is said to have been lost, not assumed.
 func runLogout() error {
+	// one structured result: the server-side outcome in its own field, the
+	// local removals and their failures in theirs; --json emits exactly this
+	// document and nothing else on stdout (review R02, 2026-09-20)
+	revocation, detail := "not_attempted", "no stored credential to revoke"
 	cr, signedIn := hostedToken()
 	if signedIn {
 		resp, raw, err := doBounded(cr, "POST", "/api/tokens/revoke", nil, nil)
 		switch {
 		case err != nil:
-			fmt.Fprintf(os.Stderr, "server-side revocation: not confirmed (%v); revoke the token from your account page\n", err)
+			revocation, detail = "unconfirmed", "the control plane did not answer: "+sanitize(err.Error())+"; revoke the token from your account page"
 		case resp.StatusCode == http.StatusOK:
-			fmt.Println("server-side revocation: done")
+			revocation, detail = "confirmed", "the control plane revoked the token"
 		case resp.StatusCode == http.StatusUnauthorized:
-			fmt.Println("server-side revocation: the token was already dead")
+			revocation, detail = "already_invalid", "the token was already dead on the control plane"
 		case resp.StatusCode == http.StatusNotFound:
-			fmt.Println("server-side revocation: this control plane has no self-revocation route; revoke the token from your account page")
+			revocation, detail = "unsupported", "this control plane has no self-revocation route; revoke the token from your account page"
 		default:
-			fmt.Fprintf(os.Stderr, "server-side revocation: not confirmed (%v); revoke the token from your account page\n", hostedError("POST", "/api/tokens/revoke", resp, raw))
+			revocation, detail = "failed", sanitize(hostedError("POST", "/api/tokens/revoke", resp, raw).Error())+"; revoke the token from your account page"
 		}
 	}
-	removed := 0
+	// every source goes, whatever the network did; a source that will not go
+	// is reported, and the others still go
+	removed := []string{}
+	failures := []map[string]string{}
 	for _, p := range []string{tokenPath(), legacyTokenPath(), filepath.Join(configDir(), "bindings.json")} {
 		if p == "" {
 			continue
 		}
 		if err := os.Remove(p); err == nil {
-			removed++
+			removed = append(removed, p)
 		} else if !os.IsNotExist(err) {
-			return fmt.Errorf("could not remove %s: %w", p, err)
+			failures = append(failures, map[string]string{"path": p, "error": sanitize(err.Error())})
 		}
 	}
-	if _, still := hostedToken(); still {
-		return fmt.Errorf("a credential source is still readable after logout; nothing was left on purpose")
+	stillReadable := ""
+	if again, still := hostedTokenQuiet(); still {
+		stillReadable = again.Source
 	}
-	emit(map[string]any{"signed_out": true, "files_removed": removed}, func() {
-		fmt.Printf("Signed out locally (%d file(s) removed). The operations ledger stays; it holds no secrets.\n", removed)
+	signedOut := len(failures) == 0 && stillReadable == ""
+	result := map[string]any{
+		"signed_out": signedOut, "files_removed": len(removed), "removed": removed, "removal_failures": failures,
+		"still_readable": stillReadable, "revocation": revocation, "revocation_detail": detail,
+	}
+	if !signedOut {
+		msg := "a credential source could not be removed"
+		if stillReadable != "" {
+			msg = "a credential source is still readable after logout: " + stillReadable
+		}
+		fail(&cliError{Code: exitFailed, Kind: "logout_incomplete", Message: msg + " (server-side revocation: " + revocation + ")", WorkStarted: workNo,
+			NextAction: "remove it by hand, then ks doctor", OperationID: ""})
+	}
+	emit(result, func() {
+		fmt.Printf("server-side revocation: %s (%s)\n", revocation, detail)
+		fmt.Printf("Signed out locally (%d file(s) removed). The operations ledger stays; it holds no secrets.\n", len(removed))
 	})
 	return nil
 }

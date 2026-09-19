@@ -9,7 +9,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -148,44 +147,6 @@ func TestLostReplyRetriesTheSameKey(t *testing.T) {
 		t.Errorf("the key recorded locally (%s) is not the key the control plane saw", led[0].Key)
 	}
 	_ = keys
-}
-
-// QA-004-2: nothing answers. Three bounded attempts, then a recovery
-// command that names the key, exit 4, and no endless spinner.
-func TestUnreachableControlPlaneEndsWithARecoveryCommand(t *testing.T) {
-	// a listener that is closed immediately: the port refuses, fast
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr := "http://" + l.Addr().String()
-	l.Close()
-	srv := httptest.NewServer(http.NotFoundHandler())
-	bin, cfg := buildAndAuth(t, srv)
-	srv.Close()
-	tok, _ := json.Marshal(map[string]string{"token": "t", "ctl": addr})
-	if err := os.WriteFile(filepath.Join(cfg, "keepstate", "token.json"), tok, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	start := time.Now()
-	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "run")
-	took := time.Since(start)
-	if code != 4 {
-		t.Fatalf("exit %d, want 4\n%s%s", code, out, errs)
-	}
-	led := readLedger(t, cfg)
-	if len(led) != 1 {
-		t.Fatalf("ledger has %d entries, want the one operation", len(led))
-	}
-	if !strings.Contains(errs, "Next: ks operation show "+led[0].Key) || !strings.Contains(errs, "No remote work was started.") {
-		t.Errorf("no recovery command with the key:\n%s", errs)
-	}
-	if strings.Count(errs, "retrying the same operation") != 2 {
-		t.Errorf("want exactly 2 retries (3 attempts):\n%s", errs)
-	}
-	if took > 10*time.Second {
-		t.Errorf("took %s; the attempts are not bounded", took)
-	}
 }
 
 // QA-004-3: a checkpoint that outlasts the ordinary response deadline is

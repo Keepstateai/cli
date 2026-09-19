@@ -1,0 +1,199 @@
+// review_r01_test: the permanent guards for review finding R01 (2026-09-20).
+// Replaying an operation key is only safe where the receiver deduplicates
+// it. A control plane that ignores the header must get exactly one
+// attempt, and a lost reply there must be reported as an unknown outcome,
+// never resent and never rounded down to "no work started". Each case
+// counts what the fake control plane created.
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+)
+
+// legacyCtl is the old contract: no capability registry (plain 404), no
+// deduplication of Idempotency-Key, and it can commit a create and then
+// drop the connection before answering.
+type legacyCtl struct {
+	mu        sync.Mutex
+	creates   int
+	posts     int
+	dropFirst bool
+	dropped   bool
+	requests  []string
+}
+
+func (c *legacyCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	c.mu.Lock()
+	c.requests = append(c.requests, r.Method+" "+r.URL.Path)
+	c.mu.Unlock()
+	switch {
+	case r.Method == "POST" && r.URL.Path == "/api/sessions":
+		c.mu.Lock()
+		c.posts++
+		c.creates++
+		id := fmt.Sprintf("synthetic-session-%d", c.creates)
+		drop := c.dropFirst && !c.dropped
+		if drop {
+			c.dropped = true
+		}
+		c.mu.Unlock()
+		if drop {
+			hj, _ := w.(http.Hijacker)
+			conn, _, _ := hj.Hijack()
+			conn.Close()
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"id":%q,"image":"base","state":"running"}`, id)
+	default:
+		w.WriteHeader(404)
+		fmt.Fprint(w, "404 page not found")
+	}
+}
+
+// R01 core: legacy server, create committed, response dropped. At most one
+// created session, an unknown outcome, no replay, no recommendation of a
+// command the same server disables.
+func TestLegacyServerLostReplyCreatesAtMostOne(t *testing.T) {
+	for _, mode := range []string{"human", "json"} {
+		t.Run(mode, func(t *testing.T) {
+			ctl := &legacyCtl{dropFirst: true}
+			srv := httptest.NewServer(ctl)
+			defer srv.Close()
+			bin, cfg := buildAndAuth(t, srv)
+			args := []string{"run", "--image", "base"}
+			if mode == "json" {
+				args = append(args, "--json")
+			}
+			stdout, stderr, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), args...)
+			if code != exitTemporary {
+				t.Fatalf("exit %d, want %d\n%s%s", code, exitTemporary, stdout, stderr)
+			}
+			if ctl.creates != 1 || ctl.posts != 1 {
+				t.Fatalf("the legacy control plane saw %d POST(s) and created %d session(s); want exactly 1 and 1", ctl.posts, ctl.creates)
+			}
+			all := stdout + stderr
+			if strings.Contains(all, "ks operation show") {
+				t.Errorf("recommended ks operation show on a control plane that disables it:\n%s", all)
+			}
+			if !strings.Contains(all, "sent once and not retried") {
+				t.Errorf("the refusal to replay is not explained:\n%s", all)
+			}
+			if mode == "json" {
+				env := parseEnvelope(t, stdout)
+				e := env["error"].(map[string]any)
+				if e["work_started"] != "unknown" {
+					t.Errorf("json work_started = %v, want unknown", e["work_started"])
+				}
+				if strings.Contains(stdout, "retrying") {
+					t.Errorf("stdout carries progress text")
+				}
+			} else if !strings.Contains(stderr, "Remote work started: unknown") {
+				t.Errorf("human output does not say the outcome is unknown:\n%s", stderr)
+			}
+			led := readLedger(t, cfg)
+			if len(led) != 1 {
+				t.Errorf("local ledger has %d entries, want 1", len(led))
+			}
+		})
+	}
+}
+
+// A control plane that is not answering at all cannot confirm replay
+// support either: one attempt, unknown outcome, the recorded key named.
+func TestUnreachableControlPlaneSendsOnce(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	bin, cfg := buildAndAuth(t, srv)
+	srv.Close()
+	_, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "run")
+	if code != exitTemporary || strings.Contains(errs, "retrying") || !strings.Contains(errs, "Remote work started: unknown") {
+		t.Errorf("exit %d\n%s", code, errs)
+	}
+	if led := readLedger(t, cfg); len(led) != 1 || !strings.Contains(errs, led[0].Key) {
+		t.Errorf("the recorded key is not named in the guidance")
+	}
+}
+
+// Endpoint removed between observation and execution: the registry says
+// available, the route answers 404. One POST, a known failure, no retry.
+func TestRouteRemovedBetweenObservationAndExecution(t *testing.T) {
+	posts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/api/capabilities":
+			fmt.Fprint(w, `{"schema_version":2,"data":{"registry_version":"t","build":"b","fetched_at":"x","price_book":"v1.3","capabilities":[{"id":"operations.idempotent","availability":"available","summary":"s","surface":"api"}],"limits":{}}}`)
+		case r.Method == "POST" && r.URL.Path == "/api/sessions":
+			posts++
+			w.WriteHeader(404)
+			fmt.Fprint(w, `{"message":"no such route"}`)
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+	bin, cfg := buildAndAuth(t, srv)
+	_, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "run")
+	if code != exitFailed || posts != 1 || strings.Contains(errs, "retrying") {
+		t.Errorf("exit %d, posts %d\n%s", code, posts, errs)
+	}
+}
+
+// An accepted operation whose record route vanishes (a rollback) is never
+// resubmitted: the client reports the unknown outcome and names the id.
+func TestAcceptedOperationSurvivesRouteRemoval(t *testing.T) {
+	posts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/api/capabilities":
+			fmt.Fprint(w, `{"schema_version":2,"data":{"registry_version":"t","build":"b","fetched_at":"x","price_book":"v1.3","capabilities":[{"id":"operations.idempotent","availability":"available","summary":"s","surface":"api"}],"limits":{}}}`)
+		case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/checkpoint"):
+			posts++
+			w.WriteHeader(202)
+			fmt.Fprint(w, `{"schema_version":2,"data":{"operation_id":"op_gone","state":"accepted"}}`)
+		case strings.HasPrefix(r.URL.Path, "/api/operations/"):
+			w.Header().Set("Content-Type", "text/plain")
+			w.WriteHeader(404)
+			fmt.Fprint(w, "404 page not found") // the route rolled back under the operation
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+	bin, cfg := buildAndAuth(t, srv)
+	stdout, stderr, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "checkpoint", "s1", "--json")
+	if code != exitTemporary || posts != 1 {
+		t.Fatalf("exit %d, posts %d\n%s%s", code, posts, stdout, stderr)
+	}
+	e := parseEnvelope(t, stdout)["error"].(map[string]any)
+	if e["work_started"] != "unknown" || e["operation_id"] != "op_gone" || !strings.Contains(fmt.Sprint(e["next_action"]), "do not resubmit") {
+		t.Errorf("error shape: %v", e)
+	}
+}
+
+// Unknown outcome text and JSON agree: neither asserts that no work started.
+func TestUnknownOutcomeNeverSaysNoWorkStarted(t *testing.T) {
+	ctl := &legacyCtl{dropFirst: true}
+	srv := httptest.NewServer(ctl)
+	defer srv.Close()
+	bin, cfg := buildAndAuth(t, srv)
+	_, human, _ := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "run")
+	ctl2 := &legacyCtl{dropFirst: true}
+	srv2 := httptest.NewServer(ctl2)
+	defer srv2.Close()
+	bin2, cfg2 := buildAndAuth(t, srv2)
+	js, _, _ := auditExec(t, bin2, cfg2, t.TempDir(), fastEnv(cfg2), "run", "--json")
+	var env map[string]any
+	_ = json.Unmarshal([]byte(js), &env)
+	e, _ := env["error"].(map[string]any)
+	if strings.Contains(human, "Remote work started: no") || e["work_started"] == "no" || e["work_started"] == false {
+		t.Errorf("an unknown outcome was rounded to no:\nhuman: %s\njson: %s", human, js)
+	}
+}
