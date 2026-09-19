@@ -292,6 +292,34 @@
    "summary": "print the version",
    "status": "available",
    "surface": "client"
+  },
+  {
+   "verb": "operation show",
+   "aliases": [],
+   "usage": "ks operation show <operation> [--json]",
+   "summary": "read an operation back by its id or key: state, result, timestamps",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--json",
+     "summary": "print the record as JSON"
+    }
+   ]
+  },
+  {
+   "verb": "operation wait",
+   "aliases": [],
+   "usage": "ks operation wait <operation> [--json]",
+   "summary": "wait, within the bound, for an operation to finish and print its result",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--json",
+     "summary": "print the record as JSON"
+    }
+   ]
   }
  ]
 }

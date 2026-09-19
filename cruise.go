@@ -1169,7 +1169,7 @@ func cruiseRun(inv *Invocation) error {
 	body.WriteString(`"}`)
 
 	var job map[string]any
-	if err := hostedCall(c, "POST", "/api/jobs", body.Bytes(), &job); err != nil {
+	if err := hostedMutate(c, "POST", "/api/jobs", body.Bytes(), &job); err != nil {
 		return err
 	}
 	ceiling := "unavailable"
@@ -1410,7 +1410,7 @@ func cruiseCancel(inv *Invocation) {
 	c := mustCreds()
 	id := inv.Arg(0)
 	var job map[string]any
-	if err := hostedCall(c, "POST", "/api/jobs/"+id+"/cancel", map[string]any{}, &job); err != nil {
+	if err := hostedMutate(c, "POST", "/api/jobs/"+id+"/cancel", map[string]any{}, &job); err != nil {
 		die(err)
 	}
 	fmt.Fprintf(os.Stderr, "job %s %s\n", id, jstr(job, "state"))
@@ -1429,7 +1429,7 @@ func cruiseResume(inv *Invocation) {
 		req["ladder"] = ladder
 	}
 	var job map[string]any
-	if err := hostedCall(c, "POST", "/api/jobs/"+id+"/resume", req, &job); err != nil {
+	if err := hostedMutate(c, "POST", "/api/jobs/"+id+"/resume", req, &job); err != nil {
 		die(err)
 	}
 	fmt.Fprintf(os.Stderr, "job %s %s\n", id, jstr(job, "state"))

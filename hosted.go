@@ -6,6 +6,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -55,7 +56,7 @@ func hostedDo(cr hostedCreds, method, path, contentType string, body io.Reader) 
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := streamClient().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("control plane unreachable: %w", err)
 	}
@@ -104,9 +105,15 @@ func hostedCall(cr hostedCreds, method, path string, body any, out any) error {
 		enc, _ := json.Marshal(b)
 		r = bytes.NewReader(enc)
 	}
-	resp, err := hostedDo(cr, method, path, "application/json", r)
+	req, err := http.NewRequest(method, strings.TrimRight(cr.CTL, "/")+path, r)
 	if err != nil {
 		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+cr.Token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := ordinaryClient().Do(req)
+	if err != nil {
+		return fmt.Errorf("control plane unreachable: %w", err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
@@ -136,7 +143,7 @@ func hostedRun(cr hostedCreds, inv *Invocation) {
 		req["Budget"] = inv.Int("budget-tokens")
 	}
 	var sess map[string]any
-	if err := hostedCall(cr, "POST", "/api/sessions", req, &sess); err != nil {
+	if err := hostedMutate(cr, "POST", "/api/sessions", req, &sess); err != nil {
 		die(err)
 	}
 	fmt.Fprintf(os.Stderr, "hosted session %v: image=%v state=%v (on %s)\n", sess["id"], sess["image"], sess["state"], cr.CTL)
@@ -149,7 +156,7 @@ func hostedKill(cr hostedCreds, inv *Invocation) {
 	if inv.Bool("force") {
 		path += "?force=1"
 	}
-	if err := hostedCall(cr, "DELETE", path, nil, nil); err != nil {
+	if err := hostedMutate(cr, "DELETE", path, nil, nil); err != nil {
 		die(err)
 	}
 	fmt.Println("killed", id)
@@ -158,7 +165,7 @@ func hostedKill(cr hostedCreds, inv *Invocation) {
 func hostedWake(cr hostedCreds, inv *Invocation) {
 	id := inv.Arg(0)
 	var sess map[string]any
-	if err := hostedCall(cr, "POST", "/api/sessions/"+id+"/resume", nil, &sess); err != nil {
+	if err := hostedMutate(cr, "POST", "/api/sessions/"+id+"/resume", nil, &sess); err != nil {
 		die(err)
 	}
 	fmt.Fprintf(os.Stderr, "hosted session %v resumed\n", id)
@@ -167,7 +174,7 @@ func hostedWake(cr hostedCreds, inv *Invocation) {
 
 func hostedCheckpoint(cr hostedCreds, inv *Invocation) {
 	id := inv.Arg(0)
-	if err := hostedCall(cr, "POST", "/api/sessions/"+id+"/checkpoint", map[string]bool{"Stop": inv.Bool("stop")}, nil); err != nil {
+	if err := hostedMutate(cr, "POST", "/api/sessions/"+id+"/checkpoint", map[string]bool{"Stop": inv.Bool("stop")}, nil); err != nil {
 		die(err)
 	}
 	fmt.Println("checkpointed", id)
@@ -282,7 +289,7 @@ func hostedFork(cr hostedCreds, inv *Invocation) {
 		path += "&steers=" + urlQueryEscape(string(steers))
 	}
 	var children []map[string]any
-	if err := hostedCall(cr, "POST", path, nil, &children); err != nil {
+	if err := hostedMutate(cr, "POST", path, nil, &children); err != nil {
 		die(err)
 	}
 	for _, c := range children {
@@ -332,3 +339,5 @@ func commas(n int64) string {
 	}
 	return string(out)
 }
+
+func sha256Sum(b []byte) [32]byte { return sha256.Sum256(b) }

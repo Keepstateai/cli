@@ -135,6 +135,19 @@ var registry = []*Command{
 		Effects:  "reads the table; nothing changes",
 		Examples: []string{"ks cruise models"},
 		Nothing:  "Nothing was read.", Run: cruiseModels},
+	{Path: []string{"operation"}, Group: true, Summary: "operation records", Surface: "hosted"},
+	{Path: []string{"operation", "show"}, Summary: "read an operation back by its id or key: state, result, timestamps", Surface: "hosted",
+		Args:     []Arg{{Name: "operation", Required: true}},
+		Flags:    []Flag{{Name: "json", Kind: flagBool, Summary: "print the record as JSON"}},
+		Effects:  "reads the record; nothing changes",
+		Examples: []string{"ks operation show ksop_0123456789abcdef0123456789abcdef"},
+		Nothing:  "Nothing was read.", Run: hosted(hostedOperationShow)},
+	{Path: []string{"operation", "wait"}, Summary: "wait, within the bound, for an operation to finish and print its result", Surface: "hosted",
+		Args:     []Arg{{Name: "operation", Required: true}},
+		Flags:    []Flag{{Name: "json", Kind: flagBool, Summary: "print the record as JSON"}},
+		Effects:  "reads the record until it finishes or the wait bound passes; nothing changes; Ctrl-C stops the local waiting only",
+		Examples: []string{"ks operation wait ksop_0123456789abcdef0123456789abcdef"},
+		Nothing:  "Nothing was read.", Run: hosted(hostedOperationWait)},
 	{Path: []string{"doctor"}, Summary: "connectivity, token, version", Surface: "client",
 		Effects:  "reads: the control plane health, your token, the latest release; nothing changes",
 		Examples: []string{"ks doctor"},
@@ -180,7 +193,7 @@ func main() {
 		if len(args) > 1 {
 			if c, _, _ := lookup(registry, args[1:]); c != nil {
 				if c.Group {
-					cruiseUsage()
+					groupUsage(c)
 				} else {
 					commandHelp(c)
 				}
@@ -212,20 +225,20 @@ func main() {
 	if c.Group {
 		// a head with no subcommand, or a help word: the group's usage
 		if len(rest) == 0 {
-			cruiseUsage()
+			groupUsage(c)
 			os.Exit(2)
 		}
 		if isHelpWord(rest[0]) {
-			cruiseUsage()
+			groupUsage(c)
 			return
 		}
-		fmt.Fprintf(os.Stderr, "unknown cruise verb %q\n", rest[0])
-		if s := suggest("cruise "+rest[0], sortedNames(registry)); s != "" {
+		fmt.Fprintf(os.Stderr, "unknown %s verb %q\n", c.Name(), rest[0])
+		if s := suggest(c.Name()+" "+rest[0], sortedNames(registry)); s != "" {
 			fmt.Fprintln(os.Stderr, s)
 		}
 		fmt.Fprintln(os.Stderr, "Nothing was done.")
 		fmt.Fprintln(os.Stderr)
-		cruiseUsage()
+		groupUsage(c)
 		os.Exit(2)
 	}
 
@@ -250,6 +263,22 @@ func main() {
 }
 
 func usage() { fmt.Print(registryUsage(registry)) }
+
+// groupUsage prints a group's subcommands from the registry; cruise keeps
+// its authored text, which the gates and tests read.
+func groupUsage(g *Command) {
+	if g.Name() == "cruise" {
+		cruiseUsage()
+		return
+	}
+	fmt.Printf("ks %s: %s\n\nusage:\n", g.Name(), g.Summary)
+	for _, c := range registry {
+		if !c.Group && len(c.Path) > 1 && c.Path[0] == g.Path[0] {
+			fmt.Printf("  %-44s %s\n", c.Usage(), c.Summary)
+		}
+	}
+	fmt.Println("\nHelp makes no request and changes nothing.")
+}
 
 func die(err error) {
 	fmt.Fprintln(os.Stderr, "error:", err)
