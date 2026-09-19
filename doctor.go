@@ -5,6 +5,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -68,6 +69,26 @@ func runDoctor() int {
 			}
 		} else {
 			note("--", "token", "token check unavailable (control plane unreachable)")
+		}
+	}
+
+	// 2b. what the control plane says it can do, and which of this client's
+	// commands it therefore disables; a registry that cannot be read shows
+	// its cached copy with the fetch time, never as current
+	if signedIn {
+		if set, err := fetchCapabilities(cr); err == nil {
+			line, disabled := capabilitySummary(set)
+			note("ok", "capabilities", "capabilities: "+line)
+			for _, d := range disabled {
+				note("note", "capabilities", d)
+			}
+		} else if errors.Is(err, errNoCapabilities) {
+			note("--", "capabilities", "capability registry: not published by this control plane; commands that need one are disabled")
+		} else if cached := cachedCapabilities(); cached != nil {
+			line, _ := capabilitySummary(cached)
+			note("--", "capabilities", "capability registry unreachable; cached copy fetched "+cached.CachedAt+": "+line)
+		} else {
+			note("--", "capabilities", "capability registry unreachable and no cached copy")
 		}
 	}
 

@@ -64,6 +64,7 @@ type Command struct {
 	Nothing  string   // the closing line of a refusal: what did NOT happen ("No session was started.")
 	Effects  string   // what the command changes or bills; "nothing" for a read
 	Examples []string // safe examples, each a full command line
+	Needs    string   // a capability id the control plane must report available before this runs
 	Group    bool     // a head with subcommands and no handler of its own
 	Run      func(inv *Invocation)
 }

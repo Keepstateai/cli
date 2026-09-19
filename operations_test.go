@@ -73,6 +73,9 @@ func (c *opCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		fmt.Fprint(w, `{"ok":true}`)
+	case r.Method == "GET" && r.URL.Path == "/api/capabilities":
+		// the KS-004 control plane declares the capability the record verbs need
+		fmt.Fprint(w, `{"schema_version":2,"request_id":"r","data":{"registry_version":"test","build":"abc","fetched_at":"2026-09-20T00:00:00Z","price_book":"v1.3","capabilities":[{"id":"operations.idempotent","availability":"available","summary":"ops","surface":"api"}],"limits":{}}}`)
 	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/operations/"):
 		id := strings.TrimPrefix(r.URL.Path, "/api/operations/")
 		c.mu.Lock()
@@ -289,8 +292,10 @@ func TestOlderControlPlaneWithoutOperations(t *testing.T) {
 	if code != 0 || strings.TrimSpace(out) != "sess-audit" {
 		t.Fatalf("plain 200 path: exit %d %q", code, out)
 	}
+	// the record verb is disabled by the missing capability registry, with
+	// the reason, before it asks for a record the older control plane has not got
 	_, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "operation", "show", "ksop_whatever")
-	if code == 0 || !strings.Contains(errs, "does not serve operation records") {
+	if code == 0 || !strings.Contains(errs, "publishes no capability registry") {
 		t.Errorf("older control plane: exit %d\n%s", code, errs)
 	}
 }

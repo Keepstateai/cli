@@ -137,11 +137,13 @@ var registry = []*Command{
 	{Path: []string{"operation"}, Group: true, Summary: "operation records", Surface: "hosted"},
 	{Path: []string{"operation", "show"}, Summary: "read an operation back by its id or key: state, result, timestamps", Surface: "hosted",
 		Args:     []Arg{{Name: "operation", Required: true}},
+		Needs:    "operations.idempotent",
 		Effects:  "reads the record; nothing changes",
 		Examples: []string{"ks operation show ksop_0123456789abcdef0123456789abcdef"},
 		Nothing:  "Nothing was read.", Run: hosted(hostedOperationShow)},
 	{Path: []string{"operation", "wait"}, Summary: "wait, within the bound, for an operation to finish and print its result", Surface: "hosted",
 		Args:     []Arg{{Name: "operation", Required: true}},
+		Needs:    "operations.idempotent",
 		Effects:  "reads the record until it finishes or the wait bound passes; nothing changes; Ctrl-C stops the local waiting only",
 		Examples: []string{"ks operation wait ksop_0123456789abcdef0123456789abcdef"},
 		Nothing:  "Nothing was read.", Run: hosted(hostedOperationWait)},
@@ -307,6 +309,7 @@ func hosted(run func(cr hostedCreds, inv *Invocation)) func(*Invocation) {
 		if !ok {
 			fail(&cliError{Code: exitAuth, Kind: "not_signed_in", Message: "Not signed in. Run: ks login", NextAction: "ks login"})
 		}
+		requireCapability(cr, inv.Cmd)
 		run(cr, inv)
 	}
 }
