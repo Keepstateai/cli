@@ -11,7 +11,7 @@ control plane; the client is a key, the building is
 ## Install (any one of three)
 
 ```sh
-curl -fsSL https://keepstate.ai/install | sh
+curl -fsSL https://keepstate.ai/install.sh | sh
 ```
 
 ```sh

@@ -36,7 +36,14 @@ func runLogin(inv *Invocation) error {
 	if inv.Set("ctl") {
 		ctl = inv.Str("ctl")
 	}
-	resp, err := http.PostForm(ctl+"/api/device/code", url.Values{})
+	ctl, err := validateControlPlane(ctl)
+	if err != nil {
+		return err
+	}
+	if cr, ok := hostedToken(); ok {
+		fmt.Fprintf(os.Stderr, "note: already signed in as %s; signing in again replaces that credential locally (it stays valid server-side until revoked: ks logout does both)\n", identityLine(cr))
+	}
+	resp, err := ordinaryClient().PostForm(ctl+"/api/device/code", url.Values{})
 	if err != nil {
 		return fmt.Errorf("control plane unreachable: %w", err)
 	}
@@ -45,6 +52,9 @@ func runLogin(inv *Invocation) error {
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&dc); err != nil || dc.DeviceCode == "" {
 		return fmt.Errorf("device code request failed: %s", resp.Status)
 	}
+	if err := validateReturnURL(ctl, dc.VerificationURI); err != nil {
+		return err
+	}
 	fmt.Printf("Visit %s and enter code: %s\n", dc.VerificationURI, dc.UserCode)
 	fmt.Println("Waiting for approval...")
 
@@ -52,7 +62,7 @@ func runLogin(inv *Invocation) error {
 	deadline := time.Now().Add(time.Duration(dc.ExpiresIn) * time.Second)
 	for time.Now().Before(deadline) {
 		time.Sleep(interval)
-		tr, err := http.PostForm(ctl+"/api/device/token", url.Values{"device_code": {dc.DeviceCode}})
+		tr, err := ordinaryClient().PostForm(ctl+"/api/device/token", url.Values{"device_code": {dc.DeviceCode}})
 		if err != nil {
 			continue // transient; the deadline bounds us
 		}
@@ -64,10 +74,18 @@ func runLogin(inv *Invocation) error {
 		}
 		switch {
 		case tr.StatusCode == http.StatusOK && tok.Token != "":
-			if err := storeToken(ctl, tok); err != nil {
+			// the account this token belongs to is recorded with it, so the
+			// identity is readable later without a request
+			account := whoamiAccount(ctl, tok.Token)
+			if err := storeToken(ctl, tok, account); err != nil {
 				return fmt.Errorf("token minted but not stored: %w", err)
 			}
-			fmt.Println("Signed in. The token lives in your OS credential store; revoke it any time from your account page.")
+			if account != "" {
+				fmt.Printf("Signed in as account %s on %s.\n", account, ctl)
+			} else {
+				fmt.Printf("Signed in on %s (the account id could not be read back; ks doctor will show it).\n", ctl)
+			}
+			fmt.Println("The token is a file only you can read; ks logout removes it here and revokes it there.")
 			return nil
 		case tr.StatusCode == http.StatusPreconditionRequired:
 			continue // authorization_pending
@@ -81,9 +99,9 @@ func runLogin(inv *Invocation) error {
 // storeToken writes to the platform credential store. The JSON payload
 // carries the control-plane origin and token id (revocation UX), and
 // the token itself; on non-darwin platforms it is a 0600 file.
-func storeToken(ctl string, tok deviceTokenResp) error {
+func storeToken(ctl string, tok deviceTokenResp, account string) error {
 	payload, err := json.Marshal(map[string]string{
-		"ctl": ctl, "token": tok.Token, "token_id": tok.TokenID, "scope": tok.Scope,
+		"ctl": ctl, "token": tok.Token, "token_id": tok.TokenID, "scope": tok.Scope, "account_id": account,
 	})
 	if err != nil {
 		return err
@@ -113,4 +131,24 @@ func configHome() string {
 		home = "."
 	}
 	return filepath.Join(home, ".config")
+}
+
+// whoamiAccount reads the account id a fresh token belongs to; "" when the
+// control plane did not answer, which the caller reports rather than hides.
+func whoamiAccount(ctl, token string) string {
+	req, err := http.NewRequest("GET", ctl+"/api/whoami", nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := ordinaryClient().Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		return ""
+	}
+	defer resp.Body.Close()
+	var who struct {
+		AccountID string `json:"account_id"`
+	}
+	_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&who)
+	return who.AccountID
 }

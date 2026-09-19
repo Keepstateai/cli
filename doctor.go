@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -21,6 +22,11 @@ func runDoctor() int {
 	cr, signedIn := hostedToken()
 	if signedIn && cr.CTL != "" {
 		ctl = cr.CTL
+	}
+	// 0. identity, from the stored credential, before any request: the
+	// account a destructive command would act on is the first thing to know
+	if signedIn {
+		fmt.Printf("id    %s (credential: %s)\n", identityLine(cr), cr.Source)
 	}
 	if resp, err := client.Get(ctl + "/healthz"); err == nil && resp.StatusCode == 200 {
 		resp.Body.Close()
@@ -74,12 +80,42 @@ func runDoctor() int {
 	return 0
 }
 
+// runLogout leaves the client signed out whatever it finds: the primary
+// file, the legacy bench file, and any local bindings all go, and the
+// server-side revocation is attempted and reported on its own. A
+// revocation the network lost is said to have been lost, not assumed.
 func runLogout() error {
-	p := tokenPath()
-	if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
-		return err
+	cr, signedIn := hostedToken()
+	if signedIn {
+		resp, raw, err := doBounded(cr, "POST", "/api/tokens/revoke", nil, nil)
+		switch {
+		case err != nil:
+			fmt.Fprintf(os.Stderr, "server-side revocation: not confirmed (%v); revoke the token from your account page\n", err)
+		case resp.StatusCode == http.StatusOK:
+			fmt.Println("server-side revocation: done")
+		case resp.StatusCode == http.StatusUnauthorized:
+			fmt.Println("server-side revocation: the token was already dead")
+		case resp.StatusCode == http.StatusNotFound:
+			fmt.Println("server-side revocation: this control plane has no self-revocation route; revoke the token from your account page")
+		default:
+			fmt.Fprintf(os.Stderr, "server-side revocation: not confirmed (%v); revoke the token from your account page\n", hostedError("POST", "/api/tokens/revoke", resp, raw))
+		}
 	}
-	fmt.Println("Signed out. The server-side token can also be revoked from your account page.")
+	removed := 0
+	for _, p := range []string{tokenPath(), legacyTokenPath(), filepath.Join(configDir(), "bindings.json")} {
+		if p == "" {
+			continue
+		}
+		if err := os.Remove(p); err == nil {
+			removed++
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("could not remove %s: %w", p, err)
+		}
+	}
+	if _, still := hostedToken(); still {
+		return fmt.Errorf("a credential source is still readable after logout; nothing was left on purpose")
+	}
+	fmt.Printf("Signed out locally (%d file(s) removed). The operations ledger stays; it holds no secrets.\n", removed)
 	return nil
 }
 

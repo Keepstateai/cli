@@ -12,13 +12,15 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
 type hostedCreds struct {
-	CTL   string `json:"ctl"`
-	Token string `json:"token"`
+	CTL       string `json:"ctl"`
+	Token     string `json:"token"`
+	TokenID   string `json:"token_id,omitempty"`
+	AccountID string `json:"account_id,omitempty"`
+	Source    string `json:"-"` // which file it came from
 }
 
 // hostedToken reads the credential stored by `ks login` — a 0600 file in
@@ -27,19 +29,33 @@ type hostedCreds struct {
 // when the first is absent: ~/.keepstate/hosted.json {ctl, token}, the
 // endpoint file the gates and the bench write.
 func hostedToken() (hostedCreds, bool) {
-	var c hostedCreds
-	paths := []string{filepath.Join(configHome(), "keepstate", "token.json")}
-	if home, err := os.UserHomeDir(); err == nil {
-		paths = append(paths, filepath.Join(home, ".keepstate", "hosted.json"))
+	paths := []string{tokenPath()}
+	if p := legacyTokenPath(); p != "" {
+		paths = append(paths, p)
 	}
 	for _, p := range paths {
+		var c hostedCreds
 		b, err := os.ReadFile(p)
 		if err != nil {
+			if !os.IsNotExist(err) {
+				// present but unreadable: say so, never fall through to a
+				// weaker source as if nothing were there
+				fmt.Fprintf(os.Stderr, "the stored credential %s cannot be read (%v); fix its permissions or run: ks login\n", p, err)
+				os.Exit(2)
+			}
 			continue
 		}
-		if json.Unmarshal(b, &c) == nil && c.Token != "" && c.CTL != "" {
-			return c, true
+		if json.Unmarshal(b, &c) != nil || c.Token == "" || c.CTL == "" {
+			continue
 		}
+		ctl, err := validateControlPlane(c.CTL)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "the stored credential %s names an unsafe control plane: %v\nRun: ks logout, then ks login --ctl <https URL>\n", p, err)
+			os.Exit(2)
+		}
+		c.CTL = ctl
+		c.Source = p
+		return c, true
 	}
 	return hostedCreds{}, false
 }
