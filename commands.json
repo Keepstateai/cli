@@ -87,16 +87,10 @@
   {
    "verb": "meter",
    "aliases": [],
-   "usage": "ks meter <session> [--json]",
+   "usage": "ks meter <session>",
    "summary": "spend, budget, key sources",
    "status": "available",
-   "surface": "hosted",
-   "flags": [
-    {
-     "flag": "--json",
-     "summary": "print the meter as JSON"
-    }
-   ]
+   "surface": "hosted"
   },
   {
    "verb": "exec",
@@ -296,30 +290,18 @@
   {
    "verb": "operation show",
    "aliases": [],
-   "usage": "ks operation show <operation> [--json]",
+   "usage": "ks operation show <operation>",
    "summary": "read an operation back by its id or key: state, result, timestamps",
    "status": "available",
-   "surface": "hosted",
-   "flags": [
-    {
-     "flag": "--json",
-     "summary": "print the record as JSON"
-    }
-   ]
+   "surface": "hosted"
   },
   {
    "verb": "operation wait",
    "aliases": [],
-   "usage": "ks operation wait <operation> [--json]",
+   "usage": "ks operation wait <operation>",
    "summary": "wait, within the bound, for an operation to finish and print its result",
    "status": "available",
-   "surface": "hosted",
-   "flags": [
-    {
-     "flag": "--json",
-     "summary": "print the record as JSON"
-    }
-   ]
+   "surface": "hosted"
   }
  ]
 }

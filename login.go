@@ -40,6 +40,9 @@ func runLogin(inv *Invocation) error {
 	if err != nil {
 		return err
 	}
+	if out.noInput {
+		return &cliError{Code: exitUsage, Kind: "needs_input", Message: "sign-in needs a browser and your confirmation; it cannot run with --no-input", NextAction: "ks login (without --no-input)"}
+	}
 	if cr, ok := hostedToken(); ok {
 		fmt.Fprintf(os.Stderr, "note: already signed in as %s; signing in again replaces that credential locally (it stays valid server-side until revoked: ks logout does both)\n", identityLine(cr))
 	}

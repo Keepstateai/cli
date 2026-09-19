@@ -1,0 +1,4 @@
+exit 0
+--- stdout ---
+{"data":{"control_plane":"http://control-plane","image":"base","session_id":"sess-golden","state":"running"},"request_id":"req_…","schema_version":2}
+--- stderr ---

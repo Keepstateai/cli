@@ -1,0 +1,4 @@
+exit 0
+--- stdout ---
+session empty · spent unavailable / budget unavailable tokens · billed calls unavailable · key source(s): unavailable
+--- stderr ---

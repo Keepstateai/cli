@@ -77,8 +77,8 @@ func TestLogoutRemovesEveryCredentialSource(t *testing.T) {
 		t.Errorf("doctor after logout:\n%s", out)
 	}
 	_, errs, code = auditExec(t, bin, cfg, t.TempDir(), env, "run")
-	if code != 2 || !strings.Contains(errs, "Not signed in") {
-		t.Errorf("run after logout: exit %d %s", code, errs)
+	if code != exitAuth || !strings.Contains(errs, "Not signed in") {
+		t.Errorf("run after logout: exit %d (want %d, sign-in) %s", code, exitAuth, errs)
 	}
 	// the revocation was attempted against the recorder before the files went
 	seen := false

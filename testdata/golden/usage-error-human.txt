@@ -1,0 +1,7 @@
+exit 2
+--- stdout ---
+--- stderr ---
+Unknown option: --buget
+Did you mean --budget-tokens?
+No session was started.
+usage: ks run [--image I] [--budget-tokens N]

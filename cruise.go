@@ -707,6 +707,10 @@ func cruiseModels(inv *Invocation) {
 	if err := hostedCall(c, "GET", "/api/models", nil, &t); err != nil {
 		die(err)
 	}
+	if out.json {
+		emit(t, nil)
+		return
+	}
 	fmt.Printf("model table %s (from %s)\n", t.Version, c.CTL)
 	for _, f := range familyNames(t) {
 		fmt.Printf("  %s (provider %s): %s\n", f, t.Families[f].Provider, strings.Join(t.Families[f].Rungs, ", "))
@@ -883,6 +887,13 @@ func cruiseInit(inv *Invocation) {
 	}
 
 	// 6. the digest first, on its own line, then the summary
+	if out.json {
+		emit(map[string]any{"manifest_sha": sha, "draft": cruiseDraft, "goal": goal, "check": ck.command, "check_kind": ck.kind,
+			"tests_pinned": testCount, "tests_digest": tests, "boundary": boundary, "ladder": ladderWords(ladder), "rungs": len(ladder),
+			"time_s": cruiseTimeS, "spend_microusd": spend, "reserve_microusd": cruiseReserve,
+			"workspace": map[string]any{"files": len(files), "packed_bytes": cw.n, "tree_digest": treeDigest(files)}, "previous_approval_removed": lockRemoved}, nil)
+		return
+	}
 	fmt.Println(sha)
 	fmt.Printf("manifest: %s (draft, version 1)\n", cruiseDraft)
 	fmt.Printf("goal: %s\n", goal)
@@ -1040,9 +1051,11 @@ func cruiseApprove(inv *Invocation) {
 	if err := os.WriteFile(filepath.Join(root, cruiseLock), append(b, '\n'), 0o644); err != nil {
 		die(err)
 	}
-	fmt.Println(sha)
-	fmt.Printf("approved: %s locks manifest version %v at %s\n", cruiseLock, m["version"], lk.ApprovedAt)
-	fmt.Println("next: ks cruise run")
+	emit(map[string]any{"manifest_sha": sha, "lock": cruiseLock, "version": m["version"], "approved_at": lk.ApprovedAt}, func() {
+		fmt.Println(sha)
+		fmt.Printf("approved: %s locks manifest version %v at %s\n", cruiseLock, m["version"], lk.ApprovedAt)
+		fmt.Println("next: ks cruise run")
+	})
 }
 
 func readLock() (lockFile, error) {
@@ -1181,12 +1194,14 @@ func cruiseRun(inv *Invocation) error {
 		}
 	}
 	if filled {
-		fmt.Fprintf(os.Stderr, "workspace digest filled at run; the manifest digest sent is %s\n", sha)
+		progress("workspace digest filled at run; the manifest digest sent is %s", sha)
 	}
 	ladder, _ := m["ladder"].([]any)
-	fmt.Fprintf(os.Stderr, "job %s %s: spend ceiling %s, %d rungs, %s bytes packed (on %s)\n",
-		jstr(job, "id"), jstr(job, "state"), ceiling, len(ladder), commas(cw.n), c.CTL)
-	fmt.Println(jstr(job, "id"))
+	emit(map[string]any{"job_id": job["id"], "state": job["state"], "spend_ceiling": ceiling, "spend_ceiling_microusd": job["spend_ceiling_microusd"], "rungs": len(ladder), "packed_bytes": cw.n, "manifest_sha": sha}, func() {
+		progress("job %s %s: spend ceiling %s, %d rungs, %s bytes packed (on %s)",
+			jstr(job, "id"), jstr(job, "state"), ceiling, len(ladder), commas(cw.n), c.CTL)
+		fmt.Println(jstr(job, "id"))
+	})
 	return nil
 }
 
@@ -1282,7 +1297,7 @@ func cruiseStatus(inv *Invocation) {
 			die(err)
 		}
 		if len(jobs) == 0 {
-			fmt.Println("no jobs on this account; start one with ks cruise init")
+			emit(map[string]any{"job": nil, "note": "no jobs on this account"}, func() { fmt.Println("no jobs on this account; start one with ks cruise init") })
 			return
 		}
 		job = jobs[0]
@@ -1297,7 +1312,7 @@ func cruiseStatus(inv *Invocation) {
 	} else {
 		job = fetchJob(c, id)
 	}
-	printJob(job)
+	emit(job, func() { printJob(job) })
 }
 
 // printJob renders the contract's words as the control plane sent them:
@@ -1379,7 +1394,9 @@ func cruiseLogs(inv *Invocation) {
 		die(err)
 	}
 	if len(events) == 0 {
-		fmt.Println("no events yet")
+		if !out.json {
+			fmt.Println("no events yet")
+		}
 		return
 	}
 	for _, e := range events {
@@ -1387,7 +1404,7 @@ func cruiseLogs(inv *Invocation) {
 		if n, ok := jnum(e, "seq"); ok {
 			seq = strconv.FormatInt(n, 10)
 		}
-		fmt.Printf("%s %s %s%s\n", seq, jstr(e, "ts"), jstr(e, "type"), eventDetail(e))
+		emitLine(e, fmt.Sprintf("%s %s %s%s", seq, jstr(e, "ts"), jstr(e, "type"), eventDetail(e)))
 	}
 }
 
@@ -1413,8 +1430,10 @@ func cruiseCancel(inv *Invocation) {
 	if err := hostedMutate(c, "POST", "/api/jobs/"+id+"/cancel", map[string]any{}, &job); err != nil {
 		die(err)
 	}
-	fmt.Fprintf(os.Stderr, "job %s %s\n", id, jstr(job, "state"))
-	fmt.Println(id)
+	emit(job, func() {
+		progress("job %s %s", id, jstr(job, "state"))
+		fmt.Println(id)
+	})
 }
 
 func cruiseResume(inv *Invocation) {
@@ -1432,8 +1451,10 @@ func cruiseResume(inv *Invocation) {
 	if err := hostedMutate(c, "POST", "/api/jobs/"+id+"/resume", req, &job); err != nil {
 		die(err)
 	}
-	fmt.Fprintf(os.Stderr, "job %s %s\n", id, jstr(job, "state"))
-	fmt.Println(id)
+	emit(job, func() {
+		progress("job %s %s", id, jstr(job, "state"))
+		fmt.Println(id)
+	})
 }
 
 func cruiseArtifact(inv *Invocation) error {
@@ -1444,12 +1465,12 @@ func cruiseArtifact(inv *Invocation) error {
 	if want == "" {
 		return fmt.Errorf("no artifact for job %s: state %s, verdict %s", id, jstr(job, "state"), jstr(job, "verdict"))
 	}
-	out := id + ".tar.gz"
+	dest := id + ".tar.gz"
 	if inv.Set("out") {
-		out = inv.Str("out")
+		dest = inv.Str("out")
 	}
-	if _, err := os.Stat(out); err == nil {
-		return fmt.Errorf("%s exists; choose another name with --out", out)
+	if _, err := os.Stat(dest); err == nil {
+		return fmt.Errorf("%s exists; choose another name with --out", dest)
 	}
 	resp, err := hostedDo(c, "GET", "/api/jobs/"+id+"/artifact", "", nil)
 	if err != nil {
@@ -1462,7 +1483,7 @@ func cruiseArtifact(inv *Invocation) error {
 	}
 	// downloaded next to the target, verified, then renamed into place:
 	// the named file exists only once its sha256 matches the job's record
-	dir := filepath.Dir(out)
+	dir := filepath.Dir(dest)
 	tmp, err := os.CreateTemp(dir, ".ks-artifact-*")
 	if err != nil {
 		return err
@@ -1478,10 +1499,12 @@ func cruiseArtifact(inv *Invocation) error {
 	if got != want {
 		return fmt.Errorf("artifact refused: sha256 %s does not match the job's record %s (nothing written)", short(got), short(want))
 	}
-	if err := os.Rename(tmp.Name(), out); err != nil {
+	if err := os.Rename(tmp.Name(), dest); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "artifact %s: %s bytes, sha256 %s verified\n", id, commas(n), short(want))
-	fmt.Println(out)
+	emit(map[string]any{"job_id": id, "path": dest, "bytes": n, "sha256": want}, func() {
+		progress("artifact %s: %s bytes, sha256 %s verified", id, commas(n), short(want))
+		fmt.Println(dest)
+	})
 	return nil
 }

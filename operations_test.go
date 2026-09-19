@@ -174,7 +174,7 @@ func TestUnreachableControlPlaneEndsWithARecoveryCommand(t *testing.T) {
 	if len(led) != 1 {
 		t.Fatalf("ledger has %d entries, want the one operation", len(led))
 	}
-	if !strings.Contains(errs, "ks operation show "+led[0].Key) || !strings.Contains(errs, "No new work was started.") {
+	if !strings.Contains(errs, "Next: ks operation show "+led[0].Key) || !strings.Contains(errs, "No remote work was started.") {
 		t.Errorf("no recovery command with the key:\n%s", errs)
 	}
 	if strings.Count(errs, "retrying the same operation") != 2 {

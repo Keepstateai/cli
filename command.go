@@ -217,14 +217,16 @@ func lookup(reg []*Command, args []string) (*Command, []string, string) {
 // ---------------------------------------------------------------------
 
 func (c *Command) findFlag(name string) *Flag {
-	for i := range c.Flags {
-		f := &c.Flags[i]
-		if f.Name == name {
-			return f
-		}
-		for _, a := range f.Aliases {
-			if a == name {
+	for _, set := range [][]Flag{c.Flags, globalFlags} {
+		for i := range set {
+			f := &set[i]
+			if f.Name == name {
 				return f
+			}
+			for _, a := range f.Aliases {
+				if a == name {
+					return f
+				}
 			}
 		}
 	}
@@ -242,10 +244,12 @@ func (c *Command) findShort(letter string) *Flag {
 
 func (c *Command) flagNames() []string {
 	var out []string
-	for _, f := range c.Flags {
-		out = append(out, "--"+f.Name)
-		for _, a := range f.Aliases {
-			out = append(out, "--"+a)
+	for _, set := range [][]Flag{c.Flags, globalFlags} {
+		for _, f := range set {
+			out = append(out, "--"+f.Name)
+			for _, a := range f.Aliases {
+				out = append(out, "--"+a)
+			}
 		}
 	}
 	return out
@@ -256,10 +260,12 @@ func (c *Command) flagNames() []string {
 // teaches the current spelling rather than the old one.
 func (c *Command) suggestFlag(got string) string {
 	canonical := map[string]string{}
-	for _, f := range c.Flags {
-		canonical["--"+f.Name] = "--" + f.Name
-		for _, a := range f.Aliases {
-			canonical["--"+a] = "--" + f.Name
+	for _, set := range [][]Flag{c.Flags, globalFlags} {
+		for _, f := range set {
+			canonical["--"+f.Name] = "--" + f.Name
+			for _, a := range f.Aliases {
+				canonical["--"+a] = "--" + f.Name
+			}
 		}
 	}
 	s := suggest(got, c.flagNames())
@@ -521,6 +527,10 @@ func commandHelp(c *Command) {
 			fmt.Printf("  %-34s %s\n", name, f.Summary)
 		}
 	}
+	fmt.Println("\nglobal options (every command):")
+	for _, f := range globalFlags {
+		fmt.Printf("  %-34s %s\n", f.render(), f.Summary)
+	}
 	if c.Effects != "" {
 		fmt.Printf("\neffects:\n  %s\n", c.Effects)
 	}
@@ -550,6 +560,11 @@ func registryUsage(reg []*Command) string {
 		fmt.Fprintf(&b, "  %-44s %s\n", line, c.Summary)
 	}
 	b.WriteString(`
+Global options on every command: --json, --plain, --no-color, --quiet,
+--no-input, --yes, --wait-timeout DURATION (ks <command> --help lists them).
+Exit codes: 0 ok, 1 failed, 2 usage, 3 sign-in, 4 temporary or unknown
+outcome, 5 conflict or limit, 6 integrity, 130 interrupted.
+
 Sessions survive kills: checkpoint, wake, and the agent resumes exactly
 where it stopped — files, memory, and running processes intact.
 Every --help makes no request and changes nothing.

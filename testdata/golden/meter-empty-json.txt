@@ -1,0 +1,4 @@
+exit 0
+--- stdout ---
+{"data":{"session":"empty"},"request_id":"req_…","schema_version":2}
+--- stderr ---

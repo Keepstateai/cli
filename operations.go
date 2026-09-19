@@ -191,7 +191,7 @@ func hostedMutate(cr hostedCreds, method, path string, body any, out any) error 
 	var lastErr error
 	for attempt := 0; attempt < mutationAttempts; attempt++ {
 		if attempt > 0 {
-			fmt.Fprintf(os.Stderr, "retrying the same operation (%s), attempt %d of %d\n", key, attempt+1, mutationAttempts)
+			progress("retrying the same operation (%s), attempt %d of %d", key, attempt+1, mutationAttempts)
 			time.Sleep(retryAfter(resp, attempt-1))
 		}
 		r, b, err := doBounded(cr, method, path, headers, raw)
@@ -212,10 +212,8 @@ func hostedMutate(cr hostedCreds, method, path string, body any, out any) error 
 		if o, err := fetchOperation(cr, key); err == nil {
 			return settleOperation(cr, o, key, out)
 		}
-		fmt.Fprintf(os.Stderr, "The request did not complete: %v\n", lastErr)
-		fmt.Fprintf(os.Stderr, "The operation may exist on the control plane. Check it: ks operation show %s\n", key)
-		fmt.Fprintln(os.Stderr, "No new work was started.")
-		os.Exit(4)
+		fail(&cliError{Code: exitTemporary, Kind: "outcome_unknown", Message: "the request did not complete: " + sanitize(fmt.Sprint(lastErr)) + ". The operation may exist on the control plane",
+			WorkStarted: false, OperationID: key, NextAction: "ks operation show " + key})
 	}
 	if resp.StatusCode == http.StatusAccepted {
 		var receipt struct {
@@ -234,7 +232,7 @@ func hostedMutate(cr hostedCreds, method, path string, body any, out any) error 
 		return hostedError(method, path, resp, body2)
 	}
 	if resp.Header.Get("KS-Operation-Replayed") == "true" {
-		fmt.Fprintf(os.Stderr, "the control plane already had this operation (%s); showing its original result\n", key)
+		progress("the control plane already had this operation (%s); showing its original result", key)
 	}
 	if out != nil && len(body2) > 0 {
 		return json.Unmarshal(body2, out)
@@ -305,7 +303,7 @@ func settleOperation(cr hostedCreds, o *remoteOp, key string, out any) error {
 // bound passes. Ctrl-C stops the local waiting only: the operation keeps
 // running, and the message says how to read it later.
 func waitOperation(cr hostedCreds, id, key string, out any) error {
-	bound := waitTimeout
+	bound := waitBound
 	if v := os.Getenv("KS_WAIT_TIMEOUT_MS"); v != "" {
 		if ms, err := strconv.Atoi(v); err == nil && ms > 0 {
 			bound = time.Duration(ms) * time.Millisecond
@@ -319,12 +317,11 @@ func waitOperation(cr hostedCreds, id, key string, out any) error {
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sig)
 	deadline := time.Now().Add(bound)
-	fmt.Fprintf(os.Stderr, "operation %s accepted; waiting up to %s\n", id, bound.Round(time.Second))
+	progress("operation %s accepted; waiting up to %s", id, bound.Round(time.Second))
 	for {
 		select {
 		case <-sig:
-			fmt.Fprintf(os.Stderr, "\ninterrupted locally; the operation continues on the control plane. Read it later: ks operation show %s\n", id)
-			os.Exit(130)
+			fail(&cliError{Code: exitInterrupt, Kind: "interrupted", Message: "interrupted locally; the operation continues on the control plane", WorkStarted: true, OperationID: id, NextAction: "ks operation show " + id})
 		case <-time.After(interval):
 		}
 		o, err := fetchOperation(cr, id)
@@ -332,15 +329,13 @@ func waitOperation(cr hostedCreds, id, key string, out any) error {
 			if errors.Is(err, errNoOperations) {
 				return err
 			}
-			fmt.Fprintf(os.Stderr, "reading the operation: %v (still waiting)\n", err)
+			progress("reading the operation: %v (still waiting)", err)
 		} else if o.State == "succeeded" || o.State == "failed" {
 			return settleOperation(cr, o, key, out)
 		}
 		if time.Now().After(deadline) {
-			fmt.Fprintf(os.Stderr, "operation %s is still running after %s; it continues on the control plane.\n", id, bound.Round(time.Second))
-			fmt.Fprintf(os.Stderr, "Read it later: ks operation show %s\n", id)
-			fmt.Fprintln(os.Stderr, "No new work was started.")
-			os.Exit(4)
+			fail(&cliError{Code: exitTemporary, Kind: "still_running", Message: fmt.Sprintf("operation %s is still running after %s; it continues on the control plane", id, bound.Round(time.Second)),
+				WorkStarted: true, OperationID: id, NextAction: "ks operation show " + id})
 		}
 	}
 }
@@ -359,7 +354,7 @@ func hostedOperationShow(cr hostedCreds, inv *Invocation) {
 	if err != nil {
 		die(err)
 	}
-	printOperation(o, inv.Bool("json"))
+	printOperation(o)
 }
 
 func hostedOperationWait(cr hostedCreds, inv *Invocation) {
@@ -377,15 +372,14 @@ func hostedOperationWait(cr hostedCreds, inv *Invocation) {
 			die(err)
 		}
 	}
-	printOperation(o, inv.Bool("json"))
+	printOperation(o)
 }
 
-func printOperation(o *remoteOp, asJSON bool) {
-	if asJSON {
-		b, _ := json.Marshal(o)
-		fmt.Println(string(b))
-		return
-	}
+func printOperation(o *remoteOp) {
+	emit(o, func() { printOperationText(o) })
+}
+
+func printOperationText(o *remoteOp) {
 	fmt.Printf("operation %s  state %s\n", o.ID, o.State)
 	fmt.Printf("request: %s %s\n", o.Method, o.Path)
 	fmt.Printf("accepted: %s\n", o.AcceptedAt)

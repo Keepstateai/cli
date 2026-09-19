@@ -54,7 +54,6 @@ var registry = []*Command{
 		Effects:  "reads the meter; nothing changes",
 		Examples: []string{"ks meter <session>", "ks meter <session> --json"},
 		Args:     []Arg{{Name: "session", Required: true}},
-		Flags:    []Flag{{Name: "json", Kind: flagBool, Summary: "print the meter as JSON"}},
 		Nothing:  "Nothing was read.", Run: hosted(hostedMeter)},
 	{Path: []string{"exec"}, Summary: "run one command in the session", Surface: "hosted",
 		Flags:    []Flag{{Name: "shell", Kind: flagBool, Summary: "send the one argument verbatim for the session's shell to interpret (pipes, globs, variables); without it every argument reaches the program exactly as typed"}},
@@ -138,13 +137,11 @@ var registry = []*Command{
 	{Path: []string{"operation"}, Group: true, Summary: "operation records", Surface: "hosted"},
 	{Path: []string{"operation", "show"}, Summary: "read an operation back by its id or key: state, result, timestamps", Surface: "hosted",
 		Args:     []Arg{{Name: "operation", Required: true}},
-		Flags:    []Flag{{Name: "json", Kind: flagBool, Summary: "print the record as JSON"}},
 		Effects:  "reads the record; nothing changes",
 		Examples: []string{"ks operation show ksop_0123456789abcdef0123456789abcdef"},
 		Nothing:  "Nothing was read.", Run: hosted(hostedOperationShow)},
 	{Path: []string{"operation", "wait"}, Summary: "wait, within the bound, for an operation to finish and print its result", Surface: "hosted",
 		Args:     []Arg{{Name: "operation", Required: true}},
-		Flags:    []Flag{{Name: "json", Kind: flagBool, Summary: "print the record as JSON"}},
 		Effects:  "reads the record until it finishes or the wait bound passes; nothing changes; Ctrl-C stops the local waiting only",
 		Examples: []string{"ks operation wait ksop_0123456789abcdef0123456789abcdef"},
 		Nothing:  "Nothing was read.", Run: hosted(hostedOperationWait)},
@@ -175,7 +172,7 @@ var registry = []*Command{
 	{Path: []string{"version"}, Summary: "print the version", Surface: "client",
 		Effects:  "nothing",
 		Examples: []string{"ks version"},
-		Run:      func(*Invocation) { fmt.Println("ks", version) }},
+		Run:      func(*Invocation) { emit(map[string]any{"version": version}, func() { fmt.Println("ks", version) }) }},
 }
 
 func main() {
@@ -252,6 +249,10 @@ func main() {
 		uerr.print()
 		os.Exit(2)
 	}
+	if err := applyGlobals(inv); err != nil {
+		(&UsageError{Cmd: c, Message: err.Error()}).print()
+		os.Exit(2)
+	}
 	if inv.Help {
 		if c.Path[0] == "cruise" {
 			sabotageHelpHook() // test-only, KS_CLI_SABOTAGE_HELP=1: gate CR-7's sabotage
@@ -280,10 +281,8 @@ func groupUsage(g *Command) {
 	fmt.Println("\nHelp makes no request and changes nothing.")
 }
 
-func die(err error) {
-	fmt.Fprintln(os.Stderr, "error:", err)
-	os.Exit(1)
-}
+// die reports a failure in the mode's shape and exits by the table.
+func die(err error) { fail(err) }
 
 // hosted wraps a handler that needs the stored sign-in. A signed-out client
 // stops here with exit 2 and no request.
@@ -291,8 +290,7 @@ func hosted(run func(cr hostedCreds, inv *Invocation)) func(*Invocation) {
 	return func(inv *Invocation) {
 		cr, ok := hostedToken()
 		if !ok {
-			fmt.Fprintln(os.Stderr, "Not signed in. Run: ks login")
-			os.Exit(2)
+			fail(&cliError{Code: exitAuth, Kind: "not_signed_in", Message: "Not signed in. Run: ks login", NextAction: "ks login"})
 		}
 		run(cr, inv)
 	}

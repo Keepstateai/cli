@@ -10,12 +10,23 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"time"
 )
 
 func runDoctor() int {
 	fails := 0
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := ordinaryClient()
+	var checks []map[string]any
+	note := func(status, name, detail string) {
+		checks = append(checks, map[string]any{"check": name, "status": status, "detail": detail})
+		if !out.json {
+			fmt.Printf("%-5s %s\n", status, detail)
+		}
+	}
+	defer func() {
+		if out.json {
+			emit(map[string]any{"checks": checks, "failures": fails}, nil)
+		}
+	}()
 
 	// 1. control plane reachable
 	ctl := "https://ctl.keepstate.ai"
@@ -26,19 +37,19 @@ func runDoctor() int {
 	// 0. identity, from the stored credential, before any request: the
 	// account a destructive command would act on is the first thing to know
 	if signedIn {
-		fmt.Printf("id    %s (credential: %s)\n", identityLine(cr), cr.Source)
+		note("id", "identity", identityLine(cr)+" (credential: "+cr.Source+")")
 	}
 	if resp, err := client.Get(ctl + "/healthz"); err == nil && resp.StatusCode == 200 {
 		resp.Body.Close()
-		fmt.Printf("ok    control plane reachable (%s)\n", ctl)
+		note("ok", "control-plane", "control plane reachable ("+ctl+")")
 	} else {
-		fmt.Printf("FAIL  control plane unreachable (%s)\n", ctl)
+		note("FAIL", "control-plane", "control plane unreachable ("+ctl+")")
 		fails++
 	}
 
 	// 2. token validity
 	if !signedIn {
-		fmt.Println("--    not signed in (run: ks login)")
+		note("--", "token", "not signed in (run: ks login)")
 	} else {
 		req, _ := http.NewRequest("GET", ctl+"/api/whoami", nil)
 		req.Header.Set("Authorization", "Bearer "+cr.Token)
@@ -50,13 +61,13 @@ func runDoctor() int {
 					CohortState string `json:"cohort_state"`
 				}
 				_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&who)
-				fmt.Printf("ok    token valid (account %s, cohort %s)\n", who.AccountID, who.CohortState)
+				note("ok", "token", "token valid (account "+who.AccountID+", cohort "+who.CohortState+")")
 			} else {
-				fmt.Printf("FAIL  token refused (%s) — run: ks login\n", resp.Status)
+				note("FAIL", "token", "token refused ("+resp.Status+"); run: ks login")
 				fails++
 			}
 		} else {
-			fmt.Println("--    token check unavailable (control plane unreachable)")
+			note("--", "token", "token check unavailable (control plane unreachable)")
 		}
 	}
 
@@ -64,17 +75,17 @@ func runDoctor() int {
 	latest, err := latestReleaseTag()
 	switch {
 	case err != nil:
-		fmt.Println("--    version currency unavailable (cannot reach releases)")
+		note("--", "version", "version currency unavailable (cannot reach releases)")
 	case version == "dev":
-		fmt.Printf("--    running a dev build (latest release: %s)\n", latest)
+		note("--", "version", "running a dev build (latest release: "+latest+")")
 	case latest == version:
-		fmt.Printf("ok    up to date (%s)\n", version)
+		note("ok", "version", "up to date ("+version+")")
 	default:
-		fmt.Printf("note  update available: %s -> %s (run: ks update)\n", version, latest)
+		note("note", "version", "update available: "+version+" -> "+latest+" (run: ks update)")
 	}
 
 	if fails > 0 {
-		fmt.Fprintf(os.Stderr, "doctor: %d failure(s)\n", fails)
+		progress("doctor: %d failure(s)", fails)
 		return 1
 	}
 	return 0
@@ -115,7 +126,9 @@ func runLogout() error {
 	if _, still := hostedToken(); still {
 		return fmt.Errorf("a credential source is still readable after logout; nothing was left on purpose")
 	}
-	fmt.Printf("Signed out locally (%d file(s) removed). The operations ledger stays; it holds no secrets.\n", removed)
+	emit(map[string]any{"signed_out": true, "files_removed": removed}, func() {
+		fmt.Printf("Signed out locally (%d file(s) removed). The operations ledger stays; it holds no secrets.\n", removed)
+	})
 	return nil
 }
 
