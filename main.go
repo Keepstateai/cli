@@ -145,6 +145,21 @@ var registry = []*Command{
 		Effects:  "reads the record until it finishes or the wait bound passes; nothing changes; Ctrl-C stops the local waiting only",
 		Examples: []string{"ks operation wait ksop_0123456789abcdef0123456789abcdef"},
 		Nothing:  "Nothing was read.", Run: hosted(hostedOperationWait)},
+	{Path: []string{"completion"}, Summary: "print a shell completion script generated from the command schema", Surface: "client",
+		Args:     []Arg{{Name: "shell", Required: true}},
+		Effects:  "prints the script; installs nothing and edits no shell file (the script's first lines say where to put it)",
+		Examples: []string{"ks completion bash", "ks completion zsh > \"${fpath[1]}/_ks\"", "ks completion fish > ~/.config/fish/completions/ks.fish"},
+		Nothing:  "Nothing was printed.", Run: func(inv *Invocation) {
+			script, err := completionScript(inv.Arg(0))
+			if err != nil {
+				fail(&cliError{Code: exitUsage, Kind: "usage", Message: err.Error()})
+			}
+			fmt.Print(script)
+		}},
+	{Path: []string{"reference"}, Summary: "print the command reference as a Markdown table generated from the command schema", Surface: "client",
+		Effects:  "prints the table; nothing changes",
+		Examples: []string{"ks reference"},
+		Nothing:  "Nothing was printed.", Run: func(*Invocation) { fmt.Print(referenceTable(reg)) }},
 	{Path: []string{"doctor"}, Summary: "connectivity, token, version", Surface: "client",
 		Effects:  "reads: the control plane health, your token, the latest release; nothing changes",
 		Examples: []string{"ks doctor"},

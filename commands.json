@@ -302,6 +302,22 @@
    "summary": "wait, within the bound, for an operation to finish and print its result",
    "status": "available",
    "surface": "hosted"
+  },
+  {
+   "verb": "completion",
+   "aliases": [],
+   "usage": "ks completion <shell>",
+   "summary": "print a shell completion script generated from the command schema",
+   "status": "available",
+   "surface": "client"
+  },
+  {
+   "verb": "reference",
+   "aliases": [],
+   "usage": "ks reference",
+   "summary": "print the command reference as a Markdown table generated from the command schema",
+   "status": "available",
+   "surface": "client"
   }
  ]
 }
