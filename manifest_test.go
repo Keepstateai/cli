@@ -1,127 +1,165 @@
 // manifest_test: commands.json is the machine-readable statement of what
-// this binary dispatches, and it must never drift from the source. Both
-// directions fail: a manifest verb with no case arm, and a case arm with
-// no manifest row. Downstream documentation (keepstate.ai/docs/cli) is
-// generated from commands.json, so a lie here becomes a public lie.
+// this binary dispatches, and it must never drift from the registry in
+// command.go/main.go, in either direction: a manifest verb the registry
+// does not have, a registry verb the manifest does not list, a usage line
+// or a flag that differs. Downstream documentation (keepstate.ai/docs/cli)
+// is generated from commands.json, so a lie here becomes a public lie.
+//
+// The manifest's usage lines and flag tables are GENERATED from the
+// registry (KS_MANIFEST_DUMP writes the registry as JSON for the sync
+// script) and this test is the guard that they were regenerated.
 package main
 
 import (
 	"encoding/json"
 	"os"
-	"regexp"
 	"strings"
 	"testing"
 )
 
-type manifest struct {
-	Commands []struct {
-		Verb    string   `json:"verb"`
-		Aliases []string `json:"aliases"`
-		Status  string   `json:"status"`
-		Surface string   `json:"surface"`
-	} `json:"commands"`
+type manifestRow struct {
+	Verb    string   `json:"verb"`
+	Aliases []string `json:"aliases"`
+	Usage   string   `json:"usage"`
+	Summary string   `json:"summary"`
+	Status  string   `json:"status"`
+	Surface string   `json:"surface"`
+	Flags   []struct {
+		Flag    string `json:"flag"`
+		Summary string `json:"summary"`
+	} `json:"flags"`
 }
 
-// sourceVerbs extracts the case-arm strings of the two dispatch switches.
-func sourceVerbs(t *testing.T, path string) map[string]bool {
+func loadManifest(t *testing.T) []manifestRow {
 	t.Helper()
-	src, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return caseArms(string(src))
-}
-
-// subcommandArms extracts the case arms of one dispatch function only, so
-// a string switch elsewhere in the file (over a state word, say) is never
-// mistaken for a verb.
-func subcommandArms(t *testing.T, path, fn string) map[string]bool {
-	t.Helper()
-	src, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	start := strings.Index(string(src), "func "+fn+"(")
-	if start < 0 {
-		t.Fatalf("%s: no func %s", path, fn)
-	}
-	body := string(src)[start:]
-	if end := strings.Index(body, "\n}\n"); end >= 0 {
-		body = body[:end]
-	}
-	return caseArms(body)
-}
-
-func caseArms(src string) map[string]bool {
-	verbs := map[string]bool{}
-	re := regexp.MustCompile(`(?m)^\s*case ((?:"[a-z-]+"(?:, )?)+):`)
-	q := regexp.MustCompile(`"([a-z-]+)"`)
-	for _, m := range re.FindAllStringSubmatch(src, -1) {
-		for _, v := range q.FindAllStringSubmatch(m[1], -1) {
-			if v[1][0] == '-' { // flag spellings (-v, --help) are meta, not verbs
-				continue
-			}
-			verbs[v[1]] = true
-		}
-	}
-	return verbs
-}
-
-func TestManifestMatchesDispatch(t *testing.T) {
 	raw, err := os.ReadFile("commands.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var m manifest
+	var m struct {
+		Commands []manifestRow `json:"commands"`
+	}
 	if err := json.Unmarshal(raw, &m); err != nil {
 		t.Fatal(err)
 	}
+	return m.Commands
+}
 
-	dispatch := sourceVerbs(t, "main.go")
-	for v := range sourceVerbs(t, "hosted.go") {
-		dispatch[v] = true
-	}
-	// meta arms that are not customer verbs
-	for _, meta := range []string{"help"} {
-		delete(dispatch, meta)
-	}
-	// subcommands: "cruise init" is the arm "cruise" in main.go and the arm
-	// "init" in runCruise; a bare "cruise" row is not a verb of its own
-	subs := map[string]map[string]bool{"cruise": subcommandArms(t, "cruise.go", "runCruise")}
-	for head := range subs {
-		if !dispatch[head] {
-			t.Errorf("main.go has no case arm for %q, the head of its subcommands", head)
-		}
-		delete(dispatch, head)
-		for sub := range subs[head] {
-			dispatch[head+" "+sub] = true
-		}
-	}
+// registryRow is the registry's own description of a command, the shape
+// the manifest sync script consumes.
+type registryRow struct {
+	Verb    string   `json:"verb"`
+	Aliases []string `json:"aliases"`
+	Usage   string   `json:"usage"`
+	Summary string   `json:"summary"`
+	Surface string   `json:"surface"`
+	Flags   []struct {
+		Flag    string `json:"flag"`
+		Summary string `json:"summary"`
+	} `json:"flags"`
+}
 
-	manifested := map[string]bool{}
-	for _, c := range m.Commands {
-		manifested[c.Verb] = true
+func registryRows() []registryRow {
+	var out []registryRow
+	for _, c := range registry {
+		if c.Group {
+			continue
+		}
+		r := registryRow{Verb: c.Name(), Usage: c.Usage(), Summary: c.Summary, Surface: c.Surface, Aliases: []string{}}
 		for _, a := range c.Aliases {
+			r.Aliases = append(r.Aliases, strings.Join(a, " "))
+		}
+		for _, f := range c.Flags {
+			name := f.render()
+			if len(f.Aliases) > 0 {
+				name += " (also --" + strings.Join(f.Aliases, ", --") + ")"
+			}
+			r.Flags = append(r.Flags, struct {
+				Flag    string `json:"flag"`
+				Summary string `json:"summary"`
+			}{name, f.Summary})
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// TestRegistryDump writes the registry as JSON when KS_MANIFEST_DUMP names
+// a file; scripts/sync-manifest.py merges it into commands.json. It is a
+// generator, not a check, and does nothing otherwise.
+func TestRegistryDump(t *testing.T) {
+	p := os.Getenv("KS_MANIFEST_DUMP")
+	if p == "" {
+		t.Skip("set KS_MANIFEST_DUMP=path to export the registry")
+	}
+	b, _ := json.MarshalIndent(registryRows(), "", " ")
+	if err := os.WriteFile(p, append(b, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestManifestMatchesRegistry(t *testing.T) {
+	rows := loadManifest(t)
+	byVerb := map[string]manifestRow{}
+	manifested := map[string]bool{}
+	for _, r := range rows {
+		byVerb[r.Verb] = r
+		manifested[r.Verb] = true
+		for _, a := range r.Aliases {
 			manifested[a] = true
 		}
-		if !dispatch[c.Verb] {
-			t.Errorf("manifest verb %q has no case arm in the source", c.Verb)
+		if r.Status != "available" && r.Status != "planned" {
+			t.Errorf("verb %q has status %q outside the enum", r.Verb, r.Status)
 		}
-		for _, a := range c.Aliases {
-			if !dispatch[a] {
-				t.Errorf("manifest alias %q (of %q) has no case arm in the source", a, c.Verb)
-			}
-		}
-		if c.Status != "available" && c.Status != "planned" {
-			t.Errorf("verb %q has status %q outside the enum", c.Verb, c.Status)
-		}
-		if c.Surface != "client" && c.Surface != "hosted" {
-			t.Errorf("verb %q has surface %q outside the enum", c.Verb, c.Surface)
+		if r.Surface != "client" && r.Surface != "hosted" {
+			t.Errorf("verb %q has surface %q outside the enum", r.Verb, r.Surface)
 		}
 	}
-	for v := range dispatch {
-		if !manifested[v] {
-			t.Errorf("source dispatches %q but commands.json has no row for it", v)
+	known := map[string]bool{}
+	for _, reg := range registryRows() {
+		known[reg.Verb] = true
+		for _, a := range reg.Aliases {
+			known[a] = true
+		}
+		row, ok := byVerb[reg.Verb]
+		if !ok {
+			t.Errorf("registry dispatches %q but commands.json has no row for it", reg.Verb)
+			continue
+		}
+		if row.Usage != reg.Usage {
+			t.Errorf("%s: manifest usage %q, registry renders %q (regenerate: KS_MANIFEST_DUMP=r.json go test -run TestRegistryDump && python3 scripts/sync-manifest.py r.json)", reg.Verb, row.Usage, reg.Usage)
+		}
+		if row.Summary != reg.Summary {
+			t.Errorf("%s: manifest summary %q, registry says %q", reg.Verb, row.Summary, reg.Summary)
+		}
+		if row.Surface != reg.Surface {
+			t.Errorf("%s: manifest surface %q, registry says %q", reg.Verb, row.Surface, reg.Surface)
+		}
+		if strings.Join(row.Aliases, ",") != strings.Join(reg.Aliases, ",") {
+			t.Errorf("%s: manifest aliases %v, registry has %v", reg.Verb, row.Aliases, reg.Aliases)
+		}
+		want := map[string]string{}
+		for _, f := range reg.Flags {
+			want[f.Flag] = f.Summary
+		}
+		got := map[string]string{}
+		for _, f := range row.Flags {
+			got[f.Flag] = f.Summary
+		}
+		for k, v := range want {
+			if got[k] != v {
+				t.Errorf("%s: manifest flag %q is %q, registry says %q", reg.Verb, k, got[k], v)
+			}
+		}
+		for k := range got {
+			if _, ok := want[k]; !ok {
+				t.Errorf("%s: manifest describes flag %q the registry does not have", reg.Verb, k)
+			}
+		}
+	}
+	for v := range manifested {
+		if !known[v] {
+			t.Errorf("manifest verb or alias %q has no registry command", v)
 		}
 	}
 }
@@ -130,24 +168,7 @@ func TestManifestMatchesDispatch(t *testing.T) {
 // meaning, and every flag it lists appears in the row's usage line, so
 // the docs page never renders a flag the binary does not take.
 func TestFlagsAreDescribed(t *testing.T) {
-	raw, err := os.ReadFile("commands.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var m struct {
-		Commands []struct {
-			Verb  string `json:"verb"`
-			Usage string `json:"usage"`
-			Flags []struct {
-				Flag    string `json:"flag"`
-				Summary string `json:"summary"`
-			} `json:"flags"`
-		} `json:"commands"`
-	}
-	if err := json.Unmarshal(raw, &m); err != nil {
-		t.Fatal(err)
-	}
-	for _, c := range m.Commands {
+	for _, c := range loadManifest(t) {
 		for _, f := range c.Flags {
 			name := strings.Fields(f.Flag)
 			if len(name) == 0 || f.Summary == "" {
@@ -215,10 +236,12 @@ func TestProvenanceOfStatedFacts(t *testing.T) {
 				t.Errorf("%s budgetDefaults states numbers without provenance for each tier; the product "+
 					"constitution carried a single wrong number for exactly this reason", c.Verb)
 			}
+			// the override must be a flag the registry actually takes
+			if !strings.Contains(b.Override, "--budget-tokens") {
+				t.Errorf("%s budgetDefaults.override %q does not name the canonical flag --budget-tokens", c.Verb, b.Override)
+			}
 		}
 	}
-	// The two rulings are only satisfied if the manifest actually carries
-	// them. An empty manifest must not pass this test quietly.
 	if !sawSafety {
 		t.Error("no verb states a safety property; the kill guard is a ruled entry (DEC-01 finding 2)")
 	}

@@ -119,110 +119,127 @@ func hostedCall(cr hostedCreds, method, path string, body any, out any) error {
 	return nil
 }
 
-// runHosted dispatches the hosted session verbs. Returns handled=false for
-// verbs with no hosted form (the caller falls back to local ksd).
-func runHosted(cr hostedCreds, verb string) bool {
-	switch verb {
-	case "run":
-		budget := flagValue("--budget", "0")
-		req := map[string]any{"Image": flagValue("--image", ""), "Budget": mustInt(budget)}
-		var sess map[string]any
-		if err := hostedCall(cr, "POST", "/api/sessions", req, &sess); err != nil {
-			die(err)
-		}
-		fmt.Fprintf(os.Stderr, "hosted session %v: image=%v state=%v (on %s)\n", sess["id"], sess["image"], sess["state"], cr.CTL)
-		fmt.Println(sess["id"])
-	case "kill":
-		id := arg(2, "ks kill <session> [--force]")
-		path := "/api/sessions/" + id
-		if hasFlag("--force") {
-			path += "?force=1"
-		}
-		if err := hostedCall(cr, "DELETE", path, nil, nil); err != nil {
-			die(err)
-		}
-		fmt.Println("killed", id)
-	case "resume", "wake":
-		id := arg(2, "ks wake <session>")
-		var sess map[string]any
-		if err := hostedCall(cr, "POST", "/api/sessions/"+id+"/resume", nil, &sess); err != nil {
-			die(err)
-		}
-		fmt.Fprintf(os.Stderr, "hosted session %v resumed\n", id)
-		fmt.Println(id)
-	case "checkpoint", "save":
-		id := arg(2, "ks checkpoint <session> [--stop]")
-		if err := hostedCall(cr, "POST", "/api/sessions/"+id+"/checkpoint", map[string]bool{"Stop": hasFlag("--stop")}, nil); err != nil {
-			die(err)
-		}
-		fmt.Println("checkpointed", id)
-	case "meter":
-		id := arg(2, "ks meter <session> [--json]")
-		var mtr map[string]any
-		if err := hostedCall(cr, "GET", "/api/sessions/"+id+"/meter", nil, &mtr); err != nil {
-			die(err)
-		}
-		if hasFlag("--json") {
-			b, _ := json.Marshal(mtr)
-			fmt.Println(string(b))
-			return true
-		}
-		fmt.Printf("session %v · spent %s / budget %s tokens · billed calls %s · key source(s): %v\n",
-			mtr["session"], commas(asInt(mtr["spent"])), commas(asInt(mtr["budget"])), commas(asInt(mtr["billed_calls"])), mtr["key_sources"])
-	case "exec":
-		id := arg(2, "ks exec <session> <command...>")
-		if len(os.Args) < 4 {
-			die(fmt.Errorf("usage: ks exec <session> <command...>"))
-		}
-		cmd := strings.Join(os.Args[3:], " ")
-		var res map[string]any
-		if err := hostedCall(cr, "POST", "/api/sessions/"+id+"/exec", map[string]string{"Cmd": cmd}, &res); err != nil {
-			die(err)
-		}
-		if out, ok := res["output"].(string); ok {
-			fmt.Print(out)
-		}
-		if e, ok := res["error"].(string); ok && e != "" {
-			fmt.Fprintln(os.Stderr, "exec:", e)
-			os.Exit(1)
-		}
-	case "fork":
-		id := arg(2, "ks fork <session> [-n N] [--steer FILE]")
-		n := flagValue("-n", "1")
-		path := "/api/sessions/" + id + "/fork?n=" + n
-		if f := flagValue("--steer", ""); f != "" {
-			b, err := os.ReadFile(f)
-			if err != nil {
-				die(err)
-			}
-			// one steer, applied to every child (the hosted form keeps it
-			// simple; per-branch steer files are a bench-only affordance).
-			steers, _ := json.Marshal([]string{string(b)})
-			path += "&steers=" + urlQueryEscape(string(steers))
-		}
-		var children []map[string]any
-		if err := hostedCall(cr, "POST", path, nil, &children); err != nil {
-			die(err)
-		}
-		for _, c := range children {
-			fmt.Fprintf(os.Stderr, "child %v: parent=%v (on the fleet)\n", c["id"], c["parent"])
-			fmt.Println(c["id"])
-		}
-	case "attach":
-		id := arg(2, "ks attach <session>")
-		if err := hostedAttach(cr, id); err != nil {
-			die(err)
-		}
-	default:
-		return false
+// ---------------------------------------------------------------------
+// the session verbs, each reading its parsed invocation and nothing else
+// ---------------------------------------------------------------------
+
+// hostedRun sends only what was supplied: an omitted budget is absent from
+// the request, so the control plane applies the account's own default; a
+// supplied one is sent exactly. Zero and negative never get this far: the
+// parser refuses them.
+func hostedRun(cr hostedCreds, inv *Invocation) {
+	req := map[string]any{}
+	if inv.Set("image") {
+		req["Image"] = inv.Str("image")
 	}
-	return true
+	if inv.Set("budget-tokens") {
+		req["Budget"] = inv.Int("budget-tokens")
+	}
+	var sess map[string]any
+	if err := hostedCall(cr, "POST", "/api/sessions", req, &sess); err != nil {
+		die(err)
+	}
+	fmt.Fprintf(os.Stderr, "hosted session %v: image=%v state=%v (on %s)\n", sess["id"], sess["image"], sess["state"], cr.CTL)
+	fmt.Println(sess["id"])
 }
 
-func mustInt(s string) int64 {
-	var n int64
-	fmt.Sscanf(s, "%d", &n)
-	return n
+func hostedKill(cr hostedCreds, inv *Invocation) {
+	id := inv.Arg(0)
+	path := "/api/sessions/" + id
+	if inv.Bool("force") {
+		path += "?force=1"
+	}
+	if err := hostedCall(cr, "DELETE", path, nil, nil); err != nil {
+		die(err)
+	}
+	fmt.Println("killed", id)
+}
+
+func hostedWake(cr hostedCreds, inv *Invocation) {
+	id := inv.Arg(0)
+	var sess map[string]any
+	if err := hostedCall(cr, "POST", "/api/sessions/"+id+"/resume", nil, &sess); err != nil {
+		die(err)
+	}
+	fmt.Fprintf(os.Stderr, "hosted session %v resumed\n", id)
+	fmt.Println(id)
+}
+
+func hostedCheckpoint(cr hostedCreds, inv *Invocation) {
+	id := inv.Arg(0)
+	if err := hostedCall(cr, "POST", "/api/sessions/"+id+"/checkpoint", map[string]bool{"Stop": inv.Bool("stop")}, nil); err != nil {
+		die(err)
+	}
+	fmt.Println("checkpointed", id)
+}
+
+func hostedMeter(cr hostedCreds, inv *Invocation) {
+	id := inv.Arg(0)
+	var mtr map[string]any
+	if err := hostedCall(cr, "GET", "/api/sessions/"+id+"/meter", nil, &mtr); err != nil {
+		die(err)
+	}
+	if inv.Bool("json") {
+		b, _ := json.Marshal(mtr)
+		fmt.Println(string(b))
+		return
+	}
+	fmt.Printf("session %v · spent %s / budget %s tokens · billed calls %s · key source(s): %v\n",
+		mtr["session"], commas(asInt(mtr["spent"])), commas(asInt(mtr["budget"])), commas(asInt(mtr["billed_calls"])), mtr["key_sources"])
+}
+
+// hostedExec sends the literal command. Everything after the session id
+// belongs to the command (the parser never reads it as a KS option), so a
+// program's own --help reaches the program. The control plane's route takes
+// one command string; the argument vector is joined with spaces, which is
+// the contract KS-003 tightens.
+func hostedExec(cr hostedCreds, inv *Invocation) {
+	id := inv.Arg(0)
+	cmd := strings.Join(inv.Rest, " ")
+	var res map[string]any
+	if err := hostedCall(cr, "POST", "/api/sessions/"+id+"/exec", map[string]string{"Cmd": cmd}, &res); err != nil {
+		die(err)
+	}
+	if out, ok := res["output"].(string); ok {
+		fmt.Print(out)
+	}
+	if e, ok := res["error"].(string); ok && e != "" {
+		fmt.Fprintln(os.Stderr, "exec:", e)
+		os.Exit(1)
+	}
+}
+
+func hostedFork(cr hostedCreds, inv *Invocation) {
+	id := inv.Arg(0)
+	n := int64(1)
+	if inv.Set("children") {
+		n = inv.Int("children")
+	}
+	path := fmt.Sprintf("/api/sessions/%s/fork?n=%d", id, n)
+	if inv.Set("steer") {
+		b, err := os.ReadFile(inv.Str("steer"))
+		if err != nil {
+			die(err)
+		}
+		// one steer, applied to every child (the hosted form keeps it
+		// simple; per-branch steer files are a bench-only affordance).
+		steers, _ := json.Marshal([]string{string(b)})
+		path += "&steers=" + urlQueryEscape(string(steers))
+	}
+	var children []map[string]any
+	if err := hostedCall(cr, "POST", path, nil, &children); err != nil {
+		die(err)
+	}
+	for _, c := range children {
+		fmt.Fprintf(os.Stderr, "child %v: parent=%v (on the fleet)\n", c["id"], c["parent"])
+		fmt.Println(c["id"])
+	}
+}
+
+func hostedAttachCmd(cr hostedCreds, inv *Invocation) {
+	if err := hostedAttach(cr, inv.Arg(0)); err != nil {
+		die(err)
+	}
 }
 
 // asInt coerces a JSON number (decoded as float64) or int to int64. Token

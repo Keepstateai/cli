@@ -31,8 +31,11 @@ type deviceTokenResp struct {
 	Error   string `json:"error"`
 }
 
-func runLogin() error {
-	ctl := flagValue("--ctl", "https://ctl.keepstate.ai")
+func runLogin(inv *Invocation) error {
+	ctl := "https://ctl.keepstate.ai"
+	if inv.Set("ctl") {
+		ctl = inv.Str("ctl")
+	}
 	resp, err := http.PostForm(ctl+"/api/device/code", url.Values{})
 	if err != nil {
 		return fmt.Errorf("control plane unreachable: %w", err)

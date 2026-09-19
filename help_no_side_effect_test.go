@@ -209,8 +209,8 @@ func TestCruiseSideEffectIsDetectable(t *testing.T) {
 	if got := rec.seen(); len(got) != before+1 {
 		t.Errorf("the sabotage hook made %d request(s), want exactly 1 (gate CR-7 --sabotage proves the counter bites)\n%s", len(got)-before, out)
 	}
-	if !strings.Contains(string(out), "ks cruise init") {
-		t.Errorf("the sabotage hook must still print the cruise usage:\n%s", out)
+	if !strings.Contains(string(out), "ks cruise run") {
+		t.Errorf("the sabotage hook must still print the command's help:\n%s", out)
 	}
 }
 

@@ -8,12 +8,18 @@
    "usage": "ks login [--ctl URL]",
    "summary": "sign in (browser device flow)",
    "status": "available",
-   "surface": "client"
+   "surface": "client",
+   "flags": [
+    {
+     "flag": "--ctl URL",
+     "summary": "the control plane to sign in to; default https://ctl.keepstate.ai"
+    }
+   ]
   },
   {
    "verb": "run",
    "aliases": [],
-   "usage": "ks run [--image I] [--budget N]",
+   "usage": "ks run [--image I] [--budget-tokens N]",
    "summary": "start a hosted session",
    "status": "available",
    "surface": "hosted",
@@ -23,25 +29,41 @@
     "paid": 2000000,
     "freeProvenance": "measured 2026-09-09 on the released client against a disposable free-tier account (DEC-01 command gate)",
     "paidProvenance": "stated by the control plane, ctl/broker.go, and the ratified price book v1.2. NOT measured: no paid account was exercised.",
-    "override": "ks run --budget N"
-   }
+    "override": "ks run --budget-tokens N"
+   },
+   "flags": [
+    {
+     "flag": "--image I",
+     "summary": "the agent image; default your onboarding choice"
+    },
+    {
+     "flag": "--budget-tokens N (also --budget)",
+     "summary": "the session's token budget; default per tier (500,000 free, 2,000,000 paid); zero and negative are refused"
+    }
+   ]
   },
   {
    "verb": "checkpoint",
    "aliases": [
     "save"
    ],
-   "usage": "ks checkpoint <id> [--stop]",
+   "usage": "ks checkpoint <session> [--stop]",
    "summary": "save the session (durably); --stop parks it",
    "status": "available",
-   "surface": "hosted"
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--stop",
+     "summary": "park the session after the save succeeds"
+    }
+   ]
   },
   {
    "verb": "wake",
    "aliases": [
     "resume"
    ],
-   "usage": "ks wake <id>",
+   "usage": "ks wake <session>",
    "summary": "resume a parked session (mid-sentence)",
    "status": "available",
    "surface": "hosted"
@@ -49,25 +71,37 @@
   {
    "verb": "kill",
    "aliases": [],
-   "usage": "ks kill <id> [--force]",
+   "usage": "ks kill <session> [--force]",
    "summary": "destroy a session (guarded: checkpoint first)",
    "status": "available",
    "surface": "hosted",
    "safety": "Refuses a session that has no saved checkpoint, because killing it would destroy unsaved work, and names both ways out: `ks checkpoint <id> --stop` saves and stops it, `ks kill <id> --force` destroys it anyway.",
-   "safetyMeasured": "2026-09-09, DEC-01 command gate, released client against a disposable account. The guard is enforced by the daemon, not the client, so it holds for every caller including the console."
+   "safetyMeasured": "2026-09-09, DEC-01 command gate, released client against a disposable account. The guard is enforced by the daemon, not the client, so it holds for every caller including the console.",
+   "flags": [
+    {
+     "flag": "--force",
+     "summary": "destroy it even without a saved checkpoint"
+    }
+   ]
   },
   {
    "verb": "meter",
    "aliases": [],
-   "usage": "ks meter <id> [--json]",
+   "usage": "ks meter <session> [--json]",
    "summary": "spend, budget, key sources",
    "status": "available",
-   "surface": "hosted"
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--json",
+     "summary": "print the meter as JSON"
+    }
+   ]
   },
   {
    "verb": "exec",
    "aliases": [],
-   "usage": "ks exec <id> <cmd...>",
+   "usage": "ks exec <session> [--] <command...>",
    "summary": "run one command in the session",
    "status": "available",
    "surface": "hosted"
@@ -75,7 +109,7 @@
   {
    "verb": "attach",
    "aliases": [],
-   "usage": "ks attach <id>",
+   "usage": "ks attach <session>",
    "summary": "interactive terminal into a running session (tmux)",
    "status": "available",
    "surface": "hosted",
@@ -84,11 +118,21 @@
   {
    "verb": "fork",
    "aliases": [],
-   "usage": "ks fork <id> [-n N] [--steer FILE]",
+   "usage": "ks fork <session> [-n N] [--steer FILE]",
    "summary": "branch a checkpoint into diverging children",
    "status": "available",
    "surface": "hosted",
-   "note": "paid plans only; each child is another running session"
+   "note": "paid plans only; each child is another running session",
+   "flags": [
+    {
+     "flag": "-n N",
+     "summary": "how many children to branch; default 1"
+    },
+    {
+     "flag": "--steer FILE",
+     "summary": "a steer file applied to every child"
+    }
+   ]
   },
   {
    "verb": "cruise init",
@@ -143,7 +187,7 @@
   {
    "verb": "cruise status",
    "aliases": [],
-   "usage": "ks cruise status [JOB]",
+   "usage": "ks cruise status [job]",
    "summary": "the job (or the newest): state, rung, each attempt, save points, spend, verdict, artifact",
    "status": "available",
    "surface": "hosted",
@@ -152,7 +196,7 @@
   {
    "verb": "cruise logs",
    "aliases": [],
-   "usage": "ks cruise logs JOB",
+   "usage": "ks cruise logs <job>",
    "summary": "the event stream, one event per line: seq, ts, type, detail",
    "status": "available",
    "surface": "hosted"
@@ -160,7 +204,7 @@
   {
    "verb": "cruise cancel",
    "aliases": [],
-   "usage": "ks cruise cancel JOB",
+   "usage": "ks cruise cancel <job>",
    "summary": "cancel a job",
    "status": "available",
    "surface": "hosted"
@@ -168,7 +212,7 @@
   {
    "verb": "cruise resume",
    "aliases": [],
-   "usage": "ks cruise resume JOB [--ladder family:model,...]",
+   "usage": "ks cruise resume <job> [--ladder family:model,...]",
    "summary": "resume a job from review, on the same or a wider ladder",
    "status": "available",
    "surface": "hosted",
@@ -182,7 +226,7 @@
   {
    "verb": "cruise artifact",
    "aliases": [],
-   "usage": "ks cruise artifact JOB [--out FILE]",
+   "usage": "ks cruise artifact <job> [--out FILE]",
    "summary": "download the accepted tarball",
    "status": "available",
    "surface": "hosted",

@@ -51,6 +51,7 @@ var cruiseUsageText = `ks cruise: accepted work on the fleet
 usage:
   ks cruise init [--goal TEXT] [--tests CMD] [--paths GLOB...] [--ladder family:model,...] [--spend USD]
                               draft the acceptance manifest into .keepstate/cruise.json
+                              (ks cruise init --help lists every option)
   ks cruise approve           lock the draft (digest and time) into .keepstate/cruise.lock
   ks cruise run               upload the workspace and the locked manifest; start the job
   ks cruise status [JOB]      the job (or the newest): rung, attempts, save points, spend, verdict
@@ -75,44 +76,6 @@ never calls a model. Defaults: 1800 s per attempt, a $2 spend ceiling
 
 func cruiseUsage() { fmt.Print(cruiseUsageText) }
 
-// runCruise dispatches the cruise subcommands. Help forms never reach it:
-// main's guard prints usage first. A bare "ks cruise" prints usage too and
-// makes no request.
-func runCruise() {
-	if len(os.Args) < 3 {
-		cruiseUsage()
-		os.Exit(2)
-	}
-	switch os.Args[2] {
-	case "init":
-		cruiseInit()
-	case "approve":
-		cruiseApprove()
-	case "run":
-		if err := cruiseRun(); err != nil {
-			die(err)
-		}
-	case "status":
-		cruiseStatus()
-	case "logs":
-		cruiseLogs()
-	case "cancel":
-		cruiseCancel()
-	case "resume":
-		cruiseResume()
-	case "artifact":
-		if err := cruiseArtifact(); err != nil {
-			die(err)
-		}
-	case "models":
-		cruiseModels()
-	default:
-		fmt.Fprintf(os.Stderr, "unknown cruise verb %q\n\n", os.Args[2])
-		cruiseUsage()
-		os.Exit(2)
-	}
-}
-
 // sabotageHelpHook is gate CR-7's sabotage: with KS_CLI_SABOTAGE_HELP=1,
 // "ks cruise run --help" performs one GET before printing help, which is
 // the defect class the help guard exists to prevent, so the gate can
@@ -135,35 +98,6 @@ func mustCreds() hostedCreds {
 		os.Exit(2)
 	}
 	return cr
-}
-
-// jobArg is the positional JOB after the subcommand. required=false makes
-// it optional (status takes the newest job when it is absent).
-func jobArg(required bool, usageLine string) string {
-	if len(os.Args) > 3 && !strings.HasPrefix(os.Args[3], "-") {
-		return os.Args[3]
-	}
-	if required {
-		die(fmt.Errorf("usage: %s", usageLine))
-	}
-	return ""
-}
-
-// flagList collects the values of a variadic, repeatable flag: both
-// "--paths a b" and "--paths a --paths b" yield [a b]. A value list stops
-// at the next flag.
-func flagList(name string) []string {
-	var out []string
-	for i := 0; i < len(os.Args); i++ {
-		if os.Args[i] != name {
-			continue
-		}
-		for j := i + 1; j < len(os.Args) && !strings.HasPrefix(os.Args[j], "-"); j++ {
-			out = append(out, os.Args[j])
-			i = j
-		}
-	}
-	return out
 }
 
 func csvList(s string) []string {
@@ -759,7 +693,7 @@ func ladderWords(ladder []rung) string {
 	return strings.Join(s, ", ")
 }
 
-func cruiseModels() {
+func cruiseModels(inv *Invocation) {
 	c := mustCreds()
 	var t modelTable
 	if err := hostedCall(c, "GET", "/api/models", nil, &t); err != nil {
@@ -783,17 +717,17 @@ func cruiseModels() {
 // init
 // ---------------------------------------------------------------------
 
-func cruiseInit() {
+func cruiseInit(inv *Invocation) {
 	root, err := os.Getwd()
 	if err != nil {
 		die(err)
 	}
-	spend, err := parseUSD(flagValue("--spend", cruiseSpendUSD))
-	if err != nil {
-		die(fmt.Errorf("--spend: %w", err))
+	spend, _ := parseUSD(cruiseSpendUSD)
+	if inv.Set("spend") {
+		spend = inv.Int("spend") // parsed exactly by the schema
 	}
-	paths := flagList("--paths")
-	ladder, err := parseLadder(csvList(flagValue("--ladder", "")))
+	paths := inv.List("paths")
+	ladder, err := parseLadder(csvList(inv.Str("ladder")))
 	if err != nil {
 		die(err)
 	}
@@ -817,7 +751,7 @@ func cruiseInit() {
 	// 2. the check; without one there is no job (ADR-030), and init stops
 	//    here, before anything is written
 	ck := detectChecks(root, files)
-	named := strings.TrimSpace(flagValue("--tests", ""))
+	named := strings.TrimSpace(inv.Str("tests"))
 	if named != "" {
 		ck = checks{command: named, kind: "named", isTest: checksFor(named)}
 	}
@@ -841,7 +775,7 @@ func cruiseInit() {
 	}
 
 	// 3. the goal: named, kept from the previous draft, or the check itself
-	goal := strings.TrimSpace(flagValue("--goal", ""))
+	goal := strings.TrimSpace(inv.Str("goal"))
 	if goal == "" {
 		if prior, err := readDraft(); err == nil {
 			goal, _ = prior["goal"].(string)
@@ -1066,7 +1000,7 @@ type lockFile struct {
 	Version    any    `json:"version,omitempty"`
 }
 
-func cruiseApprove() {
+func cruiseApprove(inv *Invocation) {
 	root, err := os.Getwd()
 	if err != nil {
 		die(err)
@@ -1119,7 +1053,7 @@ func readLock() (lockFile, error) {
 // oversize workspace, a changed test, a changed draft, a changed
 // workspace. Only then does it upload. It returns rather than exits so
 // the packed temp file is always removed.
-func cruiseRun() error {
+func cruiseRun(inv *Invocation) error {
 	root, err := os.Getwd()
 	if err != nil {
 		return err
@@ -1330,9 +1264,9 @@ func fetchJob(c hostedCreds, id string) map[string]any {
 	return job
 }
 
-func cruiseStatus() {
+func cruiseStatus(inv *Invocation) {
 	c := mustCreds()
-	id := jobArg(false, "ks cruise status [JOB]")
+	id := inv.Arg(0)
 	var job map[string]any
 	if id == "" {
 		var jobs []map[string]any
@@ -1429,9 +1363,9 @@ func printJob(job map[string]any) {
 	fmt.Printf("updated: %s\n", jstr(job, "updated_at"))
 }
 
-func cruiseLogs() {
+func cruiseLogs(inv *Invocation) {
 	c := mustCreds()
-	id := jobArg(true, "ks cruise logs JOB")
+	id := inv.Arg(0)
 	var events []map[string]any
 	if err := hostedCall(c, "GET", "/api/jobs/"+id+"/events", nil, &events); err != nil {
 		die(err)
@@ -1464,9 +1398,9 @@ func eventDetail(e map[string]any) string {
 	return s
 }
 
-func cruiseCancel() {
+func cruiseCancel(inv *Invocation) {
 	c := mustCreds()
-	id := jobArg(true, "ks cruise cancel JOB")
+	id := inv.Arg(0)
 	var job map[string]any
 	if err := hostedCall(c, "POST", "/api/jobs/"+id+"/cancel", map[string]any{}, &job); err != nil {
 		die(err)
@@ -1475,11 +1409,11 @@ func cruiseCancel() {
 	fmt.Println(id)
 }
 
-func cruiseResume() {
+func cruiseResume(inv *Invocation) {
 	c := mustCreds()
-	id := jobArg(true, "ks cruise resume JOB [--ladder family:model,...]")
+	id := inv.Arg(0)
 	req := map[string]any{}
-	if specs := csvList(flagValue("--ladder", "")); len(specs) > 0 {
+	if specs := csvList(inv.Str("ladder")); len(specs) > 0 {
 		ladder, err := parseLadder(specs)
 		if err != nil {
 			die(err)
@@ -1494,15 +1428,18 @@ func cruiseResume() {
 	fmt.Println(id)
 }
 
-func cruiseArtifact() error {
+func cruiseArtifact(inv *Invocation) error {
 	c := mustCreds()
-	id := jobArg(true, "ks cruise artifact JOB [--out FILE]")
+	id := inv.Arg(0)
 	job := fetchJob(c, id)
 	want, _ := job["artifact_sha"].(string)
 	if want == "" {
 		return fmt.Errorf("no artifact for job %s: state %s, verdict %s", id, jstr(job, "state"), jstr(job, "verdict"))
 	}
-	out := flagValue("--out", id+".tar.gz")
+	out := id + ".tar.gz"
+	if inv.Set("out") {
+		out = inv.Str("out")
+	}
 	if _, err := os.Stat(out); err == nil {
 		return fmt.Errorf("%s exists; choose another name with --out", out)
 	}

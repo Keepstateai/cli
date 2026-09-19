@@ -171,26 +171,39 @@ func TestAuditReproductions(t *testing.T) {
 	// ---- Finding 1: invalid budget input still starts the create request
 	{
 		f := auditFinding{ID: "F1", Title: "invalid budget input can still start the create-session request"}
-		reproduced := 0
-		for _, args := range [][]string{{"run", "--buget", "1000"}, {"run", "--budget=1000"}, {"run", "--budget", "abc"}, {"run", "--budget"}} {
+		// three malformed forms must send nothing; the equals form is a
+		// legacy spelling the audit found silently ignored (Budget 0 sent),
+		// and must send exactly 1000 once supported
+		malformedSent := 0
+		for _, args := range [][]string{{"run", "--buget", "1000"}, {"run", "--budget", "abc"}, {"run", "--budget"}} {
 			r := runOne(t.TempDir(), args...)
 			f.Runs = append(f.Runs, r)
 			for _, h := range r.Requests {
 				if h.Method == "POST" && h.Path == "/api/sessions" {
-					reproduced++
+					malformedSent++
+				}
+			}
+		}
+		equalsSent := "nothing"
+		r := runOne(t.TempDir(), "run", "--budget=1000")
+		f.Runs = append(f.Runs, r)
+		for _, h := range r.Requests {
+			if h.Method == "POST" && h.Path == "/api/sessions" {
+				var body map[string]json.RawMessage
+				_ = json.Unmarshal([]byte(h.Body), &body)
+				equalsSent = string(body["Budget"])
+				if equalsSent == "" {
+					equalsSent = "absent"
 				}
 			}
 		}
 		// a valid space-separated value, for the contrast
 		f.Runs = append(f.Runs, runOne(t.TempDir(), "run", "--budget", "1000"))
-		f.Observed = fmt.Sprintf("%d of 4 malformed invocations sent POST /api/sessions", reproduced)
-		if reproduced == 4 {
-			f.Status = "reproduced"
-		} else if reproduced == 0 {
+		f.Observed = fmt.Sprintf("%d of 3 malformed invocations sent POST /api/sessions; --budget=1000 sent Budget %s", malformedSent, equalsSent)
+		if malformedSent == 0 && equalsSent == "1000" {
 			f.Status = "not-reproduced"
 		} else {
 			f.Status = "reproduced"
-			f.Note = "partially: see the per-run requests"
 		}
 		record(f)
 	}
