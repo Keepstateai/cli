@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -18,7 +19,7 @@ import (
 // inventory of n sessions, remembering every request.
 type inventoryCtl struct {
 	n     int
-	pages int
+	pages atomic.Int32 // read by the test while the server may still be serving
 }
 
 func (c *inventoryCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -31,7 +32,7 @@ func (c *inventoryCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(401)
 			return
 		}
-		c.pages++
+		c.pages.Add(1)
 		start := 0
 		if cur := r.URL.Query().Get("cursor"); cur != "" {
 			start, _ = strconv.Atoi(cur)
@@ -89,8 +90,8 @@ func TestSessionListReadsEveryPageAndKeepsColumns(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &env); err != nil || env.Data.Count != 1000 || len(env.Data.Sessions) != 1000 {
 		t.Fatalf("json: %v count %d", err, env.Data.Count)
 	}
-	if c.pages < 5 {
-		t.Errorf("pages read: %d", c.pages)
+	if c.pages.Load() < 5 {
+		t.Errorf("pages read: %d", c.pages.Load())
 	}
 	// VER-021-1: at 80 and 120 columns no line exceeds the width, and identity and state survive
 	for _, width := range []int{80, 120} {
