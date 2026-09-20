@@ -80,13 +80,14 @@ func streamClient() *http.Client {
 // ---------------------------------------------------------------------
 
 type localOp struct {
-	Key       string `json:"key"`
-	Method    string `json:"method"`
-	Path      string `json:"path"`
-	BodySHA   string `json:"body_sha256"`
-	CTL       string `json:"ctl"`
-	CreatedAt string `json:"created_at"`
-	Outcome   string `json:"outcome,omitempty"` // filled in when known: "sent", "replayed", "unknown", "failed"
+	Key        string `json:"key"`
+	Method     string `json:"method"`
+	Path       string `json:"path"`
+	BodySHA    string `json:"body_sha256"`
+	CTL        string `json:"ctl"`
+	CreatedAt  string `json:"created_at"`
+	Outcome    string `json:"outcome,omitempty"`       // filled in when known: "sent", "replayed", "unknown", "failed"
+	Submission string `json:"submission_id,omitempty"` // the queue-level id a submitted instruction carries
 }
 
 func operationsPath() string { return filepath.Join(configDir(), "operations.jsonl") }
@@ -113,6 +114,24 @@ func recordOperation(op localOp) error {
 	b, _ := json.Marshal(op)
 	_, err = f.Write(append(b, '\n'))
 	return err
+}
+
+// recordedOperations reads the journal back. A line this client cannot
+// read is skipped rather than failing the command that consults it: the
+// journal is a record to read, never a lock to hold.
+func recordedOperations() []localOp {
+	b, err := os.ReadFile(operationsPath())
+	if err != nil {
+		return nil
+	}
+	var out []localOp
+	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		var o localOp
+		if json.Unmarshal([]byte(line), &o) == nil && o.Key != "" {
+			out = append(out, o)
+		}
+	}
+	return out
 }
 
 // ---------------------------------------------------------------------
