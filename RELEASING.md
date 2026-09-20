@@ -5,15 +5,33 @@ is ANNOTATED and its message carries the gate's result, bound to the exact
 source tree and the checksums the build must reproduce:
 
 ```
-git tag -a vX.Y.Z -m "ks-publication-gate: status=PASS tree=$(git rev-parse 'HEAD^{tree}') checker=<12 hex> rules=<version> sums=<sha256 of SHA256SUMS or none>"
+git tag -s vX.Y.Z -m "ks-publication-gate: status=PASS tree=$(git rev-parse 'HEAD^{tree}') checker=<12 hex> rules=<version> sums=<sha256 of SHA256SUMS>"
 git push origin vX.Y.Z
 ```
 
+`sums` is mandatory on a publishing run. Obtain it by building the release
+locally with the pinned toolchain and hashing the manifest the build
+produces (`sha256sum dist/SHA256SUMS`), so the tag is bound to the exact
+binaries CI must reproduce.
+
 The gate runs privately on the builder before the tag exists (its rules are
-not in this repository); a lightweight tag, a missing line, a status other
-than PASS or another tree refuses the release before anything is built, and
-a build whose `SHA256SUMS` hashes differently from the attested value refuses
-to publish. `.github/workflows/release.yml` then:
+not in this repository). On a PUBLISHING run (a `v*` tag push) the approval
+must carry every mandatory field exactly once, including `sums` as a valid
+SHA-256 of the checksum manifest. There is no `none` escape and no default:
+an absent, empty, `none`, malformed or repeated value refuses the release
+before anything is built, as does a lightweight tag, a missing or duplicated
+approval line, a status other than PASS, or another tree. The built
+`SHA256SUMS` is then compared to the attested digest **unconditionally**.
+
+**Approver authority.** A `status=PASS` line is a declaration, not proof that
+the private gate ran, so a publishing run also requires the tag to be signed
+by an authorized approver. The allowed signers are configured once by the
+owner in the repository variable `KS_RELEASE_ALLOWED_SIGNERS` (ssh
+`allowed_signers` format). Until that is configured a publishing run fails
+closed, because the authority control cannot be verified. Sign the tag with
+`git tag -s`.
+
+`.github/workflows/release.yml` then:
 
 0. **gates** (reads the attestation from the tag; refuses otherwise),
 1. **tests** (the manifest drift test gates the release),

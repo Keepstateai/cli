@@ -47,6 +47,7 @@ jobs:
     outputs:
       sums: ${{ steps.att.outputs.sums }}
       rehearsal: ${{ steps.att.outputs.rehearsal }}
+      publishing: ${{ steps.att.outputs.publishing }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
@@ -57,7 +58,11 @@ jobs:
           FAULT: ${{ inputs.fault }}
         run: |
           set -eu
-          REHEARSAL=false
+          # A v* TAG PUSH is the only publishing trigger. A rehearsal is only
+          # ever a manual dispatch, and a publishing trigger can never select
+          # rehearsal behaviour (checked explicitly below).
+          PUBLISHING=false; REHEARSAL=false
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then PUBLISHING=true; fi
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             REHEARSAL=true; ATT="$ATT_INPUT"
             case "${FAULT:-none}" in
@@ -73,21 +78,72 @@ jobs:
             git fetch --force --tags origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME" >/dev/null 2>&1 || true
             ATT="$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME")"
           fi
-          LINE=$(printf '%s\n' "$ATT" | grep -E '^ks-publication-gate:' | head -1 || true)
-          if [ -z "$LINE" ]; then
-            echo "::error::publication gate: no attestation for this tree (an annotated tag carrying the ks-publication-gate line is required); nothing is built or published"
+          if [ "$PUBLISHING" = "true" ] && [ "$REHEARSAL" = "true" ]; then
+            echo "::error::publication gate: a publishing trigger cannot run in rehearsal mode"; exit 1
+          fi
+          # EXACTLY ONE approval line. Zero is unapproved; more than one is an
+          # ambiguous approval and must never be resolved by taking the first.
+          COUNT=$(printf '%s\n' "$ATT" | grep -c '^ks-publication-gate:' || true)
+          if [ "$COUNT" != "1" ]; then
+            echo "::error::publication gate: expected exactly one ks-publication-gate approval line, found $COUNT; nothing is built or published"
             exit 1
           fi
+          LINE=$(printf '%s\n' "$ATT" | grep '^ks-publication-gate:')
+          # every mandatory field exactly once: a repeated field is ambiguous
+          for f in status tree checker rules sums; do
+            n=$(printf '%s' "$LINE" | grep -o "[[:space:]]$f=" | wc -l | tr -d ' ')
+            if [ "$n" != "1" ]; then
+              echo "::error::publication gate: field '$f' appears $n time(s) in the approval; exactly one is required"
+              exit 1
+            fi
+          done
           field() { printf '%s' "$LINE" | sed -nE "s/.*[[:space:]]$1=([^[:space:]]+).*/\1/p"; }
           STATUS=$(field status); TREE=$(field tree); CHECKER=$(field checker); RULES=$(field rules); SUMS=$(field sums)
           TREE_NOW=$(git rev-parse 'HEAD^{tree}')
           [ "$STATUS" = "PASS" ] || { echo "::error::publication gate: attestation status is '${STATUS:-missing}', not PASS; nothing is built or published"; exit 1; }
           [ "$TREE" = "$TREE_NOW" ] || { echo "::error::publication gate: the attestation names another source tree; nothing is built or published"; exit 1; }
-          case "$SUMS" in ''|none) SUMS=none ;; esac
-          printf '%s' "$SUMS" | grep -qE '^(none|[0-9a-f]{64})$' || { echo "::error::publication gate: malformed sums field"; exit 1; }
+          # R-GATE-01: a PUBLISHING run is bound to the exact checked binaries.
+          # There is no 'none' escape: absent, empty, none or malformed blocks
+          # here, before anything is built or published.
+          if [ "$PUBLISHING" = "true" ]; then
+            if ! printf '%s' "$SUMS" | grep -qE '^[0-9a-f]{64}$'; then
+              echo "::error::publication gate: a publishing run requires sums=<sha256 of SHA256SUMS>; got '${SUMS:-missing}'; nothing is built or published"
+              exit 1
+            fi
+          else
+            printf '%s' "$SUMS" | grep -qE '^([0-9a-f]{64}|none)$' || { echo "::error::publication gate: malformed sums field"; exit 1; }
+          fi
           echo "sums=$SUMS" >> "$GITHUB_OUTPUT"
           echo "rehearsal=$REHEARSAL" >> "$GITHUB_OUTPUT"
-          echo "publication gate: PASS for tree $TREE_NOW (checker $CHECKER, rules $RULES, attested sums ${SUMS:0:16}); rehearsal=$REHEARSAL"
+          echo "publishing=$PUBLISHING" >> "$GITHUB_OUTPUT"
+          echo "publication gate: PASS for tree $TREE_NOW (checker $CHECKER, rules $RULES, attested sums ${SUMS%${SUMS#????????????????}}); publishing=$PUBLISHING rehearsal=$REHEARSAL"
+
+      # AUTHORITY (review item 2): a status=PASS line is a declaration, not
+      # proof that the authorized private gate ran. A publishing run therefore
+      # requires the approval to be carried by a tag SIGNED by an authorized
+      # approver. The allowed signers are configured once by the owner in the
+      # repository variable KS_RELEASE_ALLOWED_SIGNERS (ssh allowed_signers
+      # format). Absent that configuration a publishing run FAILS CLOSED: the
+      # authority control is unconfigured, so no publication is authorized.
+      - name: The approval must be signed by an authorized approver
+        if: steps.att.outputs.publishing == 'true'
+        env:
+          ALLOWED: ${{ vars.KS_RELEASE_ALLOWED_SIGNERS }}
+        run: |
+          set -eu
+          if [ -z "${ALLOWED:-}" ]; then
+            echo "::error::publication gate: KS_RELEASE_ALLOWED_SIGNERS is not configured, so the approver authority control cannot be verified; nothing is published. Configure the allowed signers once before the first release."
+            exit 1
+          fi
+          printf '%s\n' "$ALLOWED" > /tmp/ks-allowed-signers
+          git config gpg.ssh.allowedSignersFile /tmp/ks-allowed-signers
+          git config gpg.format ssh
+          if ! git verify-tag "$GITHUB_REF_NAME" 2>/tmp/ks-verify.err; then
+            echo "::error::publication gate: the tag's approval is not signed by an authorized approver; nothing is published"
+            sed -E 's/[A-Za-z0-9+\/]{40,}/[redacted]/g' /tmp/ks-verify.err || true
+            exit 1
+          fi
+          echo "approval signature verified against the configured authorized approvers"
 
   build:
     needs: gate
@@ -119,12 +175,24 @@ jobs:
       - name: Bind the built checksums to the attestation
         env:
           ATTESTED: ${{ needs.gate.outputs.sums }}
+          PUBLISHING: ${{ needs.gate.outputs.publishing }}
         run: |
           set -eu
           BUILT=$(sha256sum dist/SHA256SUMS | cut -d' ' -f1)
-          echo "built SHA256SUMS digest $BUILT; attested ${ATTESTED}"
-          if [ "$ATTESTED" != "none" ] && [ "$BUILT" != "$ATTESTED" ]; then
-            echo "::error::publication gate: the built checksums differ from the attested ones (toolchain or source drift); nothing is published"
+          echo "built SHA256SUMS digest $BUILT; attested ${ATTESTED:-missing} (publishing=${PUBLISHING:-false})"
+          # R-GATE-01: on a publishing run the comparison is UNCONDITIONAL.
+          # There is no value of the approval that skips it.
+          if [ "${PUBLISHING:-false}" = "true" ]; then
+            if ! printf '%s' "${ATTESTED:-}" | grep -qE '^[0-9a-f]{64}$'; then
+              echo "::error::publication gate: a publishing run requires an attested SHA256SUMS digest; nothing is published"
+              exit 1
+            fi
+            if [ "$BUILT" != "$ATTESTED" ]; then
+              echo "::error::publication gate: the built checksums differ from the attested ones (toolchain or source drift); nothing is published"
+              exit 1
+            fi
+          elif [ "${ATTESTED:-none}" != "none" ] && [ "$BUILT" != "$ATTESTED" ]; then
+            echo "::error::rehearsal: the built checksums differ from the supplied digest"
             exit 1
           fi
       - name: 'REHEARSAL: the gate and the build ran; no publication step is executed'
