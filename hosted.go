@@ -361,7 +361,7 @@ func hostedAttachCmd(cr hostedCreds, inv *Invocation) {
 // asInt coerces a JSON number (decoded as float64) or int to int64. Token
 // counts are whole numbers; JSON has no int type, so spend/budget arrive
 // as float64 and must never be printed raw (2e+06 is not a customer
-// surface — founder ruling 2026-08-31).
+// surface — project ruling 2026-08-31).
 func asInt(v any) int64 {
 	switch n := v.(type) {
 	case float64:

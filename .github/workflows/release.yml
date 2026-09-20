@@ -1,5 +1,5 @@
 name: release
-# Public CI builds and publishes every release (ADR-021, founder order
+# Public CI builds and publishes every release (release policy,
 # 2026-09-03): one tag push produces the four platform binaries with
 # SHA256SUMS and build-provenance attestations, the GitHub release, the
 # npm package (via OIDC trusted publishing — NO npm token anywhere), and
@@ -227,7 +227,7 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      # Trusted-publishing debug (founder order 2026-09-04): decode the OIDC
+      # Trusted-publishing debug (release policy 2026-09-04): decode the OIDC
       # token the runner would present and print ONLY the claims the npmjs.com
       # trusted-publisher form matches against. The token value itself is
       # never printed (it stays in a shell variable; only four decoded claims
@@ -240,7 +240,7 @@ jobs:
           payload=$(printf '%s' "$resp" | jq -r '.value' | cut -d. -f2 | tr '_-' '/+')
           case $(( ${#payload} % 4 )) in 2) payload="$payload==";; 3) payload="$payload=";; esac
           printf '%s' "$payload" | base64 -d | jq '{repository, job_workflow_ref, ref, environment}'
-      # NO registry-url (founder order item 4): setup-node's registry-url
+      # NO registry-url (release policy item 4): setup-node's registry-url
       # writes an .npmrc authToken placeholder, and trusted publishing needs
       # no NODE_AUTH_TOKEN at all.
       - uses: actions/setup-node@v4

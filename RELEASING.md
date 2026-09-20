@@ -47,7 +47,7 @@ publishes nothing; it proves the refusal paths on the real pipeline.
 Reproduce the CI bytes locally with `GOTOOLCHAIN=go1.22.12` and the same
 `go build -trimpath -ldflags "-s -w -X main.version=vX.Y.Z"` line.
 
-## One-time setup: npm trusted publishing (founder, on npmjs.com)
+## One-time setup: npm trusted publishing (repository owner, on npmjs.com)
 
 Trusted publishing lets CI publish with no npm token. It must be linked
 once, in the npm package settings UI:
@@ -69,7 +69,7 @@ the release still succeeds). This is the only human step in the release.
 
 ## Once trusted publishing is green
 
-The local `npm login` on the founder's Mac is **no longer needed for
+The local `npm login` on a maintainer workstation is **no longer needed for
 releases** — CI publishes via OIDC. Running `npm logout` on the Mac is
 safe and recommended (removes a long-lived credential from a laptop);
 it does not affect CI, which authenticates per-run with a short-lived

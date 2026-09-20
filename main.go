@@ -386,7 +386,7 @@ func main() {
 	// The option region is parsed BEFORE the handler exists to the process:
 	// a malformed command line, or a help word inside the option region,
 	// stops here, and nothing below it has run. This is the general form of
-	// the founder ruling of 2026-09-09 (`ks run --help` started a billable
+	// the project ruling of 2026-09-09 (`ks run --help` started a billable
 	// session): help never acts, and neither does a typo.
 	inv, uerr := c.parse(rest)
 	if uerr != nil {
