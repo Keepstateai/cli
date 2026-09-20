@@ -510,7 +510,67 @@
    "verb": "agent tell",
    "aliases": [],
    "usage": "ks agent tell <name> <instruction> [--session ID]",
-   "summary": "queue one instruction for an agent",
+   "summary": "queue one instruction for an agent from outside any window",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+    }
+   ]
+  },
+  {
+   "verb": "agent approve",
+   "aliases": [],
+   "usage": "ks agent approve <request> [--session ID]",
+   "summary": "approve one permission request an agent is waiting on, by its id",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the request belongs to; a short id is accepted when it is unique among yours"
+    }
+   ]
+  },
+  {
+   "verb": "agent deny",
+   "aliases": [],
+   "usage": "ks agent deny <request> [--session ID]",
+   "summary": "deny one permission request an agent is waiting on, by its id",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the request belongs to; a short id is accepted when it is unique among yours"
+    }
+   ]
+  },
+  {
+   "verb": "agent pause",
+   "aliases": [],
+   "usage": "ks agent pause <name> [--session ID]",
+   "summary": "save the session an agent lives in and park it, waiting until it is parked",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+    }
+   ]
+  },
+  {
+   "verb": "agent resume",
+   "aliases": [],
+   "usage": "ks agent resume <name> [--session ID]",
+   "summary": "resume the parked session an agent lives in, waiting out a save that is still completing",
    "status": "planned",
    "surface": "hosted",
    "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",

@@ -1,14 +1,22 @@
 // agent.go: the agent window on the command line. A session holds one or
 // more agents; this group lists them, opens one, reports one without
-// following anything, and queues an instruction for one.
+// following anything, decides the permission requests one is waiting on,
+// queues an instruction for one, and saves and parks the session one
+// lives in.
 //
-// Three properties shape every verb here. Opening an agent CREATES
+// Four properties shape every verb here. Opening an agent CREATES
 // NOTHING: the control plane answers the same agent for the same name, so
 // opening twice is one agent and two windows. Control is a lease, not a
-// mode: a window either holds it or is watching, and a window that is
-// watching says so rather than pretending it can steer. And detaching is
-// local: Ctrl-C closes this window, prints that it did, and leaves the
-// agent working — nothing here ever cancels remote work.
+// mode: a window either holds it or is watching, a window that is
+// watching says so rather than pretending it can steer, and an
+// instruction typed into a window carries that lease so the service can
+// refuse it the moment it is no longer the current one — a displaced
+// window submits nothing at all rather than quietly submitting as a
+// stranger. A decision is bound to the exact action it was read from, so
+// nobody ever approves a request that changed under them, and nothing is
+// ever decided that the person did not name. And detaching is local:
+// Ctrl-C closes this window, prints that it did, and leaves the agent
+// working — nothing here ever cancels remote work.
 package main
 
 import (
@@ -26,6 +34,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -47,13 +56,15 @@ type agentRow struct {
 	CreatedAt     string `json:"created_at"`
 }
 
-// agentLease is the control lease of one window. Its token authorises
+// agentLease is the control lease of one window: the authority to steer
+// this agent, at this fence, until this moment. Its token authorises
 // steering, so it is held in memory for the requests that need it and is
-// never printed, emitted or written down.
+// never printed, never emitted in a document, and never written to the
+// operations journal.
 type agentLease struct {
-	ID        string `json:"id"`
+	ID        string `json:"lease_id"`
 	Fence     int64  `json:"fence"`
-	Token     string `json:"token"`
+	Token     string `json:"lease_token"`
 	ExpiresAt string `json:"expires_at"`
 	Mode      string `json:"mode"`
 }
@@ -362,9 +373,23 @@ func controlFacts(w *agentWindow) map[string]any {
 	return map[string]any{"held": true, "lease_id": w.Lease.ID, "fence": w.Lease.Fence, "expires_at": w.Lease.ExpiresAt, "mode": w.Lease.Mode}
 }
 
-func approvalHuman(ap approvalRow) string {
-	return sanitize(fmt.Sprintf("!! permission request %s: %s — %s (expires %s); the agent waits until it is decided in the console",
-		ap.ID, figure(ap.Kind), figure(ap.Summary), figure(ap.ExpiresAt)))
+// approvalHuman renders one pending permission request and how to decide
+// it from where the reader is standing: inside a live window that is a
+// keystroke, outside one it is a verb.
+func approvalHuman(ap approvalRow, decideWith string) string {
+	return sanitize(fmt.Sprintf("!! permission request %s: %s — %s (expires %s); the agent waits until it is decided: %s",
+		ap.ID, figure(ap.Kind), figure(ap.Summary), figure(ap.ExpiresAt), decideWith))
+}
+
+// inWindowDecision is the line that tells a person in a live window what
+// to type to decide one request, and decideVerbs is the same thing for a
+// terminal that is not following anything.
+func inWindowDecision(ap approvalRow) string {
+	return fmt.Sprintf("type \"a %s\" to approve or \"d %s\" to deny", ap.ID, ap.ID)
+}
+
+func decideVerbs(sess inventoryRow, ap approvalRow) string {
+	return fmt.Sprintf("ks agent approve %s --session %s (or ks agent deny %s --session %s)", ap.ID, sess.ShortID, ap.ID, sess.ShortID)
 }
 
 func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
@@ -404,30 +429,34 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 			fmt.Printf("  queue          %d queued\n", w.QueueDepth)
 			fmt.Printf("  events from    %d\n", w.Resume.AfterSeq)
 			for _, ap := range pending {
-				fmt.Println(approvalHuman(ap))
+				fmt.Println(approvalHuman(ap, decideVerbs(sess, ap)))
 			}
 			fmt.Printf("follow it: ks agent open %s --session %s\n", a.Name, sess.ShortID)
 		})
 		return
 	}
 	for _, ap := range pending {
-		emitLine(map[string]any{"type": "approval_pending", "approval": ap}, approvalHuman(ap))
+		emitLine(map[string]any{"type": "approval_pending", "approval": ap}, approvalHuman(ap, inWindowDecision(ap)))
 	}
-	followAgent(cr, sess, w)
+	win := &liveWindow{sess: sess, agent: a, lease: w.Lease}
+	followAgent(cr, win, w)
 }
 
 // followAgent renders the session journal from where the window resumes,
-// one line per event, until the stream ends or the person detaches.
+// one line per event, until the stream ends or the person detaches, while
+// two more goroutines keep the window a window: one reads what is typed
+// into it, one renews the control lease for as long as it is held.
 //
 // Ctrl-C (and SIGTERM) detach: they close THIS window. The agent keeps
 // working, nothing is cancelled, and the exit is a success, because
 // detaching is what was asked for. The signal is watched on its own
 // goroutine because the reader blocks on the stream rather than polling,
 // which is the one difference from the wait loop in operations.go.
-func followAgent(cr hostedCreds, sess inventoryRow, w *agentWindow) {
-	// the window reads no keystrokes, so it puts the terminal into no mode
-	// of its own and has nothing to undo; the hook stays so an input path
-	// cannot be added without one.
+func followAgent(cr hostedCreds, win *liveWindow, w *agentWindow) {
+	sess := win.sess
+	// the window reads whole lines in the terminal's ordinary mode, so it
+	// puts the terminal into no mode of its own and has nothing to undo;
+	// the hook stays so a raw-mode input path cannot be added without one.
 	restore := func() {}
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
@@ -438,6 +467,8 @@ func followAgent(cr hostedCreds, sess inventoryRow, w *agentWindow) {
 		fmt.Fprintln(os.Stderr, "[detached; the agent keeps working]")
 		os.Exit(exitOK)
 	}()
+	go win.renew(cr)
+	go win.readInput(cr, restore)
 	err := streamEvents(cr, agentSessionID(sess), w.Resume.AfterSeq, func(kind string, data []byte) bool {
 		switch kind {
 		case "hello":
@@ -446,6 +477,7 @@ func followAgent(cr hostedCreds, sess inventoryRow, w *agentWindow) {
 			}
 			_ = json.Unmarshal(data, &hello)
 			progress("following from event %d (epoch %v); Ctrl-C detaches and the agent keeps working", w.Resume.AfterSeq, figure(hello.Epoch))
+			progress("%s", win.legend())
 		case "event":
 			var e journalEvent
 			if json.Unmarshal(data, &e) != nil {
@@ -473,7 +505,7 @@ func agentEventLine(e journalEvent) string {
 		line += " " + d
 	}
 	if isApprovalEvent(e) {
-		line = "!! " + line + " — the agent waits until it is decided in the console"
+		line = "!! " + line + " — the agent waits until it is decided: type \"a <id>\" to approve or \"d <id>\" to deny"
 	}
 	return sanitize(line)
 }
@@ -641,4 +673,738 @@ func hostedAgentTell(cr hostedCreds, inv *Invocation) {
 		}
 		fmt.Printf("queued: task %s for agent %s at queue position %d (%s)\n", t.ID, a.Name, t.QueueSeq, figure(t.State))
 	})
+}
+
+// ---------------------------------------------------------------------
+// ks agent approve | deny: deciding one permission request
+// ---------------------------------------------------------------------
+
+// approvalOutcome is what the decision route answers: the request as it
+// stands after the decision, and what was decided.
+type approvalOutcome struct {
+	Approval  approvalRow `json:"approval"`
+	Decision  string      `json:"decision"`
+	DecidedAt string      `json:"decided_at"`
+}
+
+// fetchApproval reads one permission request whole.
+func fetchApproval(cr hostedCreds, sess inventoryRow, id string) (approvalRow, error) {
+	var env struct {
+		Data approvalRow `json:"data"`
+	}
+	if err := hostedCall(cr, "GET", "/api/v2/approvals/"+url.PathEscape(id), nil, &env); err != nil {
+		var he *hostedErr
+		if errors.As(err, &he) && (he.Status == 404 || he.Type == "ks_not_found") {
+			return approvalRow{}, &cliError{Code: exitUsage, Kind: "not_found",
+				Message:    fmt.Sprintf("no permission request %s in session %s", id, sess.ShortID),
+				NextAction: fmt.Sprintf("ks agent open <name> --session %s --no-follow", sess.ShortID)}
+		}
+		return approvalRow{}, err
+	}
+	if env.Data.ID == "" {
+		return approvalRow{}, fmt.Errorf("the permission request could not be read (unexpected shape)")
+	}
+	return env.Data, nil
+}
+
+// decideApproval approves or denies exactly the request it has just read.
+//
+// The two fields that travel with the decision — the revision of the
+// record and the hash of the exact action it describes — are read
+// IMMEDIATELY before it is sent, and never carried over from a list
+// printed a minute ago. That is what makes a decision a decision about
+// the action a person actually read: if the action changed in between,
+// the service refuses the decision rather than applying it to something
+// else, and this client reports the refusal instead of trying again.
+// Nothing here ever decides on its own, and nothing decides a request the
+// person did not name.
+func decideApproval(cr hostedCreds, sess inventoryRow, id, decision string) (approvalRow, approvalOutcome, error) {
+	ap, err := fetchApproval(cr, sess, id)
+	if err != nil {
+		return approvalRow{}, approvalOutcome{}, err
+	}
+	if want := agentSessionID(sess); ap.SessionID != "" && ap.SessionID != want {
+		return ap, approvalOutcome{}, &cliError{Code: exitUsage, Kind: "not_found",
+			Message:    fmt.Sprintf("permission request %s belongs to another session, not %s; nothing was decided", ap.ID, sess.ShortID),
+			NextAction: "ks session list"}
+	}
+	if state := strings.ToLower(ap.State); state != "" && state != "pending" {
+		return ap, approvalOutcome{}, &cliError{Code: exitConflict, Kind: "approval_not_pending",
+			Message:    fmt.Sprintf("permission request %s is already %s, so nothing was decided; read the agent's current requests again before deciding", ap.ID, state),
+			NextAction: fmt.Sprintf("ks agent open <name> --session %s --no-follow", sess.ShortID)}
+	}
+	body := map[string]any{"decision": decision, "expected_revision": ap.Revision, "action_hash": ap.ExactActionHash}
+	var env struct {
+		Data approvalOutcome `json:"data"`
+	}
+	if err := hostedMutate(cr, "POST", "/api/v2/approvals/"+url.PathEscape(ap.ID)+"/decision", body, &env); err != nil {
+		return ap, approvalOutcome{}, decisionRefusal(cr, sess, ap, decision, err)
+	}
+	outcome := env.Data
+	if outcome.Approval.ID == "" {
+		outcome.Approval = ap
+	}
+	if outcome.Decision == "" {
+		outcome.Decision = decision
+	}
+	return ap, outcome, nil
+}
+
+// decisionRefusal turns the four refusals that mean "this is not the
+// request you read" into one clear sentence each. None of them is
+// retried: a decision that missed its action is not a decision to send
+// again automatically. Where the request still exists, it is read once
+// more so the refusal can say what it says NOW, which is the thing the
+// person has to read before deciding again.
+func decisionRefusal(cr hostedCreds, sess inventoryRow, ap approvalRow, decision string, err error) error {
+	var he *hostedErr
+	if !errors.As(err, &he) {
+		return err
+	}
+	word := "approved"
+	if decision == "deny" {
+		word = "denied"
+	}
+	reread := fmt.Sprintf("ks agent open <name> --session %s --no-follow", sess.ShortID)
+	nowReads := func() string {
+		cur, rerr := fetchApproval(cr, sess, ap.ID)
+		if rerr != nil || cur.ID == "" {
+			return ""
+		}
+		return fmt.Sprintf(" It now reads: %s — %s (revision %d, %s).", figure(cur.Kind), figure(cur.Summary), cur.Revision, figure(cur.State))
+	}
+	switch he.Type {
+	case "ks_approval_hash_mismatch":
+		return &cliError{Code: exitConflict, Kind: "approval_hash_mismatch",
+			Message: fmt.Sprintf("permission request %s is no longer the action you read, so nothing was %s: the exact action changed before the decision arrived.%s Read it again and decide the version you can see.",
+				ap.ID, word, nowReads()),
+			NextAction: fmt.Sprintf("ks agent approve %s --session %s", ap.ID, sess.ShortID)}
+	case "ks_revision_conflict":
+		return &cliError{Code: exitConflict, Kind: "revision_conflict",
+			Message: fmt.Sprintf("permission request %s moved on while it was being decided, so nothing was %s.%s Read it again and decide the version you can see.",
+				ap.ID, word, nowReads()),
+			NextAction: fmt.Sprintf("ks agent approve %s --session %s", ap.ID, sess.ShortID)}
+	case "ks_approval_expired":
+		return &cliError{Code: exitConflict, Kind: "approval_expired",
+			Message: fmt.Sprintf("permission request %s expired before the decision arrived, so nothing was %s and the agent was not given this permission; read the agent's current requests again before deciding.",
+				ap.ID, word),
+			NextAction: reread}
+	case "ks_approval_not_pending":
+		return &cliError{Code: exitConflict, Kind: "approval_not_pending",
+			Message: fmt.Sprintf("permission request %s was already decided elsewhere, so nothing was %s here; read the agent's current requests again before deciding.",
+				ap.ID, word),
+			NextAction: reread}
+	}
+	return err
+}
+
+func decisionLine(ap approvalRow, decision string) string {
+	word := "approved"
+	if decision == "deny" {
+		word = "denied"
+	}
+	return sanitize(fmt.Sprintf("%s permission request %s: %s — %s; the agent was told, and nothing else was decided",
+		word, ap.ID, figure(ap.Kind), figure(ap.Summary)))
+}
+
+// hostedAgentDecide is ks agent approve and ks agent deny: the same verb
+// with the word it sends. Both work from a terminal that is following
+// nothing, which is why they exist as verbs as well as keystrokes.
+func hostedAgentDecide(decision string) func(hostedCreds, *Invocation) {
+	return func(cr hostedCreds, inv *Invocation) {
+		sess := agentSession(cr, inv)
+		id := strings.TrimSpace(inv.Arg(0))
+		if id == "" {
+			fail(&cliError{Code: exitUsage, Kind: "usage", Message: "the id of the permission request is required; nothing is decided by position",
+				NextAction: fmt.Sprintf("ks agent open <name> --session %s --no-follow", sess.ShortID)})
+		}
+		ap, outcome, err := decideApproval(cr, sess, id, decision)
+		if err != nil {
+			die(err)
+		}
+		emit(map[string]any{"session": sess.ID, "approval": outcome.Approval, "decision": outcome.Decision, "decided_at": outcome.DecidedAt},
+			func() { fmt.Println(decisionLine(ap, outcome.Decision)) })
+	}
+}
+
+// ---------------------------------------------------------------------
+// the live window: what it holds, and what it does with what is typed
+// ---------------------------------------------------------------------
+
+// liveWindow is the state one open window keeps while it follows an
+// agent: which agent, in which session, and the control lease it holds —
+// or the reason it no longer holds one. Three goroutines touch it (the
+// one that reads what is typed, the one that renews the lease, and the
+// one that follows the stream), so every read and write goes through the
+// mutex.
+type liveWindow struct {
+	mu    sync.Mutex
+	sess  inventoryRow
+	agent agentRow
+	lease *agentLease
+	lost  string // why control is no longer held; empty while it is
+}
+
+// hold answers the lease this window may steer with, and whether it has
+// one at all. The token is copied out under the lock and used for exactly
+// one request; it is never stored anywhere else.
+func (win *liveWindow) hold() (agentLease, bool) {
+	win.mu.Lock()
+	defer win.mu.Unlock()
+	if win.lease == nil || win.lost != "" {
+		return agentLease{}, false
+	}
+	return *win.lease, true
+}
+
+// lose records that this window is no longer the controller. It is called
+// once per displacement; the second caller sees that control was already
+// lost and says nothing more.
+func (win *liveWindow) lose(reason string) bool {
+	win.mu.Lock()
+	defer win.mu.Unlock()
+	if win.lost != "" {
+		return false
+	}
+	win.lost = reason
+	win.lease = nil
+	return true
+}
+
+func (win *liveWindow) lostReason() string {
+	win.mu.Lock()
+	defer win.mu.Unlock()
+	return win.lost
+}
+
+func (win *liveWindow) renewed(l agentLease) {
+	win.mu.Lock()
+	defer win.mu.Unlock()
+	if win.lost != "" {
+		return
+	}
+	next := l
+	if next.Token == "" && win.lease != nil { // a renewal that rotates nothing keeps the token it renewed
+		next.Token = win.lease.Token
+	}
+	if next.ID == "" && win.lease != nil {
+		next.ID = win.lease.ID
+	}
+	win.lease = &next
+}
+
+// takeControlLine is the one thing a displaced or watching window can
+// suggest: reopening and asking for control, which is a decision the
+// person makes rather than one this client makes for them.
+func (win *liveWindow) takeControlLine() string {
+	return fmt.Sprintf("ks agent open %s --session %s --take-control", win.agent.Name, win.sess.ShortID)
+}
+
+// legend is the one line that says what this window accepts. It is a
+// progress line, because it is a fact about the window rather than a
+// result of it.
+func (win *liveWindow) legend() string {
+	if out.noInput {
+		return "this window reads nothing typed into it (--no-input); decide requests with ks agent approve <id> --session " + win.sess.ShortID
+	}
+	if _, held := win.hold(); !held {
+		return "type \"a <id>\" to approve a request or \"d <id>\" to deny it; this window is watching, so it queues no instruction (" + win.takeControlLine() + ")"
+	}
+	return "type \"a <id>\" to approve a request, \"d <id>\" to deny it, anything else to send it to the agent as an instruction; \"q\" or Ctrl-C detaches"
+}
+
+// refuse prints one refusal inside a window that stays open. A window is
+// a place a person is standing, so one bad line does not close it.
+func (win *liveWindow) refuse(err error) {
+	ce := classify(err)
+	progress("refused: %s", ce.Message)
+	if ce.NextAction != "" {
+		progress("Next: %s", ce.NextAction)
+	}
+}
+
+// readInput reads whole lines from standard input for as long as the
+// window is open. A line is a decision only when it is exactly the
+// approve or deny word with at most one more token, which is the id it
+// decides: everything else is an instruction, so an ordinary sentence
+// that happens to start with a letter is never read as a decision.
+func (win *liveWindow) readInput(cr hostedCreds, restore func()) {
+	if out.noInput {
+		return
+	}
+	sc := bufio.NewScanner(os.Stdin)
+	sc.Buffer(make([]byte, 0, 8<<10), 1<<20)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" {
+			continue
+		}
+		switch word, arg, ok := readWindowLine(line); {
+		case ok && word == "detach":
+			restore()
+			fmt.Fprintln(os.Stderr, "[detached; the agent keeps working]")
+			os.Exit(exitOK)
+		case ok:
+			win.decide(cr, word, arg)
+		default:
+			win.submit(cr, line)
+		}
+	}
+}
+
+// readWindowLine reads one typed line as a window command. "a" and "d"
+// (and their long forms) decide; "q" detaches; anything longer is not a
+// command at all.
+func readWindowLine(line string) (word, arg string, ok bool) {
+	f := strings.Fields(line)
+	if len(f) == 0 || len(f) > 2 {
+		return "", "", false
+	}
+	switch strings.ToLower(f[0]) {
+	case "a", "approve":
+		word = "approve"
+	case "d", "deny":
+		word = "deny"
+	case "q", "quit", "detach":
+		if len(f) > 1 {
+			return "", "", false
+		}
+		return "detach", "", true
+	default:
+		return "", "", false
+	}
+	if len(f) == 2 {
+		arg = f[1]
+	}
+	return word, arg, true
+}
+
+// decide settles one permission request from inside the window. The id is
+// named, or there is exactly one waiting and that is what "a" alone
+// means; several waiting with no id is a refusal that lists them, because
+// a window must never pick one for you.
+func (win *liveWindow) decide(cr hostedCreds, decision, arg string) {
+	pending, err := fetchPendingApprovals(cr, agentSessionID(win.sess))
+	if err != nil {
+		win.refuse(err)
+		return
+	}
+	id, err := chooseApproval(pending, arg)
+	if err != nil {
+		win.refuse(err)
+		return
+	}
+	ap, outcome, err := decideApproval(cr, win.sess, id, decision)
+	if err != nil {
+		win.refuse(err)
+		return
+	}
+	emitLine(map[string]any{"type": "approval_decided", "approval": outcome.Approval, "decision": outcome.Decision, "decided_at": outcome.DecidedAt},
+		decisionLine(ap, outcome.Decision))
+}
+
+// chooseApproval answers the one request a typed argument names among the
+// ones waiting: its id, a unique beginning of its id, or — with no
+// argument at all — the single request that is waiting.
+func chooseApproval(pending []approvalRow, arg string) (string, error) {
+	ids := make([]string, 0, len(pending))
+	for _, ap := range pending {
+		ids = append(ids, ap.ID)
+	}
+	sort.Strings(ids)
+	if arg == "" {
+		switch len(ids) {
+		case 1:
+			return ids[0], nil
+		case 0:
+			return "", &cliError{Code: exitUsage, Kind: "nothing_pending", Message: "nothing is waiting for a decision in this session right now"}
+		default:
+			return "", &cliError{Code: exitUsage, Kind: "ambiguous",
+				Message: fmt.Sprintf("%d requests are waiting (%s); name the one you mean", len(ids), strings.Join(ids, ", "))}
+		}
+	}
+	var hits []string
+	for _, id := range ids {
+		if id == arg {
+			return id, nil
+		}
+		if len(arg) >= 3 && strings.HasPrefix(id, arg) {
+			hits = append(hits, id)
+		}
+	}
+	switch len(hits) {
+	case 1:
+		return hits[0], nil
+	case 0:
+		return "", &cliError{Code: exitUsage, Kind: "not_found",
+			Message: fmt.Sprintf("no request waiting under %q; the ones waiting are: %s", arg, waitingList(ids))}
+	}
+	return "", &cliError{Code: exitUsage, Kind: "ambiguous",
+		Message: fmt.Sprintf("%q begins %d of the waiting requests (%s); give the whole id", arg, len(hits), strings.Join(hits, ", "))}
+}
+
+func waitingList(ids []string) string {
+	if len(ids) == 0 {
+		return "none"
+	}
+	return strings.Join(ids, ", ")
+}
+
+// submit sends one typed line to the agent as LIVE input: the instruction
+// carries this window's control lease, so the control plane can tell it
+// from an instruction typed anywhere else and refuse it the moment this
+// window is no longer the controller.
+//
+// There is no fallback. A window that has been displaced submits NOTHING:
+// falling back to a standalone submission would be this window steering
+// an agent it was just told it does not control, under a different name,
+// which is exactly the confusion the lease exists to prevent.
+func (win *liveWindow) submit(cr hostedCreds, text string) {
+	lease, held := win.hold()
+	if !held {
+		reason := win.lostReason()
+		if reason == "" {
+			reason = "this window is watching; another window holds control"
+		}
+		win.refuse(&cliError{Code: exitConflict, Kind: "not_controller",
+			Message:    reason + ", so nothing was sent to the agent",
+			NextAction: win.takeControlLine()})
+		return
+	}
+	path := "/api/v2/agents/" + url.PathEscape(win.agent.ID) + "/tasks"
+	sid, err := submissionID(cr, path, text)
+	if err != nil {
+		win.refuse(err)
+		return
+	}
+	// the lease token is in the request and nowhere else: the journal keeps
+	// the submission id and a hash of the instruction, never the body.
+	body := map[string]any{
+		"submission_id": sid, "text": text,
+		"origin": "live", "fence": lease.Fence, "lease_id": lease.ID, "lease_token": lease.Token,
+	}
+	var env struct {
+		Data submittedTask `json:"data"`
+	}
+	if err := hostedMutate(cr, "POST", path, body, &env); err != nil {
+		var he *hostedErr
+		if errors.As(err, &he) && he.Type == "ks_controller_stale" {
+			win.displaced(sanitize(he.Message))
+			return
+		}
+		win.refuse(err)
+		return
+	}
+	t := env.Data
+	human := fmt.Sprintf("sent: task %s at queue position %d (%s)", t.ID, t.QueueSeq, figure(t.State))
+	if t.Replayed {
+		human = fmt.Sprintf("already sent: task %s at queue position %d (%s); the same instruction was submitted once", t.ID, t.QueueSeq, figure(t.State))
+	}
+	emitLine(map[string]any{"type": "instruction_sent", "submission_id": sid, "replayed": t.Replayed, "task": t.taskRow}, human)
+}
+
+// displaced says, once and plainly, that control moved to another window.
+// The window stays open and keeps showing the agent's events, because
+// watching is a real thing to be doing; it simply steers nothing.
+func (win *liveWindow) displaced(detail string) {
+	if !win.lose("control of this agent moved to another window") {
+		return
+	}
+	progress("control moved to another window: %s", detail)
+	progress("nothing was sent, and this window will not submit as the controller again; it is watching now")
+	progress("to steer from here again: %s", win.takeControlLine())
+}
+
+// renew keeps the control lease alive for as long as the window is open.
+// The lease is short by design, so a window that stops renewing stops
+// being the controller: this loop is the difference between holding
+// control and having held it. A renewal that fails is not retried into
+// oblivion — it is reported, and the window drops to watching.
+func (win *liveWindow) renew(cr hostedCreds) {
+	for {
+		lease, held := win.hold()
+		if !held {
+			return
+		}
+		wait := leaseRenewAfter(lease, time.Now())
+		if wait < 0 {
+			return // no expiry was reported, so there is no clock to renew against
+		}
+		time.Sleep(wait)
+		if _, held := win.hold(); !held {
+			return
+		}
+		next, err := renewLease(cr, lease)
+		if err != nil {
+			var he *hostedErr
+			detail := sanitize(err.Error())
+			if errors.As(err, &he) && he.Type == "ks_controller_stale" {
+				win.displaced(sanitize(he.Message))
+				return
+			}
+			if win.lose("this window's control could not be renewed") {
+				progress("the control of agent %s could not be renewed: %s", win.agent.Name, detail)
+				progress("this window no longer holds control and will submit nothing as the controller; it is watching now")
+				progress("to steer from here again: %s", win.takeControlLine())
+			}
+			return
+		}
+		win.renewed(*next)
+	}
+}
+
+// leaseRenewAfter is how long a window waits before renewing: a third of
+// what is left, never less than a second (a renewal loop is not a busy
+// loop) and never more than half a minute. A lease with no readable
+// expiry answers -1: there is nothing to renew against, and inventing a
+// cadence for it would be inventing the contract.
+func leaseRenewAfter(l agentLease, now time.Time) time.Duration {
+	if l.ExpiresAt == "" {
+		return -1
+	}
+	exp, err := time.Parse(time.RFC3339, l.ExpiresAt)
+	if err != nil {
+		return -1
+	}
+	ttl := exp.Sub(now)
+	if ttl <= 0 {
+		// already at or past its expiry: renew promptly, but a renewal loop
+		// is never a busy loop, however short the lease the service hands out
+		return 250 * time.Millisecond
+	}
+	d := ttl / 3
+	if d < time.Second {
+		d = time.Second
+	}
+	if d > 30*time.Second {
+		d = 30 * time.Second
+	}
+	return d
+}
+
+// renewLease extends one control lease. It carries the lease it renews,
+// so repeating it is the same renewal rather than a new claim, and it is
+// deliberately NOT recorded in the operations journal: a heartbeat every
+// few seconds does not belong in the record of what a person asked for.
+func renewLease(cr hostedCreds, l agentLease) (*agentLease, error) {
+	var env struct {
+		Data agentLease `json:"data"`
+	}
+	body := map[string]any{"lease_token": l.Token, "fence": l.Fence}
+	if err := hostedCall(cr, "PUT", "/api/v2/control-leases/"+url.PathEscape(l.ID), body, &env); err != nil {
+		return nil, err
+	}
+	next := env.Data
+	if next.ID == "" {
+		next.ID = l.ID
+	}
+	if next.Token == "" {
+		next.Token = l.Token
+	}
+	if next.Fence == 0 {
+		next.Fence = l.Fence
+	}
+	if next.ExpiresAt == "" {
+		return nil, fmt.Errorf("the renewed lease reports no expiry, so this window cannot tell how long it still holds control")
+	}
+	return &next, nil
+}
+
+// ---------------------------------------------------------------------
+// ks agent pause | resume: saving the session, and waking it again
+// ---------------------------------------------------------------------
+
+// sessionPause is what the pause route answers: the state the session is
+// in now, whether the save it just took is safe, and a sentence about it.
+// "stopping" is not "parked": the save is already durable, and the
+// machine is still winding down.
+type sessionPause struct {
+	RuntimeState   string `json:"runtime_state"`
+	CheckpointSafe bool   `json:"checkpoint_safe"`
+	Note           string `json:"note"`
+}
+
+func fetchSessionRecord(cr hostedCreds, id string) (inventoryRow, error) {
+	var env struct {
+		Data inventoryRow `json:"data"`
+	}
+	if err := hostedCall(cr, "GET", "/api/v2/sessions/"+url.PathEscape(id), nil, &env); err != nil {
+		return inventoryRow{}, err
+	}
+	return env.Data, nil
+}
+
+// waitForParked polls the session until it reads parked, within the wait
+// bound, saying where it has got to as it goes. It never prints a sleep
+// for someone else to run and never asks anyone to go and look: the
+// waiting is the client's job. It answers the last state it saw and
+// whether that state was parked.
+func waitForParked(cr hostedCreds, id string, short string) (string, time.Duration, bool) {
+	bound := boundedWait()
+	interval := pollCadence(bound)
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sig)
+	started := time.Now()
+	deadline := started.Add(bound)
+	state := "stopping"
+	for {
+		select {
+		case <-sig:
+			fail(&cliError{Code: exitInterrupt, Kind: "interrupted",
+				Message:     fmt.Sprintf("interrupted locally after %s; session %s keeps stopping and its save stays safe", time.Since(started).Round(time.Second), short),
+				WorkStarted: workYes, NextAction: "ks session show " + short})
+		case <-time.After(interval):
+		}
+		r, err := fetchSessionRecord(cr, id)
+		if err != nil {
+			progress("reading session %s: %s (still waiting)", short, sanitize(err.Error()))
+		} else {
+			if s := strings.ToLower(r.RuntimeState); s != "" {
+				state = s
+			}
+			if state == "parked" {
+				return state, time.Since(started).Round(time.Second), true
+			}
+			progress("session %s is still %s after %s", short, state, time.Since(started).Round(time.Second))
+		}
+		if time.Now().After(deadline) {
+			return state, time.Since(started).Round(time.Second), false
+		}
+	}
+}
+
+// boundedWait is the wait bound of one command: the default, what
+// --wait-timeout set, or the impatience a test asks for.
+func boundedWait() time.Duration {
+	bound := waitBound
+	if v := os.Getenv("KS_WAIT_TIMEOUT_MS"); v != "" {
+		if ms, err := strconv.Atoi(v); err == nil && ms > 0 {
+			bound = time.Duration(ms) * time.Millisecond
+		}
+	}
+	return bound
+}
+
+// pollCadence keeps a short bound from being one long silence.
+func pollCadence(bound time.Duration) time.Duration {
+	interval := pollInterval
+	if bound < interval*4 {
+		interval = bound / 4
+	}
+	if interval <= 0 {
+		interval = 10 * time.Millisecond
+	}
+	return interval
+}
+
+func hostedAgentPause(cr hostedCreds, inv *Invocation) {
+	sess := agentSession(cr, inv)
+	a, err := resolveAgent(cr, sess, inv.Arg(0))
+	if err != nil {
+		die(err)
+	}
+	id := agentSessionID(sess)
+	var env struct {
+		Data sessionPause `json:"data"`
+	}
+	if err := hostedMutate(cr, "POST", "/api/v2/sessions/"+url.PathEscape(id)+"/pause", map[string]any{}, &env); err != nil {
+		die(err)
+	}
+	p := env.Data
+	state := strings.ToLower(p.RuntimeState)
+	report := func(final string, waited time.Duration) {
+		emit(map[string]any{"session": sess.ID, "agent": a.ID, "runtime_state": final,
+			"checkpoint_safe": p.CheckpointSafe, "note": p.Note, "waited_seconds": int64(waited.Seconds())}, func() {
+			// what is said about the save is what the service said about it,
+			// never what would be nicer to hear
+			if p.CheckpointSafe {
+				fmt.Printf("session %s is parked: the save is complete and safe, and session time has stopped", sess.ShortID)
+			} else {
+				fmt.Printf("session %s is parked and session time has stopped; the service did not confirm its save as safe", sess.ShortID)
+			}
+			if waited > 0 {
+				fmt.Printf(" (stopping finished %s after the save)", waited)
+			}
+			fmt.Println()
+		})
+	}
+	if state == "parked" {
+		report("parked", 0)
+		return
+	}
+	// stopping: the save is already durable and the machine is winding
+	// down. Saying "saved" here and stopping there is the whole point.
+	safe := "the save is safe"
+	if !p.CheckpointSafe {
+		safe = "the service did not confirm the save as safe"
+	}
+	progress("session %s: %s, and stopping is still finishing%s", sess.ShortID, safe, noteSuffix(p.Note))
+	final, waited, parked := waitForParked(cr, id, sess.ShortID)
+	if !parked {
+		fail(&cliError{Code: exitTemporary, Kind: "still_stopping",
+			Message: fmt.Sprintf("session %s is still %s after %s; the save it took is complete, and nothing else was started",
+				sess.ShortID, final, waited),
+			WorkStarted: workYes,
+			NextAction:  fmt.Sprintf("ks agent pause %s --session %s --wait-timeout 5m (the same request, waiting longer)", a.Name, sess.ShortID)})
+	}
+	report(final, waited)
+}
+
+func noteSuffix(note string) string {
+	if strings.TrimSpace(note) == "" {
+		return ""
+	}
+	return ": " + sanitize(note)
+}
+
+func hostedAgentResume(cr hostedCreds, inv *Invocation) {
+	sess := agentSession(cr, inv)
+	a, err := resolveAgent(cr, sess, inv.Arg(0))
+	if err != nil {
+		die(err)
+	}
+	id := agentSessionID(sess)
+	res, err := postResume(cr, id)
+	if err != nil {
+		var he *hostedErr
+		if !errors.As(err, &he) || he.Type != "ks_stopping" {
+			die(err)
+		}
+		// the save from the last pause has not finished putting the machine
+		// away yet. Nothing failed and nothing was resumed: this is a wait,
+		// so the client waits it out rather than handing back a conflict
+		// nobody can act on.
+		progress("session %s cannot resume yet%s", sess.ShortID, noteSuffix(he.Message))
+		progress("waiting for it to finish, then resuming; nothing has been resumed so far")
+		final, waited, parked := waitForParked(cr, id, sess.ShortID)
+		if !parked {
+			fail(&cliError{Code: exitConflict, Kind: "stopping",
+				Message: fmt.Sprintf("session %s is still %s after %s, so nothing was resumed; the previous save is still completing and this can be asked again",
+					sess.ShortID, final, waited),
+				WorkStarted: workNo,
+				NextAction:  fmt.Sprintf("ks agent resume %s --session %s", a.Name, sess.ShortID)})
+		}
+		progress("session %s finished stopping after %s; resuming it now", sess.ShortID, waited)
+		if res, err = postResume(cr, id); err != nil {
+			die(err)
+		}
+	}
+	emit(map[string]any{"session": sess.ID, "agent": a.ID, "runtime_state": res["runtime_state"], "note": res["note"]}, func() {
+		fmt.Printf("session %s is resuming from its last save (state: %s); session time is metered again\n",
+			sess.ShortID, figure(res["runtime_state"]))
+	})
+}
+
+func postResume(cr hostedCreds, id string) (map[string]any, error) {
+	var env struct {
+		Data map[string]any `json:"data"`
+	}
+	if err := hostedMutate(cr, "POST", "/api/v2/sessions/"+url.PathEscape(id)+"/resume", map[string]any{}, &env); err != nil {
+		return nil, err
+	}
+	if env.Data == nil {
+		env.Data = map[string]any{}
+	}
+	return env.Data, nil
 }
