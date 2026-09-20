@@ -137,11 +137,15 @@
   {
    "verb": "cruise init",
    "aliases": [],
-   "usage": "ks cruise init [--goal TEXT] [--tests CMD] [--paths GLOB...] [--ladder family:model,...] [--spend USD]",
+   "usage": "ks cruise init [--allow PATH...] [--goal TEXT] [--tests CMD] [--paths GLOB...] [--ladder family:model,...] [--spend USD]",
    "summary": "draft the acceptance manifest from the repository into .keepstate/cruise.json",
    "status": "available",
    "surface": "client",
    "flags": [
+    {
+     "flag": "--allow PATH...",
+     "summary": "review a sensitive or ignored path into the upload (repeatable); see ks cruise preview"
+    },
     {
      "flag": "--goal TEXT",
      "summary": "the goal the agent is given; without it, the draft's previous goal, else \"make the check pass: CMD\""
@@ -318,6 +322,50 @@
    "summary": "print the command reference as a Markdown table generated from the command schema",
    "status": "available",
    "surface": "client"
+  },
+  {
+   "verb": "session list",
+   "aliases": [
+    "ls"
+   ],
+   "usage": "ks session list [--state STATE] [--all]",
+   "summary": "your sessions, newest activity first: state, agent, task, last activity, last save",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--state STATE",
+     "summary": "only running, parked or dead"
+    },
+    {
+     "flag": "--all",
+     "summary": "include dead sessions"
+    }
+   ]
+  },
+  {
+   "verb": "session show",
+   "aliases": [],
+   "usage": "ks session show <session>",
+   "summary": "one session in full; a short id is accepted when it is unique among yours",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "cruise preview",
+   "aliases": [
+    "workspace preview"
+   ],
+   "usage": "ks cruise preview [--allow PATH...]",
+   "summary": "what an upload would carry and what it would not, with reasons: names and sizes, never content",
+   "status": "available",
+   "surface": "client",
+   "flags": [
+    {
+     "flag": "--allow PATH...",
+     "summary": "review a sensitive or ignored path into the upload (repeatable); never a symlink or .git"
+    }
+   ]
   }
  ]
 }

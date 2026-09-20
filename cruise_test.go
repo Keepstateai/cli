@@ -48,8 +48,10 @@ func writeTree(t *testing.T, root string, files map[string]string) {
 }
 
 // refTree is the fixture the reference digest was computed over, plus the
-// entries the client must ignore: .git and .keepstate at two depths, an
-// empty directory, and a symlink to a directory.
+// entries the client must ignore: .git and .keepstate at two depths and an
+// empty directory. (Until the upload policy of KS-027 a symlink to a
+// directory was part of this fixture and skipped; every symlink is now
+// refused with its path, see TestSymlinksAreRefusedWithTheirPaths.)
 func refTree(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -74,9 +76,6 @@ func refTree(t *testing.T) string {
 		"a/.git/HEAD":              "ref\n",
 		"m/.keepstate/verifier.js": "x",
 	})
-	if err := os.Symlink(filepath.Join(root, "a"), filepath.Join(root, "link-to-a")); err != nil {
-		t.Fatal(err)
-	}
 	return root
 }
 

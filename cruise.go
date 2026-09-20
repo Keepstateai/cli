@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"math"
 	"os"
 	"path"
@@ -161,74 +160,30 @@ func (c *capWriter) Write(p []byte) (int, error) {
 // os.walk's after sorted(): every directory sorted by its full path, then
 // the files of each directory sorted by name. That is not a plain sort of
 // file paths: "a-x/h" precedes "a/b/g" because the directory "a-x" sorts
-// before the directory "a/b" ('-' is below '/'). A symlink to a directory
-// is not descended (os.walk does not follow links); a symlink to a file is
-// read through, and stored in the tarball as the file it points to, so
-// the unpacked tree digests to the same value the client computed.
+// before the directory "a/b" ('-' is below '/').
 //
-// The size limit is checked on the files themselves, before anything is
-// packed, so an oversize workspace is refused without reading it through.
+// Which files: the selection (selection.go): mandatory exclusions,
+// sensitive blocks, the project's ignore rules, then the overrides read
+// from the selection manifest init wrote. Symlinks are refused. The size
+// limit is checked on the selection before anything is packed.
 //
 // The tarball is deterministic: fixed epoch mtime, uid and gid 0, no
 // names, mode 0644 or 0755 (the executable bit only), entries in walk
 // order, regular files only. Two packs of an unchanged tree are the same
 // bytes, so the sha256 written at init is the sha256 checked at run.
 func scanWorkspace(root string, out io.Writer) ([]wsFile, error) {
-	dirFiles := map[string][]string{}
-	var dirs []string
-	var total int64
-	var collect func(rel string) error
-	collect = func(rel string) error {
-		dirs = append(dirs, rel)
-		ents, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(rel)))
-		if err != nil {
-			return err
-		}
-		for _, e := range ents {
-			name := e.Name()
-			if excludedName(name) {
-				continue
-			}
-			crel := path.Join(rel, name)
-			if e.Type()&fs.ModeSymlink != 0 {
-				fi, err := os.Stat(filepath.Join(root, filepath.FromSlash(crel)))
-				if err != nil {
-					return fmt.Errorf("%s: broken symlink; remove it or point it at a file", crel)
-				}
-				if fi.IsDir() {
-					continue
-				}
-				if !fi.Mode().IsRegular() {
-					return fmt.Errorf("%s: not a regular file", crel)
-				}
-				total += fi.Size()
-				dirFiles[rel] = append(dirFiles[rel], name)
-				continue
-			}
-			if e.IsDir() {
-				if err := collect(crel); err != nil {
-					return err
-				}
-				continue
-			}
-			if !e.Type().IsRegular() {
-				return fmt.Errorf("%s: not a regular file (sockets, devices and pipes cannot enter a job)", crel)
-			}
-			if fi, err := e.Info(); err == nil {
-				total += fi.Size()
-			}
-			dirFiles[rel] = append(dirFiles[rel], name)
-		}
-		return nil
-	}
-	if err := collect(""); err != nil {
-		return nil, err
-	}
-	if total > cruiseMaxBytes {
-		return nil, tooLarge(total)
-	}
-	sort.Strings(dirs)
+	files, _, err := scanSelected(root, out, readSelectionOverrides(root))
+	return files, err
+}
 
+// scanSelected builds the selection with the given overrides, packs it
+// when out is not nil, and returns the packed files (with digests) and the
+// selection (with its digest).
+func scanSelected(root string, out io.Writer, overrides []string) ([]wsFile, *selection, error) {
+	sel, err := buildSelection(root, overrides)
+	if err != nil {
+		return nil, sel, err
+	}
 	var gz *gzip.Writer
 	var tw *tar.Writer
 	if out != nil {
@@ -236,62 +191,59 @@ func scanWorkspace(root string, out io.Writer) ([]wsFile, error) {
 		tw = tar.NewWriter(gz)
 	}
 	var files []wsFile
-	for _, d := range dirs {
-		names := dirFiles[d]
-		sort.Strings(names)
-		for _, name := range names {
-			rel := path.Join(d, name)
-			abs := filepath.Join(root, filepath.FromSlash(rel))
-			fi, err := os.Stat(abs)
-			if err != nil {
-				return nil, err
-			}
-			f, err := os.Open(abs)
-			if err != nil {
-				return nil, err
-			}
-			h := sha256.New()
-			var w io.Writer = h
-			if tw != nil {
-				mode := int64(0o644)
-				if fi.Mode()&0o111 != 0 {
-					mode = 0o755
-				}
-				hdr := &tar.Header{
-					Typeflag: tar.TypeReg,
-					Name:     rel,
-					Size:     fi.Size(),
-					Mode:     mode,
-					ModTime:  time.Unix(0, 0),
-				}
-				if err := tw.WriteHeader(hdr); err != nil {
-					f.Close()
-					return nil, err
-				}
-				w = io.MultiWriter(h, tw)
-			}
-			n, err := io.Copy(w, f)
-			f.Close()
-			if err != nil {
-				return nil, fmt.Errorf("%s: %w", rel, err)
-			}
-			if n != fi.Size() {
-				return nil, fmt.Errorf("%s changed while it was being read", rel)
-			}
-			wf := wsFile{rel: rel, exec: fi.Mode()&0o111 != 0, size: n}
-			copy(wf.sha[:], h.Sum(nil))
-			files = append(files, wf)
+	for i, sf := range sel.Included {
+		rel := sf.Path
+		abs := filepath.Join(root, filepath.FromSlash(rel))
+		f, err := os.Open(abs)
+		if err != nil {
+			return nil, sel, err
 		}
+		fi, err := f.Stat() // the descriptor's identity: a path swapped since the walk is caught below
+		if err != nil {
+			f.Close()
+			return nil, sel, err
+		}
+		if !fi.Mode().IsRegular() || fi.Size() != sf.Size {
+			f.Close()
+			return nil, sel, fmt.Errorf("%s changed between selection and packing; run the command again", rel)
+		}
+		h := sha256.New()
+		var w io.Writer = h
+		if tw != nil {
+			mode := int64(0o644)
+			if sf.Mode == "0755" {
+				mode = 0o755
+			}
+			hdr := &tar.Header{Typeflag: tar.TypeReg, Name: rel, Size: fi.Size(), Mode: mode, ModTime: time.Unix(0, 0)}
+			if err := tw.WriteHeader(hdr); err != nil {
+				f.Close()
+				return nil, sel, err
+			}
+			w = io.MultiWriter(h, tw)
+		}
+		n, err := io.Copy(w, f)
+		f.Close()
+		if err != nil {
+			return nil, sel, fmt.Errorf("%s: %w", rel, err)
+		}
+		if n != fi.Size() {
+			return nil, sel, fmt.Errorf("%s changed while it was being read", rel)
+		}
+		wf := wsFile{rel: rel, exec: sf.Mode == "0755", size: n}
+		copy(wf.sha[:], h.Sum(nil))
+		files = append(files, wf)
+		sel.Included[i].SHA256 = hex.EncodeToString(wf.sha[:])
 	}
 	if tw != nil {
 		if err := tw.Close(); err != nil {
-			return nil, err
+			return nil, sel, err
 		}
 		if err := gz.Close(); err != nil {
-			return nil, err
+			return nil, sel, err
 		}
 	}
-	return files, nil
+	sel.Digest = selectionDigest(sel)
+	return files, sel, nil
 }
 
 // treeDigest is judge/manifest.py tree_digest over the scanned files: for
@@ -748,10 +700,11 @@ func cruiseInit(inv *Invocation) {
 		ladder = embeddedModels.DefaultLadder
 	}
 
-	// 1. the workspace, packed once to learn the tarball's digest and size
+	// 1. the workspace, packed once to learn the tarball's digest and size;
+	// the selection (KS-026/027) is built here and written beside the draft
 	h := sha256.New()
 	cw := &capWriter{w: h}
-	files, err := scanWorkspace(root, cw)
+	files, sel, err := scanSelected(root, cw, inv.List("allow"))
 	if err != nil {
 		die(err)
 	}
@@ -877,6 +830,9 @@ func cruiseInit(inv *Invocation) {
 			"on_call_boundary": false,
 		},
 	}
+	if err := writeSelection(root, sel); err != nil {
+		die(err)
+	}
 	if err := writeDraft(root, m); err != nil {
 		die(err)
 	}
@@ -891,7 +847,7 @@ func cruiseInit(inv *Invocation) {
 		emit(map[string]any{"manifest_sha": sha, "draft": cruiseDraft, "goal": goal, "check": ck.command, "check_kind": ck.kind,
 			"tests_pinned": testCount, "tests_digest": tests, "boundary": boundary, "ladder": ladderWords(ladder), "rungs": len(ladder),
 			"time_s": cruiseTimeS, "spend_microusd": spend, "reserve_microusd": cruiseReserve,
-			"workspace": map[string]any{"files": len(files), "packed_bytes": cw.n, "tree_digest": treeDigest(files)}, "previous_approval_removed": lockRemoved}, nil)
+			"workspace": map[string]any{"files": len(files), "packed_bytes": cw.n, "tree_digest": treeDigest(files), "selection_digest": sel.Digest, "excluded": len(sel.Excluded), "policy_version": sel.PolicyVersion}, "previous_approval_removed": lockRemoved}, nil)
 		return
 	}
 	fmt.Println(sha)
@@ -1014,9 +970,11 @@ func validateManifest(m map[string]any) error {
 // ---------------------------------------------------------------------
 
 type lockFile struct {
-	SHA256     string `json:"sha256"`
-	ApprovedAt string `json:"approved_at"`
-	Version    any    `json:"version,omitempty"`
+	SHA256          string `json:"sha256"`
+	ApprovedAt      string `json:"approved_at"`
+	Version         any    `json:"version,omitempty"`
+	SelectionDigest string `json:"selection_digest,omitempty"` // KS-026: the approval binds the file set and the policy
+	PolicyVersion   string `json:"policy_version,omitempty"`
 }
 
 func cruiseApprove(inv *Invocation) {
@@ -1034,7 +992,7 @@ func cruiseApprove(inv *Invocation) {
 	if err := validateManifest(m); err != nil {
 		die(fmt.Errorf("draft refused: %v", err))
 	}
-	files, err := scanWorkspace(root, nil)
+	files, sel, err := scanSelected(root, nil, readSelectionOverrides(root))
 	if err != nil {
 		die(err)
 	}
@@ -1046,7 +1004,7 @@ func cruiseApprove(inv *Invocation) {
 	if err != nil {
 		die(err)
 	}
-	lk := lockFile{SHA256: sha, ApprovedAt: time.Now().UTC().Format(time.RFC3339), Version: m["version"]}
+	lk := lockFile{SHA256: sha, ApprovedAt: time.Now().UTC().Format(time.RFC3339), Version: m["version"], SelectionDigest: sel.Digest, PolicyVersion: sel.PolicyVersion}
 	b, _ := json.MarshalIndent(lk, "", "  ")
 	if err := os.WriteFile(filepath.Join(root, cruiseLock), append(b, '\n'), 0o644); err != nil {
 		die(err)
@@ -1108,7 +1066,7 @@ func cruiseRun(inv *Invocation) error {
 	defer tmp.Close()
 	h := sha256.New()
 	cw := &capWriter{w: io.MultiWriter(tmp, h)}
-	files, err := scanWorkspace(root, cw)
+	files, sel, err := scanSelected(root, cw, readSelectionOverrides(root))
 	if err != nil {
 		return err
 	}
@@ -1138,6 +1096,14 @@ func cruiseRun(inv *Invocation) error {
 	if want, _ := m["initial_state_digest"].(string); want != treeDigest(files) {
 		return fmt.Errorf("the workspace changed since approve (tree digest %s, approved %s); run ks cruise init and approve again",
 			short(treeDigest(files)), short(want))
+	}
+	// the selection, against the lock: a changed exclusion set, policy or
+	// override is a different upload the old approval does not cover
+	switch {
+	case lk.SelectionDigest == "":
+		return fmt.Errorf("the approval predates the upload policy %s; review the selection (ks cruise preview) and approve again", selectionPolicyVersion)
+	case lk.SelectionDigest != sel.Digest:
+		return fmt.Errorf("the upload selection changed since approve (selection digest %s, approved %s under %s); review it (ks cruise preview), then ks cruise init and approve again", short(sel.Digest), short(lk.SelectionDigest), lk.PolicyVersion)
 	}
 	tarSha := hex.EncodeToString(h.Sum(nil))
 	ws, _ := m["workspace"].(map[string]any)

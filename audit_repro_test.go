@@ -269,7 +269,18 @@ func TestAuditReproductions(t *testing.T) {
 		if err := os.Symlink(filepath.Join(outside, "outside.txt"), filepath.Join(fixture, "external-link.txt")); err != nil {
 			t.Fatal(err)
 		}
-		f.Runs = append(f.Runs, runOne(fixture, "cruise", "init", "--goal", "audit fixture"))
+		// Since the upload policy (KS-026/027, 2026-09-20) init refuses a
+		// workspace with a symlink before anything is packed; the archive
+		// inspection below then runs on the same fixture without the link,
+		// so the ignored-file half of the finding is still measured on the
+		// bytes that would leave the machine.
+		initRun := runOne(fixture, "cruise", "init", "--goal", "audit fixture")
+		f.Runs = append(f.Runs, initRun)
+		linkRefused := initRun.Exit != 0 && strings.Contains(initRun.Stderr, "external-link.txt")
+		if linkRefused {
+			_ = os.Remove(filepath.Join(fixture, "external-link.txt"))
+			f.Runs = append(f.Runs, runOne(fixture, "cruise", "init", "--goal", "audit fixture"))
+		}
 		f.Runs = append(f.Runs, runOne(fixture, "cruise", "approve"))
 		r := runOne(fixture, "cruise", "run")
 		var entries []string
@@ -301,6 +312,9 @@ func TestAuditReproductions(t *testing.T) {
 			f.Status = "reproduced"
 		} else if !has(".env") && !has("node_modules/fixture.txt") && !has("external-link.txt") {
 			f.Status = "not-reproduced"
+			if linkRefused {
+				f.Note = "init refused the symlink by name before packing; without it the archive carried neither the ignored file nor the sensitive one"
+			}
 		} else {
 			f.Status = "reproduced"
 			f.Note = "partially: see the entry list"
