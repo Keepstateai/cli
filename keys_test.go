@@ -1,6 +1,6 @@
 // KS-023 to KS-025 and KS-028 on the command line: the inventory never
 // shows a secret, the secret enters only through standard input, a
-// binding names a key by id, and preflight starts nothing. DISC-07: every
+// binding names a key by id, and preflight starts nothing. every
 // client-authored surface (help, reference, doctor, verbs) carries no
 // private marker.
 package main
