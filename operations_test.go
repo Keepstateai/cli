@@ -278,3 +278,37 @@ func TestOlderControlPlaneWithoutOperations(t *testing.T) {
 		t.Errorf("older control plane: exit %d\n%s", code, errs)
 	}
 }
+
+// KS-013 on the client: a record in reconciliation_required is terminal
+// for the command (unknown, exit 4, the id named, no resubmit), and the
+// resources a record names are shown.
+func TestReconciliationRequiredIsTerminalUnknown(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/api/capabilities":
+			fmt.Fprint(w, `{"schema_version":2,"data":{"registry_version":"t","build":"b","fetched_at":"x","price_book":"v1.3","capabilities":[{"id":"operations.idempotent","availability":"available","summary":"s","surface":"api"}],"limits":{}}}`)
+		case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/checkpoint"):
+			w.WriteHeader(202)
+			fmt.Fprint(w, `{"schema_version":2,"data":{"operation_id":"op_rec","state":"accepted"}}`)
+		case strings.HasPrefix(r.URL.Path, "/api/operations/"):
+			fmt.Fprint(w, `{"schema_version":2,"data":{"operation_id":"op_rec","state":"reconciliation_required","reconciliation_state":"pending","error":"the control plane restarted before this operation finished; its outcome is unknown until reconciled","accepted_at":"x","method":"POST","path":"/api/sessions/s1/checkpoint","resource_ids":["checkpoint:cp_9"]}}`)
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+	bin, cfg := buildAndAuth(t, srv)
+	stdout, _, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "checkpoint", "s1", "--json")
+	if code != exitTemporary {
+		t.Fatalf("exit %d\n%s", code, stdout)
+	}
+	e := parseEnvelope(t, stdout)["error"].(map[string]any)
+	if e["code"] != "reconciliation_required" || e["work_started"] != "unknown" || e["operation_id"] != "op_rec" || !strings.Contains(fmt.Sprint(e["next_action"]), "do not resubmit") {
+		t.Errorf("error: %v", e)
+	}
+	out, _, _ := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "operation", "show", "op_rec")
+	if !strings.Contains(out, "reconciliation: pending") || !strings.Contains(out, "resources: checkpoint:cp_9") {
+		t.Errorf("operation show:\n%s", out)
+	}
+}

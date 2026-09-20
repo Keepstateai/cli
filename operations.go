@@ -294,15 +294,17 @@ func recoverUncertain(cr hostedCreds, key string, out any, what string) error {
 }
 
 type remoteOp struct {
-	ID         string          `json:"operation_id"`
-	State      string          `json:"state"`
-	HTTPStatus int             `json:"http_status"`
-	Response   json.RawMessage `json:"response"`
-	Error      string          `json:"error"`
-	AcceptedAt string          `json:"accepted_at"`
-	FinishedAt string          `json:"finished_at"`
-	Method     string          `json:"method"`
-	Path       string          `json:"path"`
+	ID             string          `json:"operation_id"`
+	State          string          `json:"state"`
+	HTTPStatus     int             `json:"http_status"`
+	Response       json.RawMessage `json:"response"`
+	Error          string          `json:"error"`
+	AcceptedAt     string          `json:"accepted_at"`
+	FinishedAt     string          `json:"finished_at"`
+	Method         string          `json:"method"`
+	Path           string          `json:"path"`
+	ResourceIDs    []string        `json:"resource_ids"`
+	Reconciliation string          `json:"reconciliation_state"`
 }
 
 var errNoOperations = errors.New("this control plane does not serve operation records (no GET /api/operations); the outcome cannot be read back here")
@@ -352,6 +354,13 @@ func settleOperation(cr hostedCreds, o *remoteOp, key string, out any) error {
 			return fmt.Errorf("%s (operation %s)", o.Error, o.ID)
 		}
 		return hostedError(o.Method, o.Path, &http.Response{StatusCode: o.HTTPStatus, Status: strconv.Itoa(o.HTTPStatus)}, o.Response)
+	case "reconciliation_required":
+		// C05: completion could not be proven; only reconciliation resolves
+		// it. Terminal for this command: unknown, the record named, no wait,
+		// no resend.
+		fail(&cliError{Code: exitTemporary, Kind: "reconciliation_required", Message: fmt.Sprintf("operation %s needs reconciliation: %s", o.ID, sanitize(o.Error)),
+			WorkStarted: workUnknown, OperationID: o.ID, NextAction: "ks operation show " + o.ID + " after reconciliation; do not resubmit"})
+		return nil
 	default:
 		if o.ID == "" {
 			return fmt.Errorf("the operation record names no id; nothing to wait for")
@@ -394,7 +403,7 @@ func waitOperation(cr hostedCreds, id, key string, out any) error {
 					WorkStarted: workUnknown, OperationID: id, NextAction: "do not resubmit; check the console, or ks operation show " + id + " once the control plane serves records again"})
 			}
 			progress("reading the operation: %v (still waiting)", err)
-		} else if o.State == "succeeded" || o.State == "failed" {
+		} else if o.State == "succeeded" || o.State == "failed" || o.State == "reconciliation_required" {
 			return settleOperation(cr, o, key, out)
 		}
 		if time.Now().After(deadline) {
@@ -449,6 +458,12 @@ func printOperationText(o *remoteOp) {
 	fmt.Printf("accepted: %s\n", o.AcceptedAt)
 	if o.FinishedAt != "" {
 		fmt.Printf("finished: %s (HTTP %d)\n", o.FinishedAt, o.HTTPStatus)
+	}
+	if o.Reconciliation != "" {
+		fmt.Printf("reconciliation: %s\n", o.Reconciliation)
+	}
+	if len(o.ResourceIDs) > 0 {
+		fmt.Printf("resources: %s\n", strings.Join(o.ResourceIDs, ", "))
 	}
 	if o.Error != "" {
 		fmt.Printf("error: %s\n", o.Error)
