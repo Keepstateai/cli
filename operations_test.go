@@ -34,6 +34,13 @@ type opCtl struct {
 
 func newOpCtl() *opCtl { return &opCtl{created: map[string]string{}, slowOps: map[string]time.Time{}} }
 
+// seen is the request log, read under the lock the handler appends under.
+func (c *opCtl) seen() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.requests...)
+}
+
 func (c *opCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c.mu.Lock()
 	c.requests = append(c.requests, r.Method+" "+r.URL.Path)
@@ -145,7 +152,7 @@ func TestLostReplyRecoversByRead(t *testing.T) {
 		t.Fatalf("the control plane created %d sessions for one command, want 1", ctl.creates)
 	}
 	posts := 0
-	for _, r := range ctl.requests {
+	for _, r := range ctl.seen() {
 		if strings.HasPrefix(r, "POST ") {
 			posts++
 		}
@@ -154,7 +161,7 @@ func TestLostReplyRecoversByRead(t *testing.T) {
 		t.Errorf("want one POST and a recovery by read, got %d POST(s):\n%s", posts, errs)
 	}
 	keys := map[string]bool{}
-	for _, r := range ctl.requests {
+	for _, r := range ctl.seen() {
 		_ = r
 	}
 	led := readLedger(t, cfg)
@@ -179,7 +186,7 @@ func TestLongCheckpointGoesThroughAcceptedAndPolling(t *testing.T) {
 		t.Fatalf("exit %d\n%s%s", code, out, errs)
 	}
 	posts, polls := 0, 0
-	for _, r := range ctl.requests {
+	for _, r := range ctl.seen() {
 		if strings.HasPrefix(r, "POST ") {
 			posts++
 		}
@@ -188,7 +195,7 @@ func TestLongCheckpointGoesThroughAcceptedAndPolling(t *testing.T) {
 		}
 	}
 	if posts != 1 || polls < 1 {
-		t.Errorf("posts %d (want 1), polls %d (want >= 1): %v", posts, polls, ctl.requests)
+		t.Errorf("posts %d (want 1), polls %d (want >= 1): %v", posts, polls, ctl.seen())
 	}
 	if !strings.Contains(errs, "accepted; waiting") {
 		t.Errorf("the 202 was not reported:\n%s", errs)
@@ -245,7 +252,7 @@ func TestTimeoutClassesAreBounded(t *testing.T) {
 		t.Errorf("wait bound: exit %d after %s\n%s", code, time.Since(start), errs)
 	}
 	posts := 0
-	for _, r := range ctl.requests {
+	for _, r := range ctl.seen() {
 		if strings.HasPrefix(r, "POST ") {
 			posts++
 		}

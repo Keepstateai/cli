@@ -322,6 +322,13 @@ func (f *fakeCtl) seen() []string {
 func (f *fakeCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	f.hits = append(f.hits, r.Method+" "+r.URL.Path)
+	// the test goroutine edits job and artifact between requests; the
+	// handler serves a snapshot taken under the lock, never the live map
+	job := make(map[string]any, len(f.job))
+	for k, v := range f.job {
+		job[k] = v
+	}
+	artifact := append([]byte(nil), f.artifact...)
 	f.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
 	writeJSON := func(v any) { _ = json.NewEncoder(w).Encode(v) }
@@ -336,9 +343,9 @@ func (f *fakeCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(201)
 		writeJSON(map[string]any{"id": "job_0123456789ab", "state": "queued", "spend_ceiling_microusd": 2000000})
 	case r.Method == "GET" && r.URL.Path == "/api/jobs":
-		writeJSON([]any{f.job})
+		writeJSON([]any{job})
 	case r.Method == "GET" && r.URL.Path == "/api/jobs/job_0123456789ab":
-		writeJSON(f.job)
+		writeJSON(job)
 	case r.Method == "GET" && r.URL.Path == "/api/jobs/job_0123456789ab/events":
 		writeJSON([]any{
 			map[string]any{"seq": 1, "ts": "2026-09-16T00:00:00Z", "type": "job.queued", "attempt_id": nil, "detail": map[string]any{}},
@@ -346,7 +353,7 @@ func (f *fakeCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		})
 	case r.Method == "GET" && r.URL.Path == "/api/jobs/job_0123456789ab/artifact":
 		w.Header().Set("Content-Type", "application/octet-stream")
-		_, _ = w.Write(f.artifact)
+		_, _ = w.Write(artifact)
 	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/cancel"):
 		writeJSON(map[string]any{"id": "job_0123456789ab", "state": "cancelled"})
 	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/resume"):
@@ -722,12 +729,16 @@ func TestCruiseStatusAndLogsWords(t *testing.T) {
 
 func TestCruiseArtifactVerifiesBeforeWriting(t *testing.T) {
 	f, bin, cfg := startFake(t)
+	f.mu.Lock()
 	good := sha256.Sum256(f.artifact)
 	f.job["state"], f.job["verdict"], f.job["artifact_sha"] = "accepted", "accepted", hex.EncodeToString(good[:])
+	f.mu.Unlock()
 	dir := t.TempDir()
 
 	// tampered bytes: refused, the digest named, the file absent
+	f.mu.Lock()
 	f.artifact = append(f.artifact, []byte("tampered")...)
+	f.mu.Unlock()
 	out := filepath.Join(dir, "bad.tgz")
 	_, errs, code := ksIn(t, bin, cfg, dir, "cruise", "artifact", "job_0123456789ab", "--out", out)
 	if code == 0 || !strings.Contains(errs, "sha256") {
@@ -741,18 +752,23 @@ func TestCruiseArtifactVerifiesBeforeWriting(t *testing.T) {
 	}
 
 	// the real bytes: written, and the path printed
+	f.mu.Lock()
 	f.artifact = f.artifact[:len(f.artifact)-len("tampered")]
+	want := append([]byte(nil), f.artifact...)
+	f.mu.Unlock()
 	stdout, errs, code := ksIn(t, bin, cfg, dir, "cruise", "artifact", "job_0123456789ab", "--out", out)
 	if code != 0 || strings.TrimSpace(stdout) != out {
 		t.Fatalf("artifact: exit %d, stdout %q, %s", code, stdout, errs)
 	}
 	got, err := os.ReadFile(out)
-	if err != nil || !bytes.Equal(got, f.artifact) {
+	if err != nil || !bytes.Equal(got, want) {
 		t.Errorf("written artifact differs: %v", err)
 	}
 
 	// no artifact yet: refused with the job's state and verdict
+	f.mu.Lock()
 	f.job["artifact_sha"] = nil
+	f.mu.Unlock()
 	_, errs, code = ksIn(t, bin, cfg, dir, "cruise", "artifact", "job_0123456789ab", "--out", filepath.Join(dir, "none.tgz"))
 	if code == 0 || !strings.Contains(errs, "no artifact") {
 		t.Errorf("absent artifact: exit %d, %s", code, errs)
