@@ -47,7 +47,7 @@ func (c *opCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if !seen {
 			c.creates++
 			id = fmt.Sprintf("sess-%d", c.creates)
-			c.created[key] = id
+			c.created[key] = id // the record: this control plane enforces the key
 			if c.dropFirst && !c.dropped {
 				c.dropped = true
 				c.mu.Unlock()
@@ -62,6 +62,17 @@ func (c *opCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		c.mu.Unlock()
 		fmt.Fprintf(w, `{"id":%q,"image":"base","state":"running"}`, id)
+	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/operations/ksop_"):
+		// the record of a create, read back by its key
+		c.mu.Lock()
+		id, seen := c.created[strings.TrimPrefix(r.URL.Path, "/api/operations/")]
+		c.mu.Unlock()
+		if !seen {
+			w.WriteHeader(404)
+			fmt.Fprint(w, `{"error":{"type":"ks_not_found","message":"no such operation"}}`)
+			return
+		}
+		fmt.Fprintf(w, `{"schema_version":2,"data":{"operation_id":"op_%s","state":"succeeded","http_status":200,"finished_at":"2026-09-20T00:00:01Z","accepted_at":"2026-09-20T00:00:00Z","method":"POST","path":"/api/sessions","response":{"id":%q,"image":"base","state":"running"}}}`, id, id)
 	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/checkpoint"):
 		if strings.Contains(r.Header.Get("Prefer"), "respond-async") {
 			c.mu.Lock()
@@ -118,8 +129,9 @@ func readLedger(t *testing.T, cfg string) []localOp {
 }
 
 // QA-004-1: the control plane commits a run then drops its reply; the
-// retry carries the same key and returns the original session.
-func TestLostReplyRetriesTheSameKey(t *testing.T) {
+// outcome is recovered by READING the record under the same key, never
+// by resending: one POST, the original session.
+func TestLostReplyRecoversByRead(t *testing.T) {
 	ctl := newOpCtl()
 	ctl.dropFirst = true
 	srv := httptest.NewServer(ctl)
@@ -132,8 +144,14 @@ func TestLostReplyRetriesTheSameKey(t *testing.T) {
 	if ctl.creates != 1 {
 		t.Fatalf("the control plane created %d sessions for one command, want 1", ctl.creates)
 	}
-	if !strings.Contains(errs, "retrying the same operation") || !strings.Contains(errs, "already had this operation") {
-		t.Errorf("the retry and the replay were not reported:\n%s", errs)
+	posts := 0
+	for _, r := range ctl.requests {
+		if strings.HasPrefix(r, "POST ") {
+			posts++
+		}
+	}
+	if posts != 1 || strings.Contains(errs, "retrying") || !strings.Contains(errs, "holds a record") {
+		t.Errorf("want one POST and a recovery by read, got %d POST(s):\n%s", posts, errs)
 	}
 	keys := map[string]bool{}
 	for _, r := range ctl.requests {

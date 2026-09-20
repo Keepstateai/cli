@@ -60,6 +60,8 @@ func (a *auditRecorder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"id":"sess-audit","image":"base","state":"running"}`)
 	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/exec"):
 		fmt.Fprint(w, `{"output":"(recorded)\n"}`)
+	case r.Method == "POST" && strings.Contains(r.URL.Path, "/fork"):
+		fmt.Fprint(w, `[{"id":"child-1","parent":"sess-audit"}]`)
 	case r.Method == "POST" && r.URL.Path == "/api/jobs":
 		w.WriteHeader(201)
 		fmt.Fprint(w, `{"id":"job_audit","state":"queued","spend_ceiling_microusd":2000000}`)

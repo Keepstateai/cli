@@ -82,7 +82,7 @@ func TestLegacyServerLostReplyCreatesAtMostOne(t *testing.T) {
 			if strings.Contains(all, "ks operation show") {
 				t.Errorf("recommended ks operation show on a control plane that disables it:\n%s", all)
 			}
-			if !strings.Contains(all, "sent once and not retried") {
+			if !strings.Contains(all, "sent once and not resent") {
 				t.Errorf("the refusal to replay is not explained:\n%s", all)
 			}
 			if mode == "json" {
@@ -195,5 +195,128 @@ func TestUnknownOutcomeNeverSaysNoWorkStarted(t *testing.T) {
 	e, _ := env["error"].(map[string]any)
 	if strings.Contains(human, "Remote work started: no") || e["work_started"] == "no" || e["work_started"] == false {
 		t.Errorf("an unknown outcome was rounded to no:\nhuman: %s\njson: %s", human, js)
+	}
+}
+
+// followupCtl models the follow-up review's fixtures (2026-09-20): an
+// unprotected first handler under a registry that says "available"
+// (mixed_upgrade), a front door that reports 503 after the origin created
+// the resource (proxy_503), a 500 after the resource was created
+// (postcommit_500), and a 200 whose body is cut off (truncated_success).
+type followupCtl struct {
+	mu      sync.Mutex
+	mode    string
+	posts   int
+	created int
+	seen    map[string]string
+}
+
+func (c *followupCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method == "GET" {
+		if r.URL.Path == "/api/capabilities" && (c.mode == "mixed_upgrade" || c.mode == "protected_records") {
+			fmt.Fprint(w, `{"schema_version":2,"request_id":"r","data":{"registry_version":"test","build":"new-node","fetched_at":"x","price_book":"v1.3","capabilities":[{"id":"operations.idempotent","availability":"available","summary":"s","surface":"api"}],"limits":{}}}`)
+			return
+		}
+		w.WriteHeader(404)
+		fmt.Fprint(w, `{"message":"route unavailable"}`)
+		return
+	}
+	if r.URL.Path != "/api/sessions" {
+		w.WriteHeader(404)
+		return
+	}
+	c.mu.Lock()
+	c.posts++
+	attempt := c.posts
+	key := r.Header.Get("Idempotency-Key")
+	protected := c.mode == "mixed_upgrade" && attempt > 1
+	id, dup := c.seen[key]
+	if !(protected && dup) {
+		c.created++
+		id = fmt.Sprintf("synthetic-session-%d", c.created)
+		if protected {
+			c.seen[key] = id
+		}
+	}
+	c.mu.Unlock()
+	switch {
+	case attempt == 1 && c.mode == "mixed_upgrade":
+		hj, _ := w.(http.Hijacker)
+		conn, _, _ := hj.Hijack()
+		conn.Close()
+	case attempt == 1 && c.mode == "proxy_503":
+		w.WriteHeader(503)
+		fmt.Fprint(w, `{"message":"upstream reply unavailable; outcome not known at proxy"}`)
+	case c.mode == "postcommit_500":
+		w.WriteHeader(500)
+		fmt.Fprint(w, `{"message":"response assembly failed after dispatch"}`)
+	case c.mode == "truncated_success":
+		fmt.Fprint(w, `{"id":"synthetic-session-1","ima`)
+	default:
+		fmt.Fprintf(w, `{"id":%q,"image":"base","state":"running"}`, id)
+	}
+}
+
+// R01-U, R01-S, R01-O and the truncated success: in every case the fixture
+// creates at most one resource, the client exits non-zero, stdout is one
+// document, and the certainty is "unknown", never "no".
+func TestFollowupReviewFixtures(t *testing.T) {
+	for _, mode := range []string{"mixed_upgrade", "proxy_503", "postcommit_500", "truncated_success"} {
+		t.Run(mode, func(t *testing.T) {
+			ctl := &followupCtl{mode: mode, seen: map[string]string{}}
+			srv := httptest.NewServer(ctl)
+			defer srv.Close()
+			bin, cfg := buildAndAuth(t, srv)
+			stdout, stderr, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "run", "--image", "base", "--json")
+			if ctl.created > 1 {
+				t.Fatalf("%s: one intended action created %d sessions", mode, ctl.created)
+			}
+			if code == 0 {
+				t.Fatalf("%s: exit 0 with no verified result for the ambiguous submission\n%s%s", mode, stdout, stderr)
+			}
+			env := parseEnvelope(t, stdout)
+			e, _ := env["error"].(map[string]any)
+			if e == nil || e["work_started"] != "unknown" {
+				t.Errorf("%s: error %v, want work_started unknown", mode, e)
+			}
+			if e != nil && e["operation_id"] == nil {
+				t.Errorf("%s: the operation key is not preserved", mode)
+			}
+			if ctl.posts != 1 {
+				t.Errorf("%s: %d POST(s); the submission must be sent once", mode, ctl.posts)
+			}
+		})
+	}
+}
+
+// A certified KS pre-admission refusal (a typed ks_ error on 429) is a
+// definite "no work started"; a bare 429 is not.
+func TestTypedRefusalIsDefiniteBareIsNot(t *testing.T) {
+	for _, c := range []struct {
+		body string
+		want string
+		exit int
+	}{
+		{`{"error":{"type":"ks_tier_fence","message":"one session at a time"}}`, "no", exitConflict},
+		{`{"message":"too many requests"}`, "unknown", exitTemporary},
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			if r.Method == "POST" && r.URL.Path == "/api/sessions" {
+				w.WriteHeader(429)
+				fmt.Fprint(w, c.body)
+				return
+			}
+			w.WriteHeader(404)
+			fmt.Fprint(w, `{"message":"route unavailable"}`)
+		}))
+		bin, cfg := buildAndAuth(t, srv)
+		stdout, _, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "run", "--json")
+		srv.Close()
+		e, _ := parseEnvelope(t, stdout)["error"].(map[string]any)
+		if code != c.exit || e == nil || e["work_started"] != c.want {
+			t.Errorf("429 %s: exit %d (want %d), work_started %v (want %s)", c.body, code, c.exit, e["work_started"], c.want)
+		}
 	}
 }

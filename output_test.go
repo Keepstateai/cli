@@ -54,8 +54,8 @@ func TestJSONIsOneDocumentDespiteRetries(t *testing.T) {
 	if env["data"].(map[string]any)["session_id"] != "sess-1" {
 		t.Errorf("data: %v", env["data"])
 	}
-	if !strings.Contains(stderr, "retrying") {
-		t.Errorf("the retry warning did not go to stderr:\n%s", stderr)
+	if !strings.Contains(stderr, "holds a record") {
+		t.Errorf("the recovery note did not go to stderr:\n%s", stderr)
 	}
 	// --quiet silences the warnings and leaves the document
 	stdout, stderr, _ = auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "meter", "s1", "--json", "--quiet")
