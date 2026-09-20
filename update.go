@@ -1,4 +1,4 @@
-// ks update: self-update with checksum verification (ADR-021). The new binary
+// ks update: self-update with checksum verification. The new binary
 // is downloaded from the public release, its SHA256 checked against the
 // release's SHA256SUMS, and ONLY a verified binary replaces the current one —
 // atomically, with the old binary restored on any failure. A mismatch is

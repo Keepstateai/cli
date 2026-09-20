@@ -80,13 +80,13 @@ func cruiseUsage() { fmt.Print(cruiseUsageText) }
 // the defect class the help guard exists to prevent, so the gate can
 // prove its zero-request counter bites. Test-only; never set otherwise.
 //
-// KS-003 asks that such switches leave production builds. This one cannot
-// leave on the builder's authority: gate CR-7 builds the client with a plain
-// go build and its sabotage leg is exactly this hook, so moving it behind a
-// build tag needs the gate amended to build with that tag, and only the
-// human amends a gate (BACKLOG-59 carries the proposed amendment). Until
-// then the hook stays inert: it does nothing unless the variable is set,
-// and even then the help is still printed.
+// Such switches should leave production builds. This one cannot be moved on
+// the maintainer's authority: the release check builds this client with a
+// plain go build and its sabotage leg is exactly this hook, so putting it
+// behind a build tag requires that check to change too, and that decision is
+// not the maintainer's to take alone. Until then the hook stays inert: it
+// does nothing unless the variable is set, and even then the help is still
+// printed.
 func sabotageHelpHook() {
 	if os.Getenv("KS_CLI_SABOTAGE_HELP") != "1" || len(os.Args) < 3 || os.Args[2] != "run" {
 		return
@@ -713,7 +713,7 @@ func cruiseInit(inv *Invocation) {
 	}
 	tarSha := hex.EncodeToString(h.Sum(nil))
 
-	// 2. the check; without one there is no job (ADR-030), and init stops
+	// 2. the check; without one there is no job, and init stops
 	//    here, before anything is written
 	ck := detectChecks(root, files)
 	named := strings.TrimSpace(inv.Str("tests"))
