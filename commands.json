@@ -366,6 +366,92 @@
      "summary": "review a sensitive or ignored path into the upload (repeatable); never a symlink or .git"
     }
    ]
+  },
+  {
+   "verb": "session key set",
+   "aliases": [],
+   "usage": "ks session key set <session> [--key KEY]",
+   "summary": "bind a session's provider to one of your keys by id; that key is used or nothing is",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--key KEY",
+     "summary": "the key's id or alias"
+    }
+   ]
+  },
+  {
+   "verb": "key list",
+   "aliases": [],
+   "usage": "ks key list",
+   "summary": "your keys: id, provider, alias, last four characters, enabled or disabled",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "key show",
+   "aliases": [],
+   "usage": "ks key show <key>",
+   "summary": "one key's metadata",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "key add",
+   "aliases": [],
+   "usage": "ks key add [--provider PROVIDER] [--alias NAME]",
+   "summary": "store a provider key read from standard input; it is never an argument and never comes back",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--provider PROVIDER",
+     "summary": "anthropic, openai or openrouter"
+    },
+    {
+     "flag": "--alias NAME",
+     "summary": "a name for the key"
+    }
+   ]
+  },
+  {
+   "verb": "key enable",
+   "aliases": [],
+   "usage": "ks key enable <key>",
+   "summary": "allow new admissions with a key",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "key disable",
+   "aliases": [],
+   "usage": "ks key disable <key>",
+   "summary": "refuse new admissions with a key; in-flight usage is reconciled",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "key delete",
+   "aliases": [],
+   "usage": "ks key delete <key>",
+   "summary": "plan a key deletion, then execute it with --yes",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "preflight",
+   "aliases": [],
+   "usage": "ks preflight [--provider PROVIDER]",
+   "summary": "what a run needs and what is missing: identity, keys, credit, capabilities, and the local upload preview; starts nothing",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--provider PROVIDER",
+     "summary": "the provider the run will use (default anthropic)"
+    }
+   ]
   }
  ]
 }
