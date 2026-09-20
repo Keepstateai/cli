@@ -5,9 +5,36 @@ name: release
 # npm package (via OIDC trusted publishing — NO npm token anywhere), and
 # the Homebrew tap formula bump. What a stranger runs is what this public
 # source built.
+#
+# Publication gate (2026-09-20): a release runs only under a publication
+# attestation bound to the exact source tree and to the checksums the
+# build must reproduce. The gate itself runs privately on the builder and
+# its rules are not in this public file; its result travels as the
+# annotated tag's message, one line:
+#
+#   ks-publication-gate: status=PASS tree=<git tree sha1> checker=<12 hex> rules=<version> sums=<sha256 of SHA256SUMS | none>
+#
+# The gate job refuses to build when that line is absent, is not PASS or
+# names another tree than the tagged one; the build job refuses to release
+# when the SHA256SUMS it produced hash differently from the attested value.
+# A rehearsal (manual dispatch, never a tag) runs the same jobs with the
+# attestation given as an input and publishes nothing; it exists to prove
+# the refusal paths on the real workflow with faults injected.
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      attestation:
+        description: 'REHEARSAL ONLY: the ks-publication-gate line to test the workflow against (nothing is published)'
+        required: false
+        default: ''
+      fault:
+        description: 'REHEARSAL ONLY: absent | status-fail | tree-mismatch | sums-mismatch | none'
+        required: false
+        default: none
+        type: choice
+        options: [none, absent, status-fail, tree-mismatch, sums-mismatch]
 
 permissions:
   contents: write
@@ -15,21 +42,73 @@ permissions:
   attestations: write
 
 jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      sums: ${{ steps.att.outputs.sums }}
+      rehearsal: ${{ steps.att.outputs.rehearsal }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Read the publication attestation bound to this tree
+        id: att
+        env:
+          ATT_INPUT: ${{ inputs.attestation }}
+          FAULT: ${{ inputs.fault }}
+        run: |
+          set -eu
+          REHEARSAL=false
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            REHEARSAL=true; ATT="$ATT_INPUT"
+            case "${FAULT:-none}" in
+              absent)        ATT="" ;;
+              status-fail)   ATT=$(printf '%s' "$ATT" | sed 's/status=PASS/status=FAIL/') ;;
+              tree-mismatch) ATT=$(printf '%s' "$ATT" | sed -E 's/tree=[0-9a-f]{40}/tree=0000000000000000000000000000000000000000/') ;;
+              sums-mismatch) ATT=$(printf '%s' "$ATT" | sed -E 's/sums=[0-9a-f]{64}|sums=none/sums=1111111111111111111111111111111111111111111111111111111111111111/') ;;
+              none) ;;
+              *) echo "::error::unknown fault"; exit 1 ;;
+            esac
+            [ "${FAULT:-none}" = none ] || echo "rehearsal fault injected: $FAULT"
+          else
+            git fetch --force --tags origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME" >/dev/null 2>&1 || true
+            ATT="$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME")"
+          fi
+          LINE=$(printf '%s\n' "$ATT" | grep -E '^ks-publication-gate:' | head -1 || true)
+          if [ -z "$LINE" ]; then
+            echo "::error::publication gate: no attestation for this tree (an annotated tag carrying the ks-publication-gate line is required); nothing is built or published"
+            exit 1
+          fi
+          field() { printf '%s' "$LINE" | sed -nE "s/.*[[:space:]]$1=([^[:space:]]+).*/\1/p"; }
+          STATUS=$(field status); TREE=$(field tree); CHECKER=$(field checker); RULES=$(field rules); SUMS=$(field sums)
+          TREE_NOW=$(git rev-parse 'HEAD^{tree}')
+          [ "$STATUS" = "PASS" ] || { echo "::error::publication gate: attestation status is '${STATUS:-missing}', not PASS; nothing is built or published"; exit 1; }
+          [ "$TREE" = "$TREE_NOW" ] || { echo "::error::publication gate: the attestation names another source tree; nothing is built or published"; exit 1; }
+          case "$SUMS" in ''|none) SUMS=none ;; esac
+          printf '%s' "$SUMS" | grep -qE '^(none|[0-9a-f]{64})$' || { echo "::error::publication gate: malformed sums field"; exit 1; }
+          echo "sums=$SUMS" >> "$GITHUB_OUTPUT"
+          echo "rehearsal=$REHEARSAL" >> "$GITHUB_OUTPUT"
+          echo "publication gate: PASS for tree $TREE_NOW (checker $CHECKER, rules $RULES, attested sums ${SUMS:0:16}); rehearsal=$REHEARSAL"
+
   build:
+    needs: gate
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.ver.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+      # pinned exactly so the builder reproduces the same bytes (and the
+      # attested checksums) with GOTOOLCHAIN=go1.22.12
       - uses: actions/setup-go@v5
-        with: { go-version: "1.22" }
+        with: { go-version: "1.22.12" }
       - name: Test (manifest drift fails the release)
         run: go test ./...
       - id: ver
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then echo "version=0.0.0-rehearsal" >> "$GITHUB_OUTPUT"; else echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"; fi
       - name: Build all platforms
         run: |
           set -eu
+          go version
           mkdir -p dist
           for target in darwin/arm64 darwin/amd64 linux/arm64 linux/amd64; do
             GOOS=${target%/*} GOARCH=${target#*/} CGO_ENABLED=0 \
@@ -37,11 +116,28 @@ jobs:
               -o "dist/ks-${target%/*}-${target#*/}" .
           done
           cd dist && sha256sum ks-* > SHA256SUMS && cat SHA256SUMS
+      - name: Bind the built checksums to the attestation
+        env:
+          ATTESTED: ${{ needs.gate.outputs.sums }}
+        run: |
+          set -eu
+          BUILT=$(sha256sum dist/SHA256SUMS | cut -d' ' -f1)
+          echo "built SHA256SUMS digest $BUILT; attested ${ATTESTED}"
+          if [ "$ATTESTED" != "none" ] && [ "$BUILT" != "$ATTESTED" ]; then
+            echo "::error::publication gate: the built checksums differ from the attested ones (toolchain or source drift); nothing is published"
+            exit 1
+          fi
+      - name: 'REHEARSAL: the gate and the build ran; no publication step is executed'
+        if: needs.gate.outputs.rehearsal == 'true'
+        run: |
+          echo "REHEARSAL STOP: no attestation upload, no release, no npm publish, no tap bump"
       - name: Attest build provenance
+        if: needs.gate.outputs.rehearsal != 'true'
         uses: actions/attest-build-provenance@v1
         with:
           subject-path: "dist/ks-*"
       - name: Create release
+        if: needs.gate.outputs.rehearsal != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -55,7 +151,8 @@ jobs:
   # npmjs.com. A run from a fork, a branch, or another workflow presents a
   # different claim and is refused — that IS the sabotage guarantee.
   npm:
-    needs: build
+    needs: [gate, build]
+    if: needs.gate.outputs.rehearsal != 'true'
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -97,7 +194,8 @@ jobs:
   # tap repo (secret HOMEBREW_TAP_TOKEN). Absent secret => skipped with a
   # notice, never a silent no-op.
   brew:
-    needs: build
+    needs: [gate, build]
+    if: needs.gate.outputs.rehearsal != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Guard on the tap token
