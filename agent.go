@@ -12,11 +12,13 @@
 // instruction typed into a window carries that lease so the service can
 // refuse it the moment it is no longer the current one — a displaced
 // window submits nothing at all rather than quietly submitting as a
-// stranger. A decision is bound to the exact action it was read from, so
-// nobody ever approves a request that changed under them, and nothing is
-// ever decided that the person did not name. And detaching is local:
-// Ctrl-C closes this window, prints that it did, and leaves the agent
-// working — nothing here ever cancels remote work.
+// stranger. A decision is bound to the exact action a PERSON WAS SHOWN:
+// the client remembers what it displayed, reads the request again before
+// deciding, and COMPARES; an action that changed is displayed and asked
+// again, never decided, so nobody ever approves a request that changed
+// under them and nothing is ever decided that the person did not name.
+// And detaching is local: Ctrl-C closes this window, prints that it did,
+// and leaves the agent working — nothing here ever cancels remote work.
 package main
 
 import (
@@ -31,6 +33,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -373,12 +376,117 @@ func controlFacts(w *agentWindow) map[string]any {
 	return map[string]any{"held": true, "lease_id": w.Lease.ID, "fence": w.Lease.Fence, "expires_at": w.Lease.ExpiresAt, "mode": w.Lease.Mode}
 }
 
+// actionShown is the action itself, as a person reads it: what kind of
+// action it is, what it says it will do, and the exact arguments it
+// carries. Everything that makes one action a DIFFERENT action is in
+// here, because this is both what is displayed and what a decision is
+// compared against. The expiry is deliberately not part of it: a clock
+// moving on is not a different action.
+func actionShown(ap approvalRow) string {
+	line := fmt.Sprintf("%s — %s", figure(ap.Kind), figure(ap.Summary))
+	if args := compactPayload(json.RawMessage(ap.ArgumentsJSON)); args != "" {
+		line += " " + args
+	}
+	return sanitize(line)
+}
+
 // approvalHuman renders one pending permission request and how to decide
 // it from where the reader is standing: inside a live window that is a
 // keystroke, outside one it is a verb.
 func approvalHuman(ap approvalRow, decideWith string) string {
-	return sanitize(fmt.Sprintf("!! permission request %s: %s — %s (expires %s); the agent waits until it is decided: %s",
-		ap.ID, figure(ap.Kind), figure(ap.Summary), figure(ap.ExpiresAt), decideWith))
+	return sanitize(fmt.Sprintf("!! permission request %s: %s (expires %s); the agent waits until it is decided: %s",
+		ap.ID, actionShown(ap), figure(ap.ExpiresAt), decideWith))
+}
+
+// ---------------------------------------------------------------------
+// what was SHOWN: the only thing a decision may be compared against
+// ---------------------------------------------------------------------
+
+// shownAction is one permission request as this client PUT IT IN FRONT OF
+// A PERSON: the service's hash of the exact action, and a hash of the
+// action as it was rendered on the terminal. Only the hashes are kept —
+// the action's own words stay where the service holds them, the way the
+// operations journal keeps a hash of an instruction and never its body.
+//
+// A decision is compared against THIS. Reading the request again and
+// sending back whatever the service says now would make the comparison
+// vacuous: it is exactly how an action that changed after it was read
+// gets approved by someone who never saw it.
+type shownAction struct {
+	CTL       string `json:"ctl"`
+	ID        string `json:"approval_id"`
+	Hash      string `json:"action_hash"`
+	ActionSHA string `json:"action_sha256"`
+	Revision  int64  `json:"revision"`
+	ShownAt   string `json:"shown_at"`
+}
+
+func shownActionsPath() string { return filepath.Join(configDir(), "approvals-shown.jsonl") }
+
+func shownFrom(cr hostedCreds, ap approvalRow) shownAction {
+	return shownAction{CTL: cr.CTL, ID: ap.ID, Hash: ap.ExactActionHash,
+		ActionSHA: sha256Hex([]byte(actionShown(ap))), Revision: ap.Revision,
+		ShownAt: time.Now().UTC().Format(time.RFC3339)}
+}
+
+// recordShownAction appends one display to the local record, so a request
+// read in one terminal is still compared against what was read when it is
+// decided in another.
+//
+// A failure to write is not fatal and is not reported: the guarantee does
+// not rest on this file. Where nothing was recorded, the decision path
+// displays the request itself and compares against that display, so an
+// unwritable configuration directory makes the client more careful, never
+// less.
+func recordShownAction(s shownAction) {
+	if s.ID == "" {
+		return
+	}
+	if os.MkdirAll(configDir(), 0o700) != nil {
+		return
+	}
+	f, err := os.OpenFile(shownActionsPath(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	b, _ := json.Marshal(s)
+	_, _ = f.Write(append(b, '\n'))
+}
+
+// lastShownAction answers the most recent display of one request on this
+// control plane. A line this client cannot read is skipped: the record is
+// something to read, never a lock to hold.
+func lastShownAction(cr hostedCreds, id string) (shownAction, bool) {
+	b, err := os.ReadFile(shownActionsPath())
+	if err != nil {
+		return shownAction{}, false
+	}
+	var found shownAction
+	ok := false
+	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		var s shownAction
+		if json.Unmarshal([]byte(line), &s) == nil && s.ID != "" && s.ID == id && s.CTL == cr.CTL {
+			found, ok = s, true
+		}
+	}
+	return found, ok
+}
+
+// sameAction reports whether the request as it reads NOW is the action
+// that was shown. Both halves must agree: the service's own hash of the
+// exact action, and the rendering the person actually read. Either one
+// differing is a different action.
+func sameAction(s shownAction, ap approvalRow) bool {
+	return s.Hash == ap.ExactActionHash && s.ActionSHA == sha256Hex([]byte(actionShown(ap)))
+}
+
+// rememberShown records every pending request a window has just put on
+// the screen, so deciding one later compares against what was on it.
+func rememberShown(cr hostedCreds, pending []approvalRow) {
+	for _, ap := range pending {
+		recordShownAction(shownFrom(cr, ap))
+	}
 }
 
 // inWindowDecision is the line that tells a person in a live window what
@@ -415,6 +523,10 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 	if perr != nil {
 		progress("the pending permission requests could not be read: %s", sanitize(perr.Error()))
 	}
+	// both shapes below put these requests in front of a person, so both
+	// are a display: what was displayed is what a later decision on one of
+	// them has to match.
+	rememberShown(cr, pending)
 
 	if inv.Bool("no-follow") {
 		emit(map[string]any{
@@ -707,47 +819,113 @@ func fetchApproval(cr hostedCreds, sess inventoryRow, id string) (approvalRow, e
 	return env.Data, nil
 }
 
-// decideApproval approves or denies exactly the request it has just read.
-//
-// The two fields that travel with the decision — the revision of the
-// record and the hash of the exact action it describes — are read
-// IMMEDIATELY before it is sent, and never carried over from a list
-// printed a minute ago. That is what makes a decision a decision about
-// the action a person actually read: if the action changed in between,
-// the service refuses the decision rather than applying it to something
-// else, and this client reports the refusal instead of trying again.
-// Nothing here ever decides on its own, and nothing decides a request the
-// person did not name.
-func decideApproval(cr hostedCreds, sess inventoryRow, id, decision string) (approvalRow, approvalOutcome, error) {
-	ap, err := fetchApproval(cr, sess, id)
-	if err != nil {
-		return approvalRow{}, approvalOutcome{}, err
-	}
+// decidable reports the two reasons a request cannot be decided at all:
+// it is another session's, or it is not waiting any more.
+func decidable(sess inventoryRow, ap approvalRow) error {
 	if want := agentSessionID(sess); ap.SessionID != "" && ap.SessionID != want {
-		return ap, approvalOutcome{}, &cliError{Code: exitUsage, Kind: "not_found",
+		return &cliError{Code: exitUsage, Kind: "not_found",
 			Message:    fmt.Sprintf("permission request %s belongs to another session, not %s; nothing was decided", ap.ID, sess.ShortID),
 			NextAction: "ks session list"}
 	}
 	if state := strings.ToLower(ap.State); state != "" && state != "pending" {
-		return ap, approvalOutcome{}, &cliError{Code: exitConflict, Kind: "approval_not_pending",
+		return &cliError{Code: exitConflict, Kind: "approval_not_pending",
 			Message:    fmt.Sprintf("permission request %s is already %s, so nothing was decided; read the agent's current requests again before deciding", ap.ID, state),
 			NextAction: fmt.Sprintf("ks agent open <name> --session %s --no-follow", sess.ShortID)}
 	}
-	body := map[string]any{"decision": decision, "expected_revision": ap.Revision, "action_hash": ap.ExactActionHash}
+	return nil
+}
+
+// aboutToDecide is the display a decision makes for itself when nothing
+// has put this request in front of anyone yet: the action, in full,
+// before it is decided.
+func aboutToDecide(ap approvalRow, decision string) string {
+	return sanitize(fmt.Sprintf("about to %s permission request %s: %s (expires %s, revision %d)",
+		decision, ap.ID, actionShown(ap), figure(ap.ExpiresAt), ap.Revision))
+}
+
+// changedSinceShown refuses a decision because the request is no longer
+// the action that was shown. NOTHING IS SENT. The client does not replace
+// what the person read with what the service says now — substituting the
+// fresh hash and revision is precisely how a changed action gets approved
+// by someone who never saw it. The new action is displayed here, and
+// deciding it is a fresh ask: the same verb again, or the same keystrokes
+// again in a window.
+func changedSinceShown(sess inventoryRow, now approvalRow, decision string) error {
+	word := "approved"
+	if decision == "deny" {
+		word = "denied"
+	}
+	return &cliError{Code: exitConflict, Kind: "approval_changed",
+		Message: sanitize(fmt.Sprintf("permission request %s changed after it was shown, so nothing was %s and no decision was sent. It now reads: %s (expires %s, revision %d, %s). Read that action, and ask again to decide the one you can see.",
+			now.ID, word, actionShown(now), figure(now.ExpiresAt), now.Revision, figure(now.State))),
+		NextAction: fmt.Sprintf("ks agent %s %s --session %s (that decides the action shown above)", decision, now.ID, sess.ShortID)}
+}
+
+// decideApproval approves or denies the exact action a person was SHOWN.
+//
+// The client remembers what it displayed for a request, reads the request
+// again immediately before deciding, and COMPARES the two. Only a request
+// that still reads as the action on the screen is decided, and it is
+// decided under the hash that was on the screen. An action that changed —
+// a different exact-action hash, or a materially different rendering — is
+// displayed and refused: the decision is not sent, and the person has to
+// ask again now that they can see what they would be deciding. That
+// refusal is the same in a script as at a keyboard; there is no mode in
+// which a changed action is decided automatically.
+//
+// Where nothing has been displayed yet (a request named straight from a
+// terminal that has not opened a window), this displays it first and that
+// display is what the read below is compared against. Nothing here ever
+// decides on its own, and nothing decides a request the person did not
+// name.
+func decideApproval(cr hostedCreds, sess inventoryRow, id, decision string) (approvalRow, approvalOutcome, error) {
+	shown, remembered := lastShownAction(cr, id)
+	if !remembered {
+		ap, err := fetchApproval(cr, sess, id)
+		if err != nil {
+			return approvalRow{}, approvalOutcome{}, err
+		}
+		if err := decidable(sess, ap); err != nil {
+			return ap, approvalOutcome{}, err
+		}
+		progress("%s", aboutToDecide(ap, decision))
+		shown = shownFrom(cr, ap)
+		recordShownAction(shown)
+	}
+	// read it again IMMEDIATELY before deciding, and compare it with what
+	// was shown rather than adopting it
+	now, err := fetchApproval(cr, sess, id)
+	if err != nil {
+		return approvalRow{}, approvalOutcome{}, err
+	}
+	if err := decidable(sess, now); err != nil {
+		return now, approvalOutcome{}, err
+	}
+	if !sameAction(shown, now) {
+		// the refusal below displays the new action, so the new action is
+		// what a second ask will be compared against
+		recordShownAction(shownFrom(cr, now))
+		return now, approvalOutcome{}, changedSinceShown(sess, now, decision)
+	}
+	// the hash is the one that was on the screen (it is the one the read
+	// just confirmed); the revision is the one the service holds now, so a
+	// record that moved without the action changing is still refused by
+	// the service rather than by guesswork here
+	body := map[string]any{"decision": decision, "expected_revision": now.Revision, "action_hash": shown.Hash}
 	var env struct {
 		Data approvalOutcome `json:"data"`
 	}
-	if err := hostedMutate(cr, "POST", "/api/v2/approvals/"+url.PathEscape(ap.ID)+"/decision", body, &env); err != nil {
-		return ap, approvalOutcome{}, decisionRefusal(cr, sess, ap, decision, err)
+	if err := hostedMutate(cr, "POST", "/api/v2/approvals/"+url.PathEscape(now.ID)+"/decision", body, &env); err != nil {
+		return now, approvalOutcome{}, decisionRefusal(cr, sess, now, decision, err)
 	}
 	outcome := env.Data
 	if outcome.Approval.ID == "" {
-		outcome.Approval = ap
+		outcome.Approval = now
 	}
 	if outcome.Decision == "" {
 		outcome.Decision = decision
 	}
-	return ap, outcome, nil
+	return now, outcome, nil
 }
 
 // decisionRefusal turns the four refusals that mean "this is not the
@@ -996,11 +1174,23 @@ func (win *liveWindow) decide(cr hostedCreds, decision, arg string) {
 	}
 	ap, outcome, err := decideApproval(cr, win.sess, id, decision)
 	if err != nil {
-		win.refuse(err)
+		win.refuseDecision(err, id)
 		return
 	}
 	emitLine(map[string]any{"type": "approval_decided", "approval": outcome.Approval, "decision": outcome.Decision, "decided_at": outcome.DecidedAt},
 		decisionLine(ap, outcome.Decision))
+}
+
+// refuseDecision prints a refused decision inside the window. A request
+// whose action changed since it was shown is NOT decided here: the new
+// action is now on the screen, and the window asks for the decision again
+// rather than making it on the person's behalf.
+func (win *liveWindow) refuseDecision(err error, id string) {
+	var ce *cliError
+	if errors.As(err, &ce) && ce.Kind == "approval_changed" && id != "" {
+		ce.NextAction = fmt.Sprintf("type %q to approve the action above, or %q to deny it", "a "+id, "d "+id)
+	}
+	win.refuse(err)
 }
 
 // chooseApproval answers the one request a typed argument names among the

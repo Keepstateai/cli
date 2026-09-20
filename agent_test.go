@@ -98,6 +98,30 @@ func (c *agentCtl) addApproval(id, summary string, revision int, hash string) {
 	c.approvals[id] = approvalDoc(id, "shell", summary, "pending", revision, hash)
 }
 
+// changeApproval rewrites the action of a request that is already
+// waiting, the way an agent that reconsidered its tool call would: same
+// id, different action, and a new exact-action hash for it. This is the
+// event a decision must survive without deciding.
+func (c *agentCtl) changeApproval(id, summary string, revision int, hash string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	ap := c.approvals[id]
+	if ap == nil {
+		return
+	}
+	ap["summary"] = summary
+	ap["revision"] = revision
+	ap["exact_action_hash"] = hash
+}
+
+// decisions is every decision body the route has received, read under the
+// lock so a case may look while the fake is still being served.
+func (c *agentCtl) decisions() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.decisionBodies...)
+}
+
 func (c *agentCtl) approval(id string) map[string]any {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -871,7 +895,7 @@ func TestAgentApproveAndDenyDecideTheVersionTheyJustRead(t *testing.T) {
 	if read < 0 || decide < 0 || read > decide {
 		t.Fatalf("the request was not read immediately before it was decided: %v", seq)
 	}
-	bodies := c.decisionBodies
+	bodies := c.decisions()
 	if len(bodies) != 1 {
 		t.Fatalf("decisions sent: %d", len(bodies))
 	}
@@ -905,31 +929,37 @@ func TestAgentApproveAndDenyDecideTheVersionTheyJustRead(t *testing.T) {
 	if code != 2 || !strings.Contains(errs, "no permission request apr_nope") {
 		t.Errorf("unknown request: exit %d\n%s", code, errs)
 	}
-	if len(c.decisionBodies) != 2 {
-		t.Errorf("an unknown request sent a decision anyway: %v", c.decisionBodies)
+	if d := c.decisions(); len(d) != 2 {
+		t.Errorf("an unknown request sent a decision anyway: %v", d)
 	}
 }
 
-// The four refusals that all mean the same thing: this is not the request
-// you read. Each one is named, nothing is decided, nothing is retried,
-// and each one tells the person to read the request again.
+// The refusals that all mean the same thing: this is not the request you
+// read. Each one is named, nothing is decided, nothing is retried, and
+// each one tells the person to read the request again.
+//
+// The first is caught by the CLIENT, because it happens before the
+// decision is sent: an action that keeps changing is never adopted. The
+// rest are the service's own refusals, which the client reports rather
+// than trying again.
 func TestAgentDecisionRefusesWhatChangedOrExpired(t *testing.T) {
-	t.Run("the action changed between the read and the decision", func(t *testing.T) {
+	t.Run("an action that changes under the client is never decided", func(t *testing.T) {
 		c, bin, cfg := agentFixture(t)
 		c.mu.Lock()
-		c.bumpOnRead = true
+		c.bumpOnRead = true // the action changes on every read
 		c.mu.Unlock()
 		_, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "agent", "approve", "apr_1", "--session", agentSessionShort)
 		if code != exitConflict {
 			t.Fatalf("exit %d (want %d)\n%s", code, exitConflict, errs)
 		}
-		for _, want := range []string{"no longer the action you read", "nothing was approved", "It now reads:", "Read it again", "Remote work started: no."} {
+		for _, want := range []string{"changed after it was shown", "nothing was approved", "no decision was sent",
+			"It now reads:", "ask again to decide the one you can see", "Remote work started: no."} {
 			if !strings.Contains(errs, want) {
 				t.Errorf("refusal lacks %q:\n%s", want, errs)
 			}
 		}
-		if n := len(c.decisionBodies); n != 1 {
-			t.Errorf("a refused decision was sent %d times; it must never be retried", n)
+		if d := c.decisions(); len(d) != 0 {
+			t.Errorf("a decision was sent for an action that changed: %v", d)
 		}
 		if ap := c.approval("apr_1"); ap["state"] != "pending" {
 			t.Errorf("the request is %v; a refused decision must decide nothing", ap["state"])
@@ -942,6 +972,7 @@ func TestAgentDecisionRefusesWhatChangedOrExpired(t *testing.T) {
 		{"ks_approval_expired", "approval_expired", []string{"expired before the decision arrived", "the agent was not given this permission", "read the agent's current requests again"}},
 		{"ks_approval_not_pending", "approval_not_pending", []string{"already decided elsewhere", "read the agent's current requests again"}},
 		{"ks_revision_conflict", "revision_conflict", []string{"moved on while it was being decided", "Read it again"}},
+		{"ks_approval_hash_mismatch", "approval_hash_mismatch", []string{"no longer the action you read", "It now reads:", "Read it again"}},
 	} {
 		t.Run(tc.fault, func(t *testing.T) {
 			c, bin, cfg := agentFixture(t)
@@ -975,8 +1006,168 @@ func TestAgentDecisionRefusesWhatChangedOrExpired(t *testing.T) {
 		if code != exitConflict || !strings.Contains(errs, "is already denied") {
 			t.Errorf("exit %d\n%s", code, errs)
 		}
-		if len(c.decisionBodies) != 0 {
-			t.Errorf("a decided request was decided again: %v", c.decisionBodies)
+		if d := c.decisions(); len(d) != 0 {
+			t.Errorf("a decided request was decided again: %v", d)
+		}
+	})
+}
+
+// ---------------------------------------------------------------------
+// a decision is about the action that was SHOWN
+// ---------------------------------------------------------------------
+
+// shownRecord is the client's local record of what it put in front of a
+// person, read the way a case has to read it: as bytes, so a case can
+// also assert what is NOT in it.
+func shownRecord(t *testing.T, cfg string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(cfg, "keepstate", "approvals-shown.jsonl"))
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// The ordinary path: a request is displayed, it has not changed, and the
+// decision goes through — bound to the hash that was on the screen. The
+// client reads the request again immediately before deciding, so the
+// decision is about the action as it stands, and the local record of the
+// display carries hashes rather than the action's own words.
+func TestAgentDecisionDecidesTheActionThatWasShown(t *testing.T) {
+	c, bin, cfg := agentFixture(t)
+	dir := t.TempDir()
+
+	// the display: a window that follows nothing still puts the waiting
+	// request in front of the person
+	out, errs, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "agent", "open", "main", "--session", agentSessionShort, "--no-follow")
+	if code != 0 {
+		t.Fatalf("open: exit %d\n%s%s", code, out, errs)
+	}
+	if !strings.Contains(out, "!! permission request apr_1") || !strings.Contains(out, "run the database migration") {
+		t.Fatalf("the request was not displayed:\n%s", out)
+	}
+	if rec := shownRecord(t, cfg); !strings.Contains(rec, `"approval_id":"apr_1"`) || !strings.Contains(rec, `"action_hash":"9f8e"`) {
+		t.Fatalf("the display was not recorded:\n%s", rec)
+	}
+	if rec := shownRecord(t, cfg); strings.Contains(rec, "run the database migration") {
+		t.Errorf("the record wrote the action's own words down:\n%s", rec)
+	}
+
+	// the decision: unchanged, so it is sent, once, under what was shown
+	out, errs, code = auditExec(t, bin, cfg, dir, fastEnv(cfg), "agent", "approve", "apr_1", "--session", agentSessionShort)
+	if code != 0 {
+		t.Fatalf("approve: exit %d\n%s%s", code, out, errs)
+	}
+	if !strings.Contains(out, "approved permission request apr_1: shell — run the database migration") {
+		t.Errorf("approve did not say what it decided:\n%s", out)
+	}
+	bodies := c.decisions()
+	if len(bodies) != 1 {
+		t.Fatalf("decisions sent: %d (%v)", len(bodies), bodies)
+	}
+	var body map[string]any
+	_ = json.Unmarshal([]byte(bodies[0]), &body)
+	if body["decision"] != "approve" || body["action_hash"] != "9f8e" || body["expected_revision"] != float64(2) {
+		t.Errorf("the decision did not carry the action that was shown: %v", body)
+	}
+	if ap := c.approval("apr_1"); ap["state"] != "approved" {
+		t.Errorf("the request is %v after an approval", ap["state"])
+	}
+	// the request was read again immediately before it was decided
+	seq := c.seen()
+	read, decide := -1, -1
+	for i, r := range seq {
+		if r == "GET /api/v2/approvals/apr_1" {
+			read = i
+		}
+		if r == "POST /api/v2/approvals/apr_1/decision" && decide < 0 {
+			decide = i
+		}
+	}
+	if read < 0 || decide < 0 || read > decide {
+		t.Fatalf("the request was not read immediately before it was decided: %v", seq)
+	}
+}
+
+// THE CASE THE REVIEW NAMES. An action that changed between the display
+// and the decision must not be decided by substituting the hash and the
+// revision the service reports now. The client compares, refuses, shows
+// what the request says NOW, and sends no decision at all — in every
+// non-interactive shape, because a script must never be the place where a
+// changed action gets approved quietly.
+func TestAgentDecisionRefusesAnActionChangedSinceItWasShown(t *testing.T) {
+	const changed = "run the database migration, then publish the release"
+	show := func(t *testing.T) (*agentCtl, string, string, string) {
+		t.Helper()
+		c, bin, cfg := agentFixture(t)
+		dir := t.TempDir()
+		out, errs, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "agent", "open", "main", "--session", agentSessionShort, "--no-follow")
+		if code != 0 || !strings.Contains(out, "!! permission request apr_1") {
+			t.Fatalf("the display: exit %d\n%s%s", code, out, errs)
+		}
+		// and now the agent asks for something else under the same id
+		c.changeApproval("apr_1", changed, 3, "3c4d")
+		return c, bin, cfg, dir
+	}
+
+	for _, shape := range [][]string{nil, {"--no-input"}, {"--json"}} {
+		name := "plain"
+		if len(shape) > 0 {
+			name = shape[0]
+		}
+		t.Run(name, func(t *testing.T) {
+			c, bin, cfg, dir := show(t)
+			args := append([]string{"agent", "approve", "apr_1", "--session", agentSessionShort}, shape...)
+			out, errs, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), args...)
+			if code != exitConflict {
+				t.Fatalf("exit %d (want %d)\n%s%s", code, exitConflict, out, errs)
+			}
+			said := out + errs
+			for _, want := range []string{"changed after it was shown", "nothing was approved", "no decision was sent", changed} {
+				if !strings.Contains(said, want) {
+					t.Errorf("the refusal lacks %q:\n%s", want, said)
+				}
+			}
+			// it names what to do next, rather than leaving a person stuck
+			if !strings.Contains(said, "ks agent approve apr_1 --session "+agentSessionShort) {
+				t.Errorf("the refusal does not name the way on:\n%s", said)
+			}
+			if d := c.decisions(); len(d) != 0 {
+				t.Errorf("a decision was sent for an action nobody saw: %v", d)
+			}
+			if ap := c.approval("apr_1"); ap["state"] != "pending" {
+				t.Errorf("the request is %v; a refused decision must decide nothing", ap["state"])
+			}
+			if len(shape) == 1 && shape[0] == "--json" {
+				e, ok := parseEnvelope(t, out)["error"].(map[string]any)
+				if !ok || e["code"] != "approval_changed" || e["work_started"] != "no" {
+					t.Errorf("refusal document: %v", e)
+				}
+			}
+		})
+	}
+
+	// having read the new action, asking again decides THAT one, once
+	t.Run("asking again decides the action that is now on the screen", func(t *testing.T) {
+		c, bin, cfg, dir := show(t)
+		if _, _, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "agent", "approve", "apr_1", "--session", agentSessionShort); code != exitConflict {
+			t.Fatalf("the first ask: exit %d (want %d)", code, exitConflict)
+		}
+		out, errs, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "agent", "approve", "apr_1", "--session", agentSessionShort)
+		if code != 0 {
+			t.Fatalf("the second ask: exit %d\n%s%s", code, out, errs)
+		}
+		if !strings.Contains(out, "approved permission request apr_1") {
+			t.Errorf("the second ask did not decide:\n%s", out)
+		}
+		bodies := c.decisions()
+		if len(bodies) != 1 {
+			t.Fatalf("decisions sent: %d (%v)", len(bodies), bodies)
+		}
+		var body map[string]any
+		_ = json.Unmarshal([]byte(bodies[0]), &body)
+		if body["action_hash"] != "3c4d" || body["expected_revision"] != float64(3) {
+			t.Errorf("the decision did not carry the action that was read: %v", body)
 		}
 	})
 }
@@ -1096,6 +1287,61 @@ func TestAgentWindowDecidesWithoutLeavingIt(t *testing.T) {
 	}
 	if ap := c.approval("apr_2"); ap["state"] != "denyd" {
 		t.Errorf("apr_2 is %v", ap["state"])
+	}
+}
+
+// Inside a window the same rule holds, and the window ASKS AGAIN rather
+// than deciding: an action that changed since the window showed it is
+// refused, printed as it now reads, and the window says which keystrokes
+// decide the action that is now on the screen. Nothing is sent until the
+// person has decided that one.
+func TestAgentWindowAsksAgainWhenTheActionChanged(t *testing.T) {
+	c, bin, cfg := agentFixture(t)
+	c.mu.Lock()
+	c.endless = true
+	c.mu.Unlock()
+	w := openWindow(t, bin, cfg, "agent", "open", "main", "--session", agentSessionShort)
+	// the window has shown the waiting request and is ready for a keystroke
+	w.waitFor(t, "!! permission request apr_1")
+	w.waitFor(t, `type "a <id>" to approve`)
+
+	// the agent changes what it is asking for, under the same id
+	c.changeApproval("apr_1", "run the database migration, then publish the release", 3, "3c4d")
+
+	w.typeLine(t, "a apr_1")
+	w.waitFor(t, "changed after it was shown")
+	for _, want := range []string{
+		"no decision was sent",
+		"run the database migration, then publish the release",
+		`Next: type "a apr_1" to approve the action above, or "d apr_1" to deny it`,
+	} {
+		if !strings.Contains(w.text(), want) {
+			t.Errorf("the window did not say %q:\n%s", want, w.text())
+		}
+	}
+	if d := c.decisions(); len(d) != 0 {
+		t.Fatalf("the window decided an action nobody saw: %v", d)
+	}
+	if ap := c.approval("apr_1"); ap["state"] != "pending" {
+		t.Errorf("the request is %v; the window must have decided nothing", ap["state"])
+	}
+
+	// now that the new action is on the screen, deciding it goes through
+	w.typeLine(t, "a apr_1")
+	w.waitFor(t, "approved permission request apr_1")
+	w.detach(t)
+
+	bodies := c.decisions()
+	if len(bodies) != 1 {
+		t.Fatalf("decisions sent: %d (%v)", len(bodies), bodies)
+	}
+	var body map[string]any
+	_ = json.Unmarshal([]byte(bodies[0]), &body)
+	if body["action_hash"] != "3c4d" || body["expected_revision"] != float64(3) {
+		t.Errorf("the window decided something other than what it showed: %v", body)
+	}
+	if ap := c.approval("apr_1"); ap["state"] != "approved" {
+		t.Errorf("apr_1 is %v", ap["state"])
 	}
 }
 
