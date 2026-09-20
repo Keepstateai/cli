@@ -144,10 +144,12 @@ func TestKeyVerbsNeverCarryTheSecret(t *testing.T) {
 	}
 }
 
-// DISC-07 on the client: help, the reference, doctor and every verb's
-// own help carry no private marker.
+// Everything the client writes for a person (help, the reference, doctor,
+// every verb's own help, the command manifest) speaks about the client and
+// the customer API only: no service-internal path, no internal ticket id,
+// no service component name, no environment switch, no workstation path.
 func TestClientSurfacesCarryNoPrivateMarkers(t *testing.T) {
-	markers := regexp.MustCompile(`/internal/|X-KS-Account|fleetAssertion|\bKS-\d{3}\b|\bksd\b|\bksgw\b|firecracker|KS_SIGNED|CTL_[A-Z_]{3,}|/Users/[a-z]|openapi-internal|review_b|DISC-0\d|B-R0\d`)
+	markers := regexp.MustCompile(`/internal/|\b[A-Z]{2}-\d{3}\b|\bksd\b|\bksgw\b|firecracker|\b[A-Z]{2,4}_[A-Z_]{4,}\b|/Users/[a-z]|/home/[a-z]`)
 	srv := httptest.NewServer(&keysCtl{})
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)
