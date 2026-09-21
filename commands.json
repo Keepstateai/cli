@@ -522,6 +522,78 @@
    ]
   },
   {
+   "verb": "agent queue show",
+   "aliases": [],
+   "usage": "ks agent queue show <name> [--session ID]",
+   "summary": "why an agent's queue is not moving: what blocks it, what waits behind it, what each choice would do",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+    }
+   ]
+  },
+  {
+   "verb": "agent queue resume",
+   "aliases": [],
+   "usage": "ks agent queue resume <name> [--session ID] [--finding TEXT]",
+   "summary": "continue the instructions held behind a failed or unresolved one; that one is never restarted",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+    },
+    {
+     "flag": "--finding TEXT",
+     "summary": "what you established about the blocked instruction; required, and recorded with the decision"
+    }
+   ]
+  },
+  {
+   "verb": "agent queue hold",
+   "aliases": [],
+   "usage": "ks agent queue hold <name> [--session ID] [--finding TEXT]",
+   "summary": "record that an agent's queue stays held, and what you established",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+    },
+    {
+     "flag": "--finding TEXT",
+     "summary": "what you established about the blocked instruction; required, and recorded with the decision"
+    }
+   ]
+  },
+  {
+   "verb": "task resume",
+   "aliases": [],
+   "usage": "ks task resume <instruction> [--session ID] [--finding TEXT]",
+   "summary": "continue the instructions held behind one named instruction; that instruction is not restarted",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the instruction belongs to; a short id is accepted when it is unique among yours"
+    },
+    {
+     "flag": "--finding TEXT",
+     "summary": "what you established about the blocked instruction; required, and recorded with the decision"
+    }
+   ]
+  },
+  {
    "verb": "agent approve",
    "aliases": [],
    "usage": "ks agent approve <request> [--session ID]",
