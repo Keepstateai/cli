@@ -577,19 +577,15 @@
   {
    "verb": "task resume",
    "aliases": [],
-   "usage": "ks task resume <instruction> [--session ID] [--finding TEXT]",
-   "summary": "continue the instructions held behind one named instruction; that instruction is not restarted",
+   "usage": "ks task resume <instruction> [--session ID]",
+   "summary": "run one blocked instruction again as a new attempt; it never continues the rest of the queue instead",
    "status": "planned",
    "surface": "hosted",
-   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
+   "note": "the binary dispatches this verb and it refuses: running an instruction again is a new attempt under it, started from a recorded boundary, and the service records neither, so the verb states which instruction is blocked, what it reported, what nobody established, what waits behind it and exactly what is missing, then stops. Measured: it sends no decision on any path and releases nothing, and continuing the instructions held behind it stays a separate command (ks agent queue resume)",
    "flags": [
     {
      "flag": "--session ID",
      "summary": "the session the instruction belongs to; a short id is accepted when it is unique among yours"
-    },
-    {
-     "flag": "--finding TEXT",
-     "summary": "what you established about the blocked instruction; required, and recorded with the decision"
     }
    ]
   },

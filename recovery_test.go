@@ -43,6 +43,7 @@ type recoveryCtl struct {
 	cause         string
 	revision      int64
 	sessionEpoch  int64
+	sessionID     string
 	blockingState string
 	summary       string
 	held          []string
@@ -51,10 +52,14 @@ type recoveryCtl struct {
 	noHold        bool   // this agent's queue is not held at all
 	changeOnRead  bool   // the hold changes the moment it has been read
 	decisionFault string // the typed refusal the decision route answers with
+	noCost        bool   // the service states no cost for continuing
+	cancelled     bool   // one instruction was cancelled while the queue was held
+	retryOffered  bool   // a later service that DOES offer a new attempt
 }
 
 func newRecoveryCtl() *recoveryCtl {
 	return &recoveryCtl{capability: "available", state: "active", cause: "task_failed", revision: 3, sessionEpoch: 1,
+		sessionID:     agentSessionRecord,
 		blockingState: "failed", summary: "the test command exited 1 after writing three files; the work did not finish",
 		held: []string{"tsk_3", "tsk_4"}}
 }
@@ -81,7 +86,7 @@ func (c *recoveryCtl) set(fn func(*recoveryCtl)) {
 // options and the one that is not offered.
 func (c *recoveryCtl) holdDoc() map[string]any {
 	doc := map[string]any{
-		"id": recoveryHold, "session_id": agentSessionRecord, "agent_id": recoveryAgent,
+		"id": recoveryHold, "session_id": c.sessionID, "agent_id": recoveryAgent,
 		"state": c.state, "cause": c.cause, "revision": c.revision,
 		"blocking_task": recoveryBlocking, "blocking_task_state": c.blockingState,
 		"reason": "the attempt failed; the instructions committed after it may have been written expecting its result",
@@ -93,20 +98,35 @@ func (c *recoveryCtl) holdDoc() map[string]any {
 		doc["blocking_task_summary"] = c.summary
 	}
 	if c.state == "active" {
+		release := map[string]any{"decision": "release_successors", "available": true,
+			"effect":      fmt.Sprintf("the %d instruction(s) this hold stopped return to the queue in the order they were committed, and a worker may start them", len(c.held)),
+			"state_after": "the blocking record keeps the outcome it has now (" + c.blockingState + "); it is not repeated and its outcome is not overwritten by the decision",
+			"cost":        "the released instructions run and are metered like any other work; recording the decision itself costs nothing"}
+		if c.noCost {
+			// a service that states no cost. The client must print none: the
+			// ratified price book carries no per-token rate, so a figure here
+			// could only have been invented.
+			delete(release, "cost")
+		}
+		retry := map[string]any{"decision": "retry_from_safe_point", "available": false,
+			"effect":             "a new attempt under the blocking task, resuming from a named save point",
+			"state_after":        "unchanged: this service records no such attempt",
+			"cost":               "not stated: an attempt whose boundary cannot be named cannot be costed either",
+			"unavailable_reason": "no save point is recorded for this task, so a new attempt could not name the boundary it would resume from"}
+		if c.retryOffered {
+			// a later service that records boundaries and attempts, read by
+			// this client, which still cannot ask for one
+			retry["available"] = true
+			retry["state_after"] = "a new attempt is recorded under the task; the earlier attempt keeps its outcome and its cost"
+			delete(retry, "unavailable_reason")
+		}
 		doc["choices"] = []map[string]any{
-			{"decision": "release_successors", "available": true,
-				"effect":      fmt.Sprintf("the %d instruction(s) this hold stopped return to the queue in the order they were committed, and a worker may start them", len(c.held)),
-				"state_after": "the blocking record keeps the outcome it has now (" + c.blockingState + "); it is not repeated and its outcome is not overwritten by the decision",
-				"cost":        "the released instructions run and are metered like any other work; recording the decision itself costs nothing"},
+			release,
 			{"decision": "keep_held", "available": true,
 				"effect":      "the hold stands, and what you established is recorded beside it",
 				"state_after": "nothing moves: the held instructions keep their id, their committed order and their content, and stay held",
 				"cost":        "nothing runs, so nothing is metered"},
-			{"decision": "retry_from_safe_point", "available": false,
-				"effect":             "a new attempt under the blocking task, resuming from a named save point",
-				"state_after":        "unchanged: this service records no such attempt",
-				"cost":               "not stated: an attempt whose boundary cannot be named cannot be costed either",
-				"unavailable_reason": "no save point is recorded for this task, so a new attempt could not name the boundary it would resume from"},
+			retry,
 		}
 	} else {
 		doc["choices"] = []map[string]any{}
@@ -130,6 +150,14 @@ var recoveryTaskRows = []map[string]any{
 	{"id": "tsk_4", "agent_id": recoveryAgent, "submission_id": "sub_4", "state": "held", "queue_seq": 4, "origin": "live", "content_ref": "ref_4", "created_at": "2026-09-21T11:57:00Z"},
 	// an instruction of an agent that is not in the session under test
 	{"id": "tsk_elsewhere", "agent_id": "agt_other0001", "submission_id": "sub_9", "state": "held", "queue_seq": 1, "origin": "live", "content_ref": "ref_9", "created_at": "2026-09-21T11:58:00Z"},
+}
+
+// recoveryCancelledRow is an instruction somebody cancelled WHILE the queue
+// was held. It is not held work, it is not released by a decision to
+// continue, and continuing must not resurrect it.
+var recoveryCancelledRow = map[string]any{
+	"id": "tsk_5", "agent_id": recoveryAgent, "submission_id": "sub_5", "state": "cancelled", "queue_seq": 5,
+	"origin": "live", "content_ref": "ref_5", "created_at": "2026-09-21T11:59:00Z",
 }
 
 func (c *recoveryCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -165,7 +193,13 @@ func (c *recoveryCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		env(200, map[string]any{"items": agentRows, "observed_at": "x"})
 	case r.Method == "GET" && r.URL.Path == "/api/v2/tasks":
 		var items []map[string]any
-		for _, t := range recoveryTaskRows {
+		rows := recoveryTaskRows
+		c.mu.Lock()
+		if c.cancelled {
+			rows = append(append([]map[string]any(nil), rows...), recoveryCancelledRow)
+		}
+		c.mu.Unlock()
+		for _, t := range rows {
 			if t["agent_id"] == r.URL.Query().Get("agent_id") {
 				items = append(items, t)
 			}
@@ -174,6 +208,15 @@ func (c *recoveryCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			items = []map[string]any{}
 		}
 		env(200, map[string]any{"items": items, "observed_at": "x"})
+	// A saved point this client could pick if it were willing to pick one.
+	// It answers so that a client which silently chose the newest would
+	// SUCCEED rather than fail on a missing route: the proof that it chooses
+	// none is that nothing here is ever requested.
+	case strings.HasPrefix(r.URL.Path, "/api/v2/checkpoints"):
+		env(200, map[string]any{"items": []map[string]any{
+			{"id": "ckpt_older", "session_id": agentSessionRecord, "state": "valid", "created_at": "2026-09-21T11:40:00Z"},
+			{"id": "ckpt_newest", "session_id": agentSessionRecord, "state": "valid", "created_at": "2026-09-21T11:54:00Z"},
+		}, "observed_at": "x"})
 	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/v2/tasks/"):
 		id := strings.TrimPrefix(r.URL.Path, "/api/v2/tasks/")
 		for _, t := range recoveryTaskRows {
@@ -376,13 +419,17 @@ func TestQueueResumeReleasesWhatWasHeldAndNeverRestartsTheBlockedInstruction(t *
 
 // A decision over unsettled work records what was established. Without it
 // nothing is sent at all.
+//
+// `ks task resume` is not in this list any more and must not be: it records
+// no decision, so there is nothing for a finding to be recorded beside. The
+// case that covered it moved to the task-resume tests below, where what is
+// asserted is that it sends nothing at all.
 func TestARecoveryDecisionWithoutAFindingSendsNothing(t *testing.T) {
 	c, bin, cfg := recoveryFixture(t)
 	dir := t.TempDir()
 	for _, args := range [][]string{
 		{"agent", "queue", "resume", "main", "--session", agentSessionShort},
 		{"agent", "queue", "hold", "main", "--session", agentSessionShort},
-		{"task", "resume", recoveryBlocking, "--session", agentSessionShort},
 	} {
 		out, errs, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), args...)
 		if code != exitUsage {
@@ -512,66 +559,6 @@ func TestQueueHoldRecordsThatItStaysHeldAndReleasesNothing(t *testing.T) {
 	}
 }
 
-// ks task resume is the same decision named from the other end. It resumes
-// what is held behind the instruction you name, refuses an instruction that
-// is not the one holding the queue (and names the one that is), and refuses
-// where nothing is held at all.
-func TestTaskResumeNamesTheBlockedInstructionAndRefusesAnythingElse(t *testing.T) {
-	c, bin, cfg := recoveryFixture(t)
-	dir := t.TempDir()
-
-	// an instruction that is not what holds the queue
-	out, errs, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "task", "resume", "tsk_3",
-		"--session", agentSessionShort, "--finding", "it looks independent to me")
-	if code != exitConflict {
-		t.Fatalf("resume of a non-blocking instruction: exit %d (want %d)\n%s%s", code, exitConflict, out, errs)
-	}
-	for _, want := range []string{"is not what holds this queue", recoveryBlocking, "nothing was resumed"} {
-		if !strings.Contains(errs, want) {
-			t.Errorf("the refusal lacks %q:\n%s", want, errs)
-		}
-	}
-	if d := c.sentDecisions(); len(d) != 0 {
-		t.Fatalf("a refused resume decided something: %v", d)
-	}
-
-	// the instruction that IS what holds the queue
-	out, errs, code = auditExec(t, bin, cfg, dir, fastEnv(cfg), "task", "resume", recoveryBlocking,
-		"--session", agentSessionShort, "--finding", "read the build log: nothing was published")
-	if code != 0 {
-		t.Fatalf("resume: exit %d\n%s%s", code, out, errs)
-	}
-	if !strings.Contains(out, "still reads failed and was NOT run again") {
-		t.Errorf("the report does not say the named instruction was left alone:\n%s", out)
-	}
-	if d := c.sentDecisions(); len(d) != 1 || !strings.Contains(d[0], `"decision":"release_successors"`) {
-		t.Fatalf("decisions sent: %v", d)
-	}
-
-	// an instruction of an agent that is not in the session that was named:
-	// refused before any hold is read, because naming one session and
-	// deciding another's queue is never what somebody meant
-	out, errs, code = auditExec(t, bin, cfg, dir, fastEnv(cfg), "task", "resume", "tsk_elsewhere",
-		"--session", agentSessionShort, "--finding", "looks fine to me")
-	if code != exitUsage {
-		t.Fatalf("resume of another session's instruction: exit %d (want %d)\n%s%s", code, exitUsage, out, errs)
-	}
-	if !strings.Contains(errs, "has no agent named") {
-		t.Errorf("the refusal does not say the instruction is not this session's:\n%s", errs)
-	}
-
-	// nothing held: nothing to resume, and nothing changed
-	c.set(func(c *recoveryCtl) { c.noHold = true })
-	out, errs, code = auditExec(t, bin, cfg, dir, fastEnv(cfg), "task", "resume", recoveryBlocking,
-		"--session", agentSessionShort, "--finding", "just checking")
-	if code != exitConflict {
-		t.Fatalf("resume with no hold: exit %d (want %d)\n%s%s", code, exitConflict, out, errs)
-	}
-	if !strings.Contains(errs, "its queue is not held") {
-		t.Errorf("the refusal lacks its reason:\n%s", errs)
-	}
-}
-
 // A queue nobody is holding is a fact the view states plainly, with the queue
 // still listed in full.
 func TestQueueShowOnAQueueThatIsNotHeldSaysSoAndStillListsIt(t *testing.T) {
@@ -599,7 +586,7 @@ func TestTheRecoveryVerbsRefuseWhileTheCapabilityIsUnavailable(t *testing.T) {
 		{"agent", "queue", "show", "main", "--session", agentSessionShort},
 		{"agent", "queue", "resume", "main", "--session", agentSessionShort, "--finding", "x"},
 		{"agent", "queue", "hold", "main", "--session", agentSessionShort, "--finding", "x"},
-		{"task", "resume", recoveryBlocking, "--session", agentSessionShort, "--finding", "x"},
+		{"task", "resume", recoveryBlocking, "--session", agentSessionShort},
 	} {
 		out, errs, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), args...)
 		if code != exitFailed {
@@ -616,5 +603,442 @@ func TestTheRecoveryVerbsRefuseWhileTheCapabilityIsUnavailable(t *testing.T) {
 		if req != "GET /api/capabilities" {
 			t.Errorf("a disabled verb reached %q", req)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------
+// ks task resume: the verb that must refuse rather than do the other thing
+// ---------------------------------------------------------------------
+
+// The whole point of this verb in this form. Somebody asks to run ONE
+// instruction again; the service cannot create the new attempt that would
+// be; so the command refuses by that exact reason and RELEASES NOTHING. An
+// earlier version continued the queue instead and reported success, which is
+// how a person ends up believing the failed instruction ran when the work
+// committed after it ran over it.
+func TestTaskResumeRefusesWithItsReasonAndReleasesNothing(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "task", "resume", recoveryBlocking, "--session", agentSessionShort)
+	if code != exitFailed {
+		t.Fatalf("task resume: exit %d (want %d)\n%s%s", code, exitFailed, out, errs)
+	}
+	for _, want := range []string{
+		"was NOT run again",
+		"nothing was released",
+		"no decision was sent",
+		"a NEW attempt under it, started from a recorded boundary",
+		"this service records neither",
+		"nothing here to authorize",
+		// the service's OWN reason, quoted rather than paraphrased
+		"no save point is recorded for this task",
+	} {
+		if !strings.Contains(errs, want) {
+			t.Errorf("the refusal lacks %q:\n%s", want, errs)
+		}
+	}
+	// NOTHING WAS SENT and nothing was released: no decision at all, and the
+	// held work is still held on the control plane
+	if d := c.sentDecisions(); len(d) != 0 {
+		t.Fatalf("the verb that cannot retry decided something instead: %v", d)
+	}
+	for _, req := range c.seen() {
+		if strings.HasPrefix(req, "POST ") {
+			t.Fatalf("a refusing verb sent a mutation: %v", c.seen())
+		}
+	}
+	c.mu.Lock()
+	held, state := append([]string(nil), c.held...), c.state
+	c.mu.Unlock()
+	if state != "active" || len(held) != 2 {
+		t.Fatalf("the hold moved: state %q, held %v", state, held)
+	}
+	// and it never quietly becomes the other verb's success
+	for _, forbidden := range []string{"resumed the queue", "may run again"} {
+		if strings.Contains(out+errs, forbidden) {
+			t.Errorf("the refusal reads like a release (%q):\n%s%s", forbidden, out, errs)
+		}
+	}
+}
+
+// The problem is stated as FIELDS, not as prose to be parsed: which
+// instruction, what it is known to have done, what it reported, what waits
+// behind it, what nobody established, what is missing, and what may actually
+// be done instead — each with its own name, in --json as a document.
+func TestTaskResumeStatesTheProblemAsFields(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	dir := t.TempDir()
+	_, errs, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "task", "resume", recoveryBlocking, "--session", agentSessionShort)
+	if code != exitFailed {
+		t.Fatalf("exit %d (want %d)\n%s", code, exitFailed, errs)
+	}
+	for _, want := range []string{
+		"what is blocked",
+		"instruction      " + recoveryBlocking,
+		"known outcome    failed",
+		"it reported      the test command exited 1 after writing three files",
+		"held behind it   2 instructions (tsk_3, tsk_4)",
+		"what is missing",
+		// the trap: a session save point is published as available and is NOT
+		// a boundary an instruction can resume from
+		"saving a session stores the whole machine at that moment",
+		"what you may do instead",
+		"release_successors",
+		"ks agent queue resume main --session " + agentSessionShort,
+		"keep_held",
+		"ks agent queue hold main --session " + agentSessionShort,
+		"retry_from_safe_point",
+		"NOT OFFERED",
+	} {
+		if !strings.Contains(errs, want) {
+			t.Errorf("the refusal lacks the field %q:\n%s", want, errs)
+		}
+	}
+
+	// the same refusal as one document: fields, with values, not a sentence
+	out, _, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "task", "resume", recoveryBlocking, "--session", agentSessionShort, "--json")
+	if code != exitFailed {
+		t.Fatalf("--json: exit %d (want %d)\n%s", code, exitFailed, out)
+	}
+	e, ok := parseEnvelope(t, out)["error"].(map[string]any)
+	if !ok {
+		t.Fatalf("no error object: %s", out)
+	}
+	if e["code"] != "retry_unavailable" {
+		t.Errorf("code: %v", e["code"])
+	}
+	if e["work_started"] != "no" {
+		t.Errorf("a refusal that started nothing does not say so: %v", e["work_started"])
+	}
+	d, ok := e["detail"].(map[string]any)
+	if !ok {
+		t.Fatalf("the refusal carries no structured detail: %v", e)
+	}
+	if d["instruction"] != recoveryBlocking || d["known_outcome"] != "failed" {
+		t.Errorf("detail: %v", d)
+	}
+	if s, _ := d["it_reported"].(string); !strings.Contains(s, "exited 1 after writing three files") {
+		t.Errorf("it_reported: %v", d["it_reported"])
+	}
+	if h := d["held_successors"].([]any); len(h) != 2 || h[0] != "tsk_3" || h[1] != "tsk_4" {
+		t.Errorf("held_successors: %v", h)
+	}
+	if m := d["what_is_missing"].([]any); len(m) != 2 {
+		t.Errorf("what_is_missing: %v", m)
+	}
+	acts := d["next_actions"].([]any)
+	if len(acts) != 3 {
+		t.Fatalf("next_actions: %v", acts)
+	}
+	for _, a := range acts {
+		m := a.(map[string]any)
+		switch m["decision"] {
+		case "release_successors", "keep_held":
+			if m["available"] != true || m["command"] == "" {
+				t.Errorf("an offered action carries no command: %v", m)
+			}
+		case "retry_from_safe_point":
+			if m["available"] != false {
+				t.Errorf("an unavailable action reads available: %v", m)
+			}
+			if _, has := m["command"]; has {
+				t.Errorf("an action that cannot be taken carries a command: %v", m)
+			}
+			if s, _ := m["not_offered_because"].(string); s == "" {
+				t.Errorf("an unavailable action carries no reason: %v", m)
+			}
+		}
+	}
+	if d := c.sentDecisions(); len(d) != 0 {
+		t.Errorf("stating the problem decided something: %v", d)
+	}
+}
+
+// A boundary is never chosen for a reader. The fake serves saved points that
+// a client willing to pick the newest would succeed with; the proof that it
+// picks none is that it never asks for them, opens no selector and reads
+// nothing from the terminal, with and without --no-input.
+func TestTaskResumeChoosesNoBoundaryAndOpensNoSelector(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	dir := t.TempDir()
+	plain, plainErr, plainCode := auditExec(t, bin, cfg, dir, fastEnv(cfg), "task", "resume", recoveryBlocking, "--session", agentSessionShort)
+	quiet, quietErr, quietCode := auditExec(t, bin, cfg, dir, fastEnv(cfg), "task", "resume", recoveryBlocking, "--session", agentSessionShort, "--no-input")
+	if plainCode != quietCode || plainErr != quietErr || plain != quiet {
+		t.Errorf("--no-input changes the answer, so something was being decided interactively\nwith:\n%s%s\nwithout:\n%s%s", quiet, quietErr, plain, plainErr)
+	}
+	for _, req := range c.seen() {
+		if strings.Contains(req, "checkpoint") {
+			t.Errorf("a boundary was looked up so that one could be chosen: %q", req)
+		}
+	}
+	for _, picked := range []string{"ckpt_newest", "ckpt_older"} {
+		if strings.Contains(plain+plainErr, picked) {
+			t.Errorf("a saved point was named on the reader's behalf (%s):\n%s%s", picked, plain, plainErr)
+		}
+	}
+}
+
+// An instruction that did not fail has nothing to run again, and that is a
+// different fact from the missing lifecycle — so it is a different refusal,
+// and it releases nothing either.
+func TestTaskResumeOnAnInstructionThatDidNotFailSaysSoAndReleasesNothing(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "task", "resume", "tsk_1", "--session", agentSessionShort)
+	if code != exitConflict {
+		t.Fatalf("exit %d (want %d)\n%s%s", code, exitConflict, out, errs)
+	}
+	for _, want := range []string{"reads succeeded", "no failed or unresolved attempt", "nothing was released",
+		"refined by submitting a new one"} {
+		if !strings.Contains(errs, want) {
+			t.Errorf("the refusal lacks %q:\n%s", want, errs)
+		}
+	}
+	// the queue is held behind a DIFFERENT instruction, and the statement
+	// says so rather than claiming this one blocks it
+	if !strings.Contains(errs, "queue held behind "+recoveryBlocking) {
+		t.Errorf("the statement does not name what actually holds the queue:\n%s", errs)
+	}
+	if d := c.sentDecisions(); len(d) != 0 {
+		t.Fatalf("a refused retry decided something: %v", d)
+	}
+}
+
+// An instruction of an agent that is not in the session that was named is
+// refused before any hold is read: naming one session and acting on
+// another's work is never what somebody meant.
+func TestTaskResumeRefusesAnInstructionOfAnotherSession(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "task", "resume", "tsk_elsewhere", "--session", agentSessionShort)
+	if code != exitUsage {
+		t.Fatalf("exit %d (want %d)\n%s%s", code, exitUsage, out, errs)
+	}
+	if !strings.Contains(errs, "has no agent named") {
+		t.Errorf("the refusal does not say the instruction is not this session's:\n%s", errs)
+	}
+	if d := c.sentDecisions(); len(d) != 0 {
+		t.Fatalf("a refused retry decided something: %v", d)
+	}
+}
+
+// ---------------------------------------------------------------------
+// continuing the queue: the decision that DOES work
+// ---------------------------------------------------------------------
+
+// A valid continuation SUCCEEDS — an implementation that refuses everything
+// is not correct either — it permits the held work EXACTLY ONCE, it does not
+// repeat the instruction that stopped the queue, and it cannot be applied a
+// second time.
+func TestQueueContinuationPermitsHeldWorkExactlyOnceAndNeverRepeatsThePredecessor(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	dir := t.TempDir()
+	out, errs, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "agent", "queue", "resume", "main",
+		"--session", agentSessionShort, "--finding", "read the build log: it stopped before publishing anything")
+	if code != 0 {
+		t.Fatalf("the one decision that is offered was refused: exit %d\n%s%s", code, out, errs)
+	}
+	if !strings.Contains(out, "2 instruction(s) may run again") {
+		t.Errorf("the continuation did not permit the held work:\n%s", out)
+	}
+	for _, id := range []string{"tsk_3", "tsk_4"} {
+		if n := strings.Count(out, id); n != 1 {
+			t.Errorf("%s is reported %d times; held work is permitted exactly once", id, n)
+		}
+	}
+	// the predecessor is not repeated, and the report says so in words
+	if !strings.Contains(out, "still reads failed and was NOT run again") {
+		t.Errorf("the report does not say the blocked instruction was left alone:\n%s", out)
+	}
+	if strings.Contains(out, recoveryBlocking+"\n") {
+		t.Errorf("the blocked instruction is listed among the work that runs again:\n%s", out)
+	}
+	if d := c.sentDecisions(); len(d) != 1 {
+		t.Fatalf("the continuation sent %d decisions, want exactly 1: %v", len(d), d)
+	}
+
+	// and it cannot happen twice: the hold is decided, so a second ask is
+	// refused and sends nothing more
+	out, errs, code = auditExec(t, bin, cfg, dir, fastEnv(cfg), "agent", "queue", "resume", "main",
+		"--session", agentSessionShort, "--finding", "again")
+	if code != exitConflict {
+		t.Fatalf("a second continuation: exit %d (want %d)\n%s%s", code, exitConflict, out, errs)
+	}
+	if d := c.sentDecisions(); len(d) != 1 {
+		t.Fatalf("held work was permitted a second time: %v", d)
+	}
+	// the blocked instruction still reads failed on the control plane
+	out, errs, code = auditExec(t, bin, cfg, dir, fastEnv(cfg), "agent", "queue", "show", "main", "--session", agentSessionShort)
+	if code != 0 {
+		t.Fatalf("queue show: exit %d\n%s%s", code, out, errs)
+	}
+	if !strings.Contains(out, recoveryBlocking) || !strings.Contains(out, "failed") {
+		t.Errorf("the predecessor's recorded outcome did not survive the continuation:\n%s", out)
+	}
+}
+
+// Work cancelled while the queue was held stays cancelled. Continuing the
+// queue permits what the hold stopped, and the client reports what the
+// SERVICE released rather than the list it last saw held.
+func TestCancelledSuccessorsStayCancelledWhenTheQueueContinues(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	c.set(func(c *recoveryCtl) { c.cancelled = true })
+	dir := t.TempDir()
+	out, errs, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "agent", "queue", "resume", "main",
+		"--session", agentSessionShort, "--finding", "checked by hand: nothing was published")
+	if code != 0 {
+		t.Fatalf("resume: exit %d\n%s%s", code, out, errs)
+	}
+	if strings.Contains(out, "tsk_5") {
+		t.Errorf("a cancelled instruction is reported as running again:\n%s", out)
+	}
+	if !strings.Contains(out, "2 instruction(s) may run again") {
+		t.Errorf("the continuation report is not the service's released list:\n%s", out)
+	}
+	// and it is still visible, still cancelled, in the queue afterwards
+	out, errs, code = auditExec(t, bin, cfg, dir, fastEnv(cfg), "agent", "queue", "show", "main", "--session", agentSessionShort)
+	if code != 0 {
+		t.Fatalf("queue show: exit %d\n%s%s", code, out, errs)
+	}
+	if !strings.Contains(out, "tsk_5") || !strings.Contains(out, "cancelled") {
+		t.Errorf("the cancelled instruction is not visible as cancelled:\n%s", out)
+	}
+}
+
+// A decision prepared against a hold that is not this session's, or whose
+// generation cannot be read at all, is refused and NOTHING IS SENT. Neither
+// is a state a decision may be guessed through.
+func TestARecoveryDecisionOnAForeignOrUnreadableQueueSendsNothing(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(c *recoveryCtl)
+		code  int
+		want  string
+	}{
+		{"the hold is another session's", func(c *recoveryCtl) { c.sessionID = "session_other" }, exitUsage, "belongs to another session"},
+		{"the generation cannot be read", func(c *recoveryCtl) { c.sessionEpoch = 0 }, exitTemporary, "execution generation"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, bin, cfg := recoveryFixture(t)
+			c.set(tc.setup)
+			out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "agent", "queue", "resume", "main",
+				"--session", agentSessionShort, "--finding", "nothing downstream depends on it")
+			if code != tc.code {
+				t.Fatalf("exit %d (want %d)\n%s%s", code, tc.code, out, errs)
+			}
+			if !strings.Contains(errs, tc.want) {
+				t.Errorf("the refusal lacks %q:\n%s", tc.want, errs)
+			}
+			if !strings.Contains(errs, "nothing was decided") {
+				t.Errorf("the refusal does not say nothing happened:\n%s", errs)
+			}
+			if d := c.sentDecisions(); len(d) != 0 {
+				t.Fatalf("a hold that could not be decided was decided anyway: %v", d)
+			}
+		})
+	}
+}
+
+// A cost the service did not state is not a cost this client states. The
+// ratified price book carries no per-token rate, so any figure here could
+// only have been derived from one this client does not have.
+func TestTheRecoverySurfacesStateNoCostTheServiceDidNotState(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	c.set(func(c *recoveryCtl) { c.noCost = true })
+	dir := t.TempDir()
+	view, viewErr, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "agent", "queue", "show", "main", "--session", agentSessionShort)
+	if code != 0 {
+		t.Fatalf("queue show: exit %d\n%s%s", code, view, viewErr)
+	}
+	refusal, refusalErr, _ := auditExec(t, bin, cfg, dir, fastEnv(cfg), "task", "resume", recoveryBlocking, "--session", agentSessionShort)
+	for _, text := range []string{view + viewErr, refusal + refusalErr} {
+		if strings.Contains(text, "$") {
+			t.Errorf("a money figure appears where the service stated none:\n%s", text)
+		}
+		// the option is still listed; only its unstated cost is absent
+		if !strings.Contains(text, "release_successors") {
+			t.Errorf("the option vanished with its cost:\n%s", text)
+		}
+		if strings.Contains(text, "costs     the released instructions run") {
+			t.Errorf("a cost the service withheld was printed anyway:\n%s", text)
+		}
+	}
+	// the option the service DOES cost still shows that cost
+	if !strings.Contains(view, "nothing runs, so nothing is metered") {
+		t.Errorf("a stated cost was dropped:\n%s", view)
+	}
+}
+
+// An unknown is not a failure and a missing report is not an empty one. Where
+// nobody established what the instruction did, the refusal says so as a field
+// and does not round the gap to a verdict in either direction.
+func TestTaskResumeNamesWhatNobodyEstablishedRatherThanInventingIt(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	c.set(func(c *recoveryCtl) {
+		c.cause = "task_acceptance_unknown"
+		c.blockingState = "reconciliation_required"
+		c.summary = ""
+	})
+	dir := t.TempDir()
+	_, errs, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "task", "resume", recoveryBlocking, "--session", agentSessionShort)
+	if code != exitFailed {
+		t.Fatalf("exit %d (want %d)\n%s", code, exitFailed, errs)
+	}
+	for _, want := range []string{
+		"it reported      nothing was recorded",
+		"not established  what this instruction did: nothing was recorded",
+		"a result nobody could establish, not on a measured failure",
+	} {
+		if !strings.Contains(errs, want) {
+			t.Errorf("the refusal lacks %q:\n%s", want, errs)
+		}
+	}
+	// and it is never dressed up as a known failure
+	if strings.Contains(errs, "known outcome    failed") {
+		t.Errorf("an unresolved outcome is reported as a failure:\n%s", errs)
+	}
+
+	// the same facts as fields under --json
+	out, _, _ := auditExec(t, bin, cfg, dir, fastEnv(cfg), "task", "resume", recoveryBlocking, "--session", agentSessionShort, "--json")
+	d := parseEnvelope(t, out)["error"].(map[string]any)["detail"].(map[string]any)
+	if _, has := d["it_reported"]; has {
+		t.Errorf("a report nobody made is present as a value: %v", d["it_reported"])
+	}
+	if n := d["not_established"].([]any); len(n) != 2 {
+		t.Errorf("not_established: %v", n)
+	}
+	if d["known_outcome"] != "reconciliation_required" {
+		t.Errorf("known_outcome: %v", d["known_outcome"])
+	}
+}
+
+// The other direction of the same honesty. A later service that DOES record
+// boundaries and attempts is read by this client, which still cannot ask for
+// one: it refuses, and it explains the refusal by its OWN missing half
+// rather than by asserting something about the service that has stopped
+// being true. It still releases nothing.
+func TestTaskResumeDoesNotClaimTheServiceLacksWhatTheServiceOffers(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	c.set(func(c *recoveryCtl) { c.retryOffered = true })
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "task", "resume", recoveryBlocking, "--session", agentSessionShort)
+	if code != exitFailed {
+		t.Fatalf("exit %d (want %d)\n%s%s", code, exitFailed, out, errs)
+	}
+	for _, want := range []string{"this version of the client cannot ask for one", "nothing was released"} {
+		if !strings.Contains(errs, want) {
+			t.Errorf("the refusal lacks %q:\n%s", want, errs)
+		}
+	}
+	for _, stale := range []string{
+		"this service records no attempt under an instruction",
+		"saving a session stores the whole machine",
+	} {
+		if strings.Contains(errs, stale) {
+			t.Errorf("the client asserts a service absence that is no longer true (%q):\n%s", stale, errs)
+		}
+	}
+	// and the option is shown as the service states it: offered
+	if strings.Contains(errs, "retry_from_safe_point  —  NOT OFFERED") {
+		t.Errorf("an option the service offers is reported as not offered:\n%s", errs)
+	}
+	if d := c.sentDecisions(); len(d) != 0 {
+		t.Fatalf("a refused retry decided something: %v", d)
 	}
 }

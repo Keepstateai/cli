@@ -104,7 +104,20 @@ type cliError struct {
 	NextAction  string `json:"next_action,omitempty"`
 	OperationID string `json:"operation_id,omitempty"`
 	HTTPStatus  int    `json:"http_status,omitempty"`
+	// Detail is the refusal's own facts, as FIELDS. A refusal that a person
+	// has to act on — which record is blocked, what it is known to have
+	// done, what was never established, what waits behind it, what may
+	// actually be done next — is not one sentence to be read apart again:
+	// it is a document in --json and an aligned block for a reader, and the
+	// message above is the summary of it rather than the only copy of it.
+	// Errors that have no such facts carry none and read exactly as before.
+	Detail any `json:"detail,omitempty"`
 }
+
+// errorDetail is a Detail that can also state itself to a person. The block
+// is printed ABOVE the message, because somebody reading a refusal needs the
+// facts before the sentence that summarises them.
+type errorDetail interface{ detailLines() []string }
 
 const (
 	workNo      = "no"
@@ -198,6 +211,11 @@ func fail(err error) {
 		enc.SetEscapeHTML(false)
 		_ = enc.Encode(map[string]any{"schema_version": 2, "request_id": out.requestID, "error": ce})
 	} else {
+		if d, ok := ce.Detail.(errorDetail); ok {
+			for _, line := range d.detailLines() {
+				fmt.Fprintln(os.Stderr, line)
+			}
+		}
 		fmt.Fprintln(os.Stderr, "error:", ce.Message)
 		if ce.OperationID != "" {
 			fmt.Fprintln(os.Stderr, "operation:", ce.OperationID)

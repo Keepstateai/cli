@@ -7,22 +7,34 @@
 // announcing something that failed to publish — or that may or may not have
 // published — is exactly the work a machine should not start on its own.
 //
-// So there are four verbs here and they divide the way the decision does.
-// `ks agent queue show` is the recovery view: which instruction is blocking,
-// what it last reported, what waits behind it, and what each choice would do.
-// `ks agent queue resume` continues the rest of the queue. `ks agent queue
-// hold` records that it stays held, and why — a queue that waits because
-// somebody decided it should is a different thing from a queue nobody has
-// looked at. `ks task resume` is the same continuation named from the other
-// end, by the instruction you were looking at rather than by the agent.
+// THREE CHOICES, and they are not interchangeable:
 //
-// Two properties shape all of them.
+//	continue the rest     `ks agent queue resume NAME` releases the
+//	                      instructions held behind the blocked one. The
+//	                      blocked one is not repeated and its recorded
+//	                      outcome is not touched.
+//	try that one again    `ks task resume TASK_ID` is a NEW ATTEMPT at the
+//	                      blocked instruction itself, started from a recorded
+//	                      boundary. It releases nothing, and it never rewrites
+//	                      the attempt that already ran.
+//	leave everything      `ks agent queue hold NAME` records that the queue
+//	                      stays held, and what was established — a queue that
+//	                      waits because somebody decided it should is a
+//	                      different record from a queue nobody has looked at.
 //
-// NONE OF THEM RESTARTS THE BLOCKING INSTRUCTION. Continuing the rest of the
-// queue and running the failed thing again are different actions with
-// different consequences, and no verb here does both. The service does not
-// offer the second one at all, for a reason it states and this client prints
-// rather than paraphrases.
+// `ks agent queue show` is the recovery view all three are chosen from: which
+// instruction is blocking, what it last reported, what waits behind it, and
+// what each choice would do, cost and leave behind.
+//
+// NO VERB HERE STANDS IN FOR ANOTHER. This matters most where one of them
+// cannot be performed. The service records no attempt under an instruction
+// and no boundary for one to resume from, so the second choice cannot be
+// carried out today — and an unsupported operation that quietly performs a
+// DIFFERENT one is worse than one that refuses, because the person walks away
+// believing they got what they asked for. So `ks task resume` states the
+// problem as fields, names exactly what is missing, and stops. It never
+// releases the queue as a consolation: somebody who asked to run one
+// instruction again did not ask to start everything committed after it.
 //
 // AND A DECISION IS BOUND TO WHAT WAS SHOWN. The client remembers what it put
 // on the screen, reads the hold again immediately before deciding, and
@@ -98,11 +110,19 @@ type holdChoice struct {
 }
 
 // the decisions this client may send, and the one word that separates a
-// known failure from an outcome nobody could establish. Restarting the
-// blocking instruction is not among them and is not a flag on them.
+// known failure from an outcome nobody could establish.
+//
+// decisionRetry is listed here and NEVER SENT. It is the third choice — a new
+// attempt at the blocked instruction — and this client recognises the word
+// only so that it can find that option among the ones the service states,
+// read back the service's own reason for not offering it, and refuse in the
+// same terms. A client that did not know the word would have to invent a
+// reason, and an invented reason about somebody else's boundary is a guess
+// wearing a service's voice.
 const (
 	decisionResume = "release_successors"
 	decisionKeep   = "keep_held"
+	decisionRetry  = "retry_from_safe_point"
 	holdIsActive   = "active"
 	causeFailed    = "task_failed"
 )
@@ -295,17 +315,48 @@ func verbFor(decision, agent string, sess inventoryRow) string {
 	return ""
 }
 
-// choiceLines renders one option: what it would do, what the records would
-// read afterwards, what it costs — or, for an option the service does not
-// offer, that it is not offered and why. Every word of it comes from the
-// service.
-func choiceLines(c holdChoice, verb string) []string {
-	head := "  " + c.Decision
+// nextAction is one option a person actually has, as a FIELD RECORD rather
+// than a sentence: the decision, whether it is offered, the exact command
+// that records it, and the service's own words for what it would do, what
+// the records would read afterwards and what it costs.
+//
+// Nothing here is composed. An effect, a state or a cost the service did not
+// state is ABSENT — never "none", never "$0", never a figure derived from a
+// rate this client does not have. The ratified price book carries no
+// per-token rate, so a client that printed a dollar amount here would have
+// made it up.
+type nextAction struct {
+	Decision   string `json:"decision"`
+	Available  bool   `json:"available"`
+	Command    string `json:"command,omitempty"`
+	Does       string `json:"does,omitempty"`
+	Leaves     string `json:"leaves,omitempty"`
+	Costs      string `json:"costs,omitempty"`
+	NotOffered string `json:"not_offered_because,omitempty"`
+}
+
+// actionFrom binds one option the service stated to the command that records
+// it here. An option the service does not offer carries no command: printing
+// the verb for something that cannot be done invites running it.
+func actionFrom(c holdChoice, command string) nextAction {
+	a := nextAction{Decision: c.Decision, Available: c.Available,
+		Does: c.Effect, Leaves: c.StateAfter, Costs: c.Cost, NotOffered: c.Unavailable}
+	if c.Available {
+		a.Command = command
+	}
+	return a
+}
+
+// lines renders one option for a reader. This is the single renderer: the
+// recovery view and every refusal that lists what may be done instead print
+// the same shape, so two surfaces cannot describe one option differently.
+func (a nextAction) lines() []string {
+	head := "  " + a.Decision
 	switch {
-	case !c.Available:
+	case !a.Available:
 		head += "  —  NOT OFFERED"
-	case verb != "":
-		head += "  —  " + verb
+	case a.Command != "":
+		head += "  —  " + a.Command
 	}
 	out := []string{sanitize(head)}
 	add := func(label, text string) {
@@ -313,12 +364,12 @@ func choiceLines(c holdChoice, verb string) []string {
 			out = append(out, sanitize(fmt.Sprintf("      %-9s %s", label, text)))
 		}
 	}
-	if !c.Available {
-		add("why not", c.Unavailable)
+	if !a.Available {
+		add("why not", a.NotOffered)
 	}
-	add("does", c.Effect)
-	add("leaves", c.StateAfter)
-	add("costs", c.Cost)
+	add("does", a.Does)
+	add("leaves", a.Leaves)
+	add("costs", a.Costs)
 	return out
 }
 
@@ -395,7 +446,7 @@ func hostedAgentQueueShow(cr hostedCreds, inv *Invocation) {
 		}
 		fmt.Println("your choices")
 		for _, c := range h.Choices {
-			for _, line := range choiceLines(c, verbFor(c.Decision, a.Name, sess)) {
+			for _, line := range actionFrom(c, verbFor(c.Decision, a.Name, sess)).lines() {
 				fmt.Println(line)
 			}
 		}
@@ -439,14 +490,18 @@ func aboutToDecideHold(h queueHold, decision string) string {
 		decision, blockedWord(h), h.BlockingTask, figure(h.BlockingState), figure(h.Consequence), h.Revision, h.SessionEpoch))
 }
 
-func heldCount(h queueHold) string {
-	switch len(h.HeldTasks) {
+func heldCount(h queueHold) string { return countWord(len(h.HeldTasks)) }
+
+// countWord says how much work a number of instructions is, including when
+// it is none. "nothing" is a real answer here and never an empty line.
+func countWord(n int) string {
+	switch n {
 	case 0:
 		return "nothing"
 	case 1:
 		return "1 instruction"
 	}
-	return fmt.Sprintf("%d instructions", len(h.HeldTasks))
+	return fmt.Sprintf("%d instructions", n)
 }
 
 // recoveryChangedSinceShown refuses a decision because the queue is no longer
@@ -610,13 +665,18 @@ func decisionReport(sess inventoryRow, agentName string, before, after queueHold
 			fmt.Printf("%s, and the decision to leave it held is recorded\n", sanitize(figure(after.Consequence)))
 			return
 		}
-		released := after.ReleasedTasks
-		if len(released) == 0 {
-			released = before.HeldTasks
-		}
-		fmt.Printf("resumed the queue of agent %s: %d instruction(s) may run again, in the order they were committed\n", agentName, len(released))
-		for _, id := range released {
-			fmt.Printf("  %s\n", id)
+		// what the service says it released, never what this client assumed
+		// it would. Work that was cancelled while the queue was held is not
+		// released by a decision to continue, and a client that counted the
+		// instructions it last saw held would report it as running again.
+		if len(after.ReleasedTasks) == 0 {
+			fmt.Printf("resumed the queue of agent %s: the service listed nothing that it released, so what is running again is not reported here rather than assumed\n", agentName)
+			fmt.Printf("  %s was held behind it when this decision was prepared\n", figure(heldCount(before)))
+		} else {
+			fmt.Printf("resumed the queue of agent %s: %d instruction(s) may run again, in the order they were committed\n", agentName, len(after.ReleasedTasks))
+			for _, id := range after.ReleasedTasks {
+				fmt.Printf("  %s\n", sanitize(id))
+			}
 		}
 		fmt.Printf("the %s %s still reads %s and was NOT run again\n",
 			blockedWord(after), after.BlockingTask, figure(after.BlockingState))
@@ -661,64 +721,316 @@ func hostedQueueDecision(decision string) func(hostedCreds, *Invocation) {
 }
 
 // ---------------------------------------------------------------------
+// the problem, as fields
+// ---------------------------------------------------------------------
+
+// blockedStatement is what is wrong, as FIELDS. Which instruction is
+// blocked, what it is known to have done, what nobody established, what is
+// waiting behind it, what a next step would need that does not exist, and
+// what may actually be done instead — each one readable on its own, in
+// --json as a document and for a reader as an aligned block.
+//
+// A refusal that hides those facts inside one sentence makes somebody parse
+// prose to find out what is stopping their work, and they will parse it
+// wrongly under pressure. So this is the shape of the answer, and the
+// message beside it is a summary of this rather than the only copy of it.
+//
+// Nothing in here is composed. Every value is a field the service recorded
+// or the plain absence of one, and an absence is printed as an absence
+// ("nothing was recorded") rather than filled in with something plausible.
+type blockedStatement struct {
+	Instruction  string `json:"instruction"`
+	KnownOutcome string `json:"known_outcome"`
+	// Reported is what the runner last said about the blocked instruction.
+	// It is present only when the hold is about THIS instruction: the
+	// service records a report against the instruction that stopped the
+	// queue, and claiming "nothing was recorded" about some other one would
+	// state an absence this client never looked for.
+	Reported    string `json:"it_reported,omitempty"`
+	Hold        string `json:"hold,omitempty"`
+	Blocking    string `json:"blocking_instruction,omitempty"`
+	HeldBecause string `json:"held_because,omitempty"`
+	Generation  int64  `json:"generation,omitempty"`
+	// NotEstablished is what nobody measured about the work that already ran.
+	// Missing is what a next step would need and this service does not keep.
+	// They are different kinds of fact and are never merged: the first is
+	// about the past, the second is about what the service can do at all.
+	NotEstablished []string `json:"not_established"`
+	Missing        []string `json:"what_is_missing"`
+	// attemptReason is the first entry of Missing WITHOUT its label, for the
+	// one-sentence summary beside the block. Unexported and unserialised: the
+	// document already carries the fact, labelled, in what_is_missing, and a
+	// second copy under a second name is a second thing to keep in step.
+	attemptReason  string       `json:"-"`
+	HeldSuccessors []string     `json:"held_successors"`
+	NextActions    []nextAction `json:"next_actions"`
+}
+
+// detailLines states the same facts to a person, in the field order a person
+// reads them in: which record, what it did, what waits, what is unknown,
+// what is missing, and only then what may be done.
+func (b blockedStatement) detailLines() []string {
+	field := func(label, value string) string { return sanitize(fmt.Sprintf("  %-16s %s", label, value)) }
+	out := []string{"what is blocked"}
+	out = append(out, field("instruction", b.Instruction))
+	out = append(out, field("known outcome", figure(b.KnownOutcome)))
+	if b.Blocking != "" && b.Blocking == b.Instruction {
+		if strings.TrimSpace(b.Reported) == "" {
+			out = append(out, field("it reported", "nothing was recorded"))
+		} else {
+			out = append(out, field("it reported", b.Reported))
+		}
+	}
+	if strings.TrimSpace(b.HeldBecause) != "" {
+		out = append(out, field("held because", b.HeldBecause))
+	}
+	if b.Blocking != "" && b.Blocking != b.Instruction {
+		out = append(out, field("queue held behind", b.Blocking))
+	}
+	switch {
+	case b.Hold == "":
+		out = append(out, field("held behind it", "nothing: this queue is not held"))
+	case len(b.HeldSuccessors) == 0:
+		out = append(out, field("held behind it", "nothing"))
+	default:
+		out = append(out, field("held behind it",
+			fmt.Sprintf("%s (%s)", countWord(len(b.HeldSuccessors)), strings.Join(b.HeldSuccessors, ", "))))
+	}
+	out = append(out, labelledList(field, "not established", b.NotEstablished)...)
+	out = append(out, labelledList(field, "what is missing", b.Missing)...)
+	if len(b.NextActions) > 0 {
+		out = append(out, "what you may do instead")
+		for _, a := range b.NextActions {
+			out = append(out, a.lines()...)
+		}
+	}
+	return out
+}
+
+// labelledList prints one label over several entries, and the label once: a
+// heading repeated down the left margin reads as several separate problems.
+func labelledList(field func(string, string) string, label string, values []string) []string {
+	out := make([]string, 0, len(values))
+	for i, v := range values {
+		if i > 0 {
+			label = ""
+		}
+		out = append(out, field(label, v))
+	}
+	return out
+}
+
+// retryChoice finds the option for running the blocked instruction again
+// among the ones the SERVICE states, or nil where it states none.
+func retryChoice(h *queueHold) *holdChoice {
+	if h == nil {
+		return nil
+	}
+	for i := range h.Choices {
+		if h.Choices[i].Decision == decisionRetry {
+			return &h.Choices[i]
+		}
+	}
+	return nil
+}
+
+// whyNoNewAttempt says why there will be no new attempt, and takes care to
+// say something TRUE in each of the three worlds it can be asked in.
+//
+// The service states a reason: that reason is what a person is shown, in the
+// service's words, so one boundary is described the same way wherever it is
+// met and this client paraphrases nobody.
+//
+// The service states nothing at all: this client says what it knows — there
+// is no attempt record under an instruction and no boundary for one to
+// resume from — and that is the situation today.
+//
+// The service OFFERS it: then the sentence above would be a lie, and the
+// honest answer is the narrower one. The verb still refuses, because this
+// client has no way to name a boundary or bind a request to one; what it must
+// not do is explain that refusal by asserting something about the service
+// that has stopped being true. A client that reported its own missing
+// half as the service's is how a stale surface outlives the thing it
+// described.
+func whyNoNewAttempt(h *queueHold) (reason string, offered bool) {
+	c := retryChoice(h)
+	switch {
+	case c == nil:
+		return retryMissingHere, false
+	case c.Available:
+		return retryOfferedNotHere, true
+	case strings.TrimSpace(c.Unavailable) != "":
+		return strings.TrimSpace(c.Unavailable), false
+	}
+	return retryMissingHere, false
+}
+
+// what a new attempt needs and this service does not keep. The first is
+// stated only where the service states nothing itself; the second while the
+// service offers no boundary at all, because it is the mistake a person is
+// most likely to make in that world.
+//
+// `ks checkpoint` saves a session, and the capability registry reports that
+// as available — so "a saved point exists" is an easy thing to believe. It
+// is a different object: a whole machine at a moment, naming no instruction
+// and marking no place in the queue. Resuming one would rewind work this
+// command never named, which is why it is not the boundary a retry needs and
+// why this client will not quietly treat it as one.
+const (
+	retryMissingHere = "this service records no attempt under an instruction, and no boundary for one to resume from, so a new attempt could neither be created nor say where it would start"
+	// and the other direction: a service that has since grown the records,
+	// read by a client that has not grown the command
+	retryOfferedNotHere = "this service now offers a new attempt from a recorded boundary and this version of the client cannot ask for one: it would have to name the boundary and bind the request to it, and it can do neither. Update the client, or continue the rest of the queue instead"
+	savedSessionNote    = "a boundary this instruction could resume from: saving a session stores the whole machine at that moment — it names no instruction and marks no place in the queue — so restoring one would rewind work nobody named, and it is not such a boundary"
+)
+
+// retryableState says whether there is anything to run again at all. A
+// finished instruction is refined by submitting a new one; a queued or held
+// one has not run yet; and a queue held behind somebody else's failure does
+// not make its own successors retryable.
+func retryableState(s string) bool {
+	switch s {
+	case "failed", "reconciliation_required", "unknown", "cancelled":
+		return true
+	}
+	return false
+}
+
+// statementFor reads the queue's trouble into fields. Everything comes from
+// the service's record: the state it reports, the words it wrote, the
+// options it states and its own reason for the one it does not offer.
+func statementFor(sess inventoryRow, agentName string, t taskRow, h *queueHold) blockedStatement {
+	b := blockedStatement{Instruction: t.ID, KnownOutcome: t.State,
+		NotEstablished: []string{}, Missing: []string{}, HeldSuccessors: []string{}, NextActions: []nextAction{}}
+	if h != nil {
+		b.Hold, b.Blocking, b.HeldBecause, b.Generation = h.ID, h.BlockingTask, h.Reason, h.SessionEpoch
+		b.HeldSuccessors = append(b.HeldSuccessors, h.HeldTasks...)
+		if h.BlockingTask == t.ID {
+			// the hold carries the blocked instruction's state and last
+			// report; where it does, it is the fresher of the two reads
+			if h.BlockingState != "" {
+				b.KnownOutcome = h.BlockingState
+			}
+			b.Reported = h.BlockingSummary
+			if strings.TrimSpace(h.BlockingSummary) == "" {
+				b.NotEstablished = append(b.NotEstablished, "what this instruction did: nothing was recorded")
+			}
+			if h.Cause != causeFailed {
+				// C05's ambiguity contract: an unknown is not a failure, and
+				// the difference decides what may safely be done next
+				b.NotEstablished = append(b.NotEstablished,
+					"its outcome: the queue stopped on a result nobody could establish, not on a measured failure")
+			}
+		}
+		for _, c := range h.Choices {
+			b.NextActions = append(b.NextActions, actionFrom(c, verbFor(c.Decision, agentName, sess)))
+		}
+	}
+	reason, offered := whyNoNewAttempt(h)
+	b.attemptReason = reason
+	b.Missing = append(b.Missing, "a new attempt under this instruction: "+reason)
+	if !offered {
+		// the likely misunderstanding, stated only while it IS one: where the
+		// service does record a boundary, saying that none exists would be
+		// the client inventing an absence
+		b.Missing = append(b.Missing, savedSessionNote)
+	}
+	return b
+}
+
+// ---------------------------------------------------------------------
 // ks task resume
 // ---------------------------------------------------------------------
 
-// hostedTaskResume continues the instructions held behind ONE named
-// instruction. It is the same recorded decision as ks agent queue resume,
-// reached from the other end: you name the instruction you were looking at
-// rather than the agent whose queue stopped.
+// A RETRY AND A RELEASE ARE DIFFERENT DECISIONS, and this client keeps them
+// apart by name.
 //
-// It does NOT restart the instruction you name, and it cannot come to do so
-// by accident: this client sends a release, a release leaves that record
-// exactly as it stands, and the service offers no decision on this route that
-// would restart it. Where a person means "run that again", the recovery view
-// says in the service's own words that it is not offered, and why.
+// `ks agent queue resume` permits the work waiting BEHIND a failed or
+// unresolved instruction. `ks task resume` is the other one: it runs THAT
+// INSTRUCTION AGAIN as a new attempt under it, from a recorded boundary.
+// One continues the rest of the queue and leaves the blocked instruction
+// exactly as it stands; the other leaves the queue exactly as it stands and
+// produces a new attempt. Neither does the other's job.
+//
+// This verb used to be the release named from the other end. That is the
+// defect corrected here: somebody who typed "resume this task" meaning "run
+// it again" had their queue released over an outcome they had not
+// established, and were told it had succeeded. An unsupported operation that
+// quietly performs a DIFFERENT one is worse than one that refuses, because
+// the person walks away believing they got what they asked for.
+//
+// SO THIS VERB REFUSES, AND RELEASES NOTHING. A new attempt is a new record
+// under the instruction, started from a recorded boundary, and this service
+// keeps neither — so there is no branch here that sends a decision, no
+// fallback that continues the queue instead, and no boundary chosen on a
+// reader's behalf. The refusal states the problem as fields, names exactly
+// what is missing, and points at the decisions that do exist without taking
+// any of them.
 func hostedTaskResume(cr hostedCreds, inv *Invocation) {
 	sess := agentSession(cr, inv)
 	id := strings.TrimSpace(inv.Arg(0))
 	if id == "" {
 		fail(&cliError{Code: exitUsage, Kind: "usage",
-			Message:    "the id of the blocked instruction is required; nothing is resumed by position",
+			Message:    "the id of the instruction to run again is required; nothing is retried by position",
 			NextAction: fmt.Sprintf("ks agent queue show <name> --session %s", sess.ShortID)})
 	}
-	finding := findingOf(inv, fmt.Sprintf("ks task resume %s --session %s --finding \"what you established\"", id, sess.ShortID))
 	t, err := fetchTask(cr, id)
 	if err != nil {
 		die(err)
 	}
-	// whose queue this is, resolved inside the session that was named. An
-	// instruction belonging to an agent of some OTHER session is refused here,
-	// before any hold is read: naming one session and deciding another's queue
-	// is never what somebody meant.
+	// whose instruction this is, resolved inside the session that was named.
+	// An instruction belonging to an agent of some OTHER session is refused
+	// here, because naming one session and acting on another's work is never
+	// what somebody meant.
 	a, err := resolveAgent(cr, sess, t.AgentID)
 	if err != nil {
 		die(err)
 	}
-	name := a.Name
-	holds, err := fetchQueueHolds(cr, t.AgentID)
-	if err != nil {
-		die(err)
+	// the hold is READ so the refusal can state the problem and quote the
+	// service's own reason. It is never decided: there is no call below this
+	// line, and a hold that cannot be read costs the statement some fields
+	// rather than turning this into a success.
+	var h *queueHold
+	if holds, herr := fetchQueueHolds(cr, t.AgentID); herr != nil {
+		progress("the hold on this queue could not be read, so what waits behind this instruction is not stated below: %s", sanitize(herr.Error()))
+	} else if found, aerr := activeHold(holds); aerr != nil {
+		progress("%s", sanitize(aerr.Error()))
+	} else {
+		h = found
 	}
-	h, err := activeHold(holds)
-	if err != nil {
-		die(err)
+	// what was put on the screen here is a display of the hold like any
+	// other, so a release decided next in this terminal is compared against
+	// the queue this reader actually saw
+	if h != nil {
+		recordShownRecovery(shownRecoveryFrom(cr, *h))
 	}
-	switch {
-	case h == nil:
-		fail(&cliError{Code: exitConflict, Kind: "not_held",
-			Message: fmt.Sprintf("nothing is held behind instruction %s: its queue is not held, and this changed nothing (it reads %s)",
-				t.ID, figure(t.State)),
-			NextAction: fmt.Sprintf("ks agent queue show %s --session %s", name, sess.ShortID)})
-	case h.BlockingTask != t.ID:
-		fail(&cliError{Code: exitConflict, Kind: "not_the_blocking_instruction",
-			Message: fmt.Sprintf("instruction %s is not what holds this queue: the queue is held behind %s (%s), and nothing was resumed. Resuming names the instruction the queue is waiting on.",
-				t.ID, h.BlockingTask, figure(h.BlockingState)),
-			NextAction: fmt.Sprintf("ks task resume %s --session %s --finding \"what you established\"", h.BlockingTask, sess.ShortID)})
+	fail(taskRetryRefusal(sess, a.Name, t, h))
+}
+
+// taskRetryRefusal is the answer this verb gives, with the facts attached.
+//
+// Two different refusals, because they are two different facts. An
+// instruction that did not fail has nothing to run again — a state conflict,
+// and the first thing its reader needs to know. An instruction that did fail
+// cannot be run again HERE, because the records a new attempt is made of do
+// not exist: a known operation failure by C03's table, and not an integrity
+// rejection, a syntax mistake or something a permission would unlock.
+//
+// Both say, in the same words every time, that nothing was released. That
+// sentence is the whole point of this verb's existence in this form.
+func taskRetryRefusal(sess inventoryRow, agentName string, t taskRow, h *queueHold) error {
+	b := statementFor(sess, agentName, t, h)
+	reread := fmt.Sprintf("ks agent queue show %s --session %s", agentName, sess.ShortID)
+	if !retryableState(t.State) {
+		return &cliError{Code: exitConflict, Kind: "not_retryable", Detail: b, NextAction: reread,
+			Message: fmt.Sprintf("instruction %s reads %s: there is no failed or unresolved attempt under it to run again, so nothing was retried and nothing was released. A finished instruction is refined by submitting a new one.",
+				t.ID, figure(t.State))}
 	}
-	after, err := decideQueueHold(cr, sess, name, *h, decisionResume, finding)
-	if err != nil {
-		die(err)
-	}
-	decisionReport(sess, name, *h, after, decisionResume)
+	// the message carries the one reason a new attempt cannot be made; the
+	// block above it carries every missing thing as its own field. A message
+	// that recited the whole list would be read by nobody, and the list is
+	// not the summary's job.
+	return &cliError{Code: exitFailed, Kind: "retry_unavailable", Detail: b, NextAction: reread,
+		Message: sanitize(fmt.Sprintf("instruction %s was NOT run again, nothing was released and no decision was sent. Running it again means a NEW attempt under it, started from a recorded boundary, and this service records neither — so there is nothing here to authorize, and no permission would change the answer. What is missing: %s",
+			t.ID, b.attemptReason))}
 }
