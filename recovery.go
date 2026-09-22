@@ -939,73 +939,8 @@ func statementFor(sess inventoryRow, agentName string, t taskRow, h *queueHold) 
 }
 
 // ---------------------------------------------------------------------
-// ks task resume
+// the retry refusal, kept for the cases that still have no boundary
 // ---------------------------------------------------------------------
-
-// A RETRY AND A RELEASE ARE DIFFERENT DECISIONS, and this client keeps them
-// apart by name.
-//
-// `ks agent queue resume` permits the work waiting BEHIND a failed or
-// unresolved instruction. `ks task resume` is the other one: it runs THAT
-// INSTRUCTION AGAIN as a new attempt under it, from a recorded boundary.
-// One continues the rest of the queue and leaves the blocked instruction
-// exactly as it stands; the other leaves the queue exactly as it stands and
-// produces a new attempt. Neither does the other's job.
-//
-// This verb used to be the release named from the other end. That is the
-// defect corrected here: somebody who typed "resume this task" meaning "run
-// it again" had their queue released over an outcome they had not
-// established, and were told it had succeeded. An unsupported operation that
-// quietly performs a DIFFERENT one is worse than one that refuses, because
-// the person walks away believing they got what they asked for.
-//
-// SO THIS VERB REFUSES, AND RELEASES NOTHING. A new attempt is a new record
-// under the instruction, started from a recorded boundary, and this service
-// keeps neither — so there is no branch here that sends a decision, no
-// fallback that continues the queue instead, and no boundary chosen on a
-// reader's behalf. The refusal states the problem as fields, names exactly
-// what is missing, and points at the decisions that do exist without taking
-// any of them.
-func hostedTaskResume(cr hostedCreds, inv *Invocation) {
-	sess := agentSession(cr, inv)
-	id := strings.TrimSpace(inv.Arg(0))
-	if id == "" {
-		fail(&cliError{Code: exitUsage, Kind: "usage",
-			Message:    "the id of the instruction to run again is required; nothing is retried by position",
-			NextAction: fmt.Sprintf("ks agent queue show <name> --session %s", sess.ShortID)})
-	}
-	t, err := fetchTask(cr, id)
-	if err != nil {
-		die(err)
-	}
-	// whose instruction this is, resolved inside the session that was named.
-	// An instruction belonging to an agent of some OTHER session is refused
-	// here, because naming one session and acting on another's work is never
-	// what somebody meant.
-	a, err := resolveAgent(cr, sess, t.AgentID)
-	if err != nil {
-		die(err)
-	}
-	// the hold is READ so the refusal can state the problem and quote the
-	// service's own reason. It is never decided: there is no call below this
-	// line, and a hold that cannot be read costs the statement some fields
-	// rather than turning this into a success.
-	var h *queueHold
-	if holds, herr := fetchQueueHolds(cr, t.AgentID); herr != nil {
-		progress("the hold on this queue could not be read, so what waits behind this instruction is not stated below: %s", sanitize(herr.Error()))
-	} else if found, aerr := activeHold(holds); aerr != nil {
-		progress("%s", sanitize(aerr.Error()))
-	} else {
-		h = found
-	}
-	// what was put on the screen here is a display of the hold like any
-	// other, so a release decided next in this terminal is compared against
-	// the queue this reader actually saw
-	if h != nil {
-		recordShownRecovery(shownRecoveryFrom(cr, *h))
-	}
-	fail(taskRetryRefusal(sess, a.Name, t, h))
-}
 
 // taskRetryRefusal is the answer this verb gives, with the facts attached.
 //

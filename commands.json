@@ -577,15 +577,27 @@
   {
    "verb": "task resume",
    "aliases": [],
-   "usage": "ks task resume <instruction> [--session ID]",
-   "summary": "run one blocked instruction again as a new attempt; it never continues the rest of the queue instead",
+   "usage": "ks task resume <instruction> [--session ID] [--checkpoint ID] [--finding TEXT] [--accept-affected DIGEST]",
+   "summary": "run one blocked instruction again as a new attempt from a saved point you name; it never continues the rest of the queue instead",
    "status": "planned",
    "surface": "hosted",
-   "note": "the binary dispatches this verb and it refuses: running an instruction again is a new attempt under it, started from a recorded boundary, and the service records neither, so the verb states which instruction is blocked, what it reported, what nobody established, what waits behind it and exactly what is missing, then stops. Measured: it sends no decision on any path and releases nothing, and continuing the instructions held behind it stays a separate command (ks agent queue resume)",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available. Measured: with no --checkpoint it lists the session's restorable saved points and refuses, sending nothing; with one it restores from THAT saved point only, never substituting another, and it releases no held instruction on any path",
    "flags": [
     {
      "flag": "--session ID",
      "summary": "the session the instruction belongs to; a short id is accepted when it is unique among yours"
+    },
+    {
+     "flag": "--checkpoint ID",
+     "summary": "the saved point to start the new attempt from; required, and never chosen for you"
+    },
+    {
+     "flag": "--finding TEXT",
+     "summary": "why you are running it again; required, and recorded with the restore"
+    },
+    {
+     "flag": "--accept-affected DIGEST",
+     "summary": "the digest the service printed with the exact list of other work a restore would return to that moment; consent is bound to that list and never to the word yes"
     }
    ]
   },
@@ -682,6 +694,34 @@
     {
      "flag": "--session ID",
      "summary": "refuse unless the instruction belongs to this session; optional, and only ever a guard"
+    }
+   ]
+  },
+  {
+   "verb": "session checkpoints",
+   "aliases": [],
+   "usage": "ks session checkpoints <session>",
+   "summary": "the saved points a restore may be named against: boundary, state, scope and manifest identity",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not"
+  },
+  {
+   "verb": "task reconcile",
+   "aliases": [],
+   "usage": "ks task reconcile <instruction> [--session ID] [--finding TEXT]",
+   "summary": "record that a running attempt's outcome could NOT be established, after the service refused its close",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the instruction belongs to; a short id is accepted when it is unique among yours"
+    },
+    {
+     "flag": "--finding TEXT",
+     "summary": "what you established about the attempt; required, and recorded with the decision"
     }
    ]
   }

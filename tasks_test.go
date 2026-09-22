@@ -248,3 +248,137 @@ func TestTaskReadVerbsRespectTheCapabilityRegistry(t *testing.T) {
 		}
 	}
 }
+
+// A refused close is a condition an authorized person can END. It records
+// that the outcome could NOT be established, and it can record nothing else:
+// a person writing a verdict they did not measure is exactly what the
+// service's refusal existed to prevent.
+func TestTaskReconcileRecordsAnUnknownAndNeverAVerdict(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg),
+		"task", "reconcile", recoveryBlocking, "--session", agentSessionShort,
+		"--finding", "checked the registry by hand: nothing was published")
+	if code != 0 {
+		t.Fatalf("task reconcile: exit %d\n%s%s", code, out, errs)
+	}
+	sent := c.sentReconciles()
+	if len(sent) != 1 {
+		t.Fatalf("reconciles sent: %v", sent)
+	}
+	for _, want := range []string{`"expected_revision"`, `"epoch"`, `"finding"`} {
+		if !strings.Contains(sent[0], want) {
+			t.Errorf("the reconciliation was not bound by %s: %s", want, sent[0])
+		}
+	}
+	for _, want := range []string{"reconciliation_required", "could NOT be established",
+		"not a success and not a", "held behind it 2"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the answer lacks %q:\n%s", want, out)
+		}
+	}
+	// the STATE it reports is never a verdict. The prose may name both words
+	// while saying it is neither; what must never happen is the recorded
+	// state being one of them.
+	if strings.Contains(out, "now reads succeeded") || strings.Contains(out, "now reads failed") {
+		t.Errorf("a reconciliation reported a verdict:\n%s", out)
+	}
+	jout, _, jcode := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg),
+		"task", "reconcile", recoveryBlocking, "--session", agentSessionShort,
+		"--finding", "checked by hand", "--json")
+	if jcode != 0 {
+		t.Fatalf("--json: exit %d\n%s", jcode, jout)
+	}
+	d := parseEnvelope(t, jout)["data"].(map[string]any)
+	task := d["task"].(map[string]any)
+	if task["state"] != "reconciliation_required" {
+		t.Errorf("the recorded state is %v, not reconciliation_required", task["state"])
+	}
+	assertOnlyPublishedRoutes(t, c.seen())
+}
+
+// The record is worth nothing without what was established beside it, so the
+// finding is required and nothing is sent without one.
+func TestTaskReconcileRequiresAFindingAndSendsNothingWithoutOne(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg),
+		"task", "reconcile", recoveryBlocking, "--session", agentSessionShort)
+	if code == 0 {
+		t.Fatalf("a reconciliation with no finding succeeded:\n%s%s", out, errs)
+	}
+	if !strings.Contains(out+errs, "--finding is required") {
+		t.Errorf("the refusal does not say what is missing:\n%s%s", out, errs)
+	}
+	if r := c.sentReconciles(); len(r) != 0 {
+		t.Errorf("a reconciliation was sent with no finding: %v", r)
+	}
+}
+
+// A close the service REFUSED records nothing against the instruction, and
+// until a second refusal raises a hold it appears on no recovery surface at
+// all. Somebody who cannot see it cannot act on it, so `ks task show` reads
+// the journal the service already publishes and names the recovery action.
+func TestTaskShowMakesARefusedCloseVisibleAndNamesTheRecoveryAction(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	c.set(func(c *recoveryCtl) { c.refusedCloses = 1 })
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg),
+		"task", "show", recoveryBlocking, "--session", agentSessionShort)
+	if code != 0 {
+		t.Fatalf("task show: exit %d\n%s%s", code, out, errs)
+	}
+	for _, want := range []string{"refused closes 1", "still running and nothing was recorded",
+		"not downgraded", "ks task reconcile " + recoveryBlocking} {
+		if !strings.Contains(out, want) {
+			t.Errorf("a refused close was not made visible (%q):\n%s", want, out)
+		}
+	}
+}
+
+// The attempt history is READ, not derived, and a retry is additive: the
+// earlier attempt keeps its identity, its worker and its outcome.
+func TestTaskShowReadsTheAttemptHistoryBack(t *testing.T) {
+	_, bin, cfg := recoveryFixture(t)
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg),
+		"task", "show", recoveryBlocking, "--session", agentSessionShort)
+	if code != 0 {
+		t.Fatalf("task show: exit %d\n%s%s", code, out, errs)
+	}
+	for _, want := range []string{"attempts       1", "att_2", "index 1", "closed failed", "worker runner-1"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the attempt history lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+// A journal that could not be READ is not a journal with no refusals in it.
+func TestTaskShowNeverReadsAFailedJournalAsNoRefusals(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	c.set(func(c *recoveryCtl) { c.eventsFault = "ks_internal" })
+	out, _, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg),
+		"task", "show", recoveryBlocking, "--session", agentSessionShort)
+	if code != 0 {
+		t.Fatalf("task show: exit %d\n%s", code, out)
+	}
+	if !strings.Contains(out, "journal could not be READ") || !strings.Contains(out, "not the same as none") {
+		t.Errorf("an unreadable journal was not stated as unreadable:\n%s", out)
+	}
+	if strings.Contains(out, "refused closes none") {
+		t.Errorf("an unreadable journal was reported as no refusals:\n%s", out)
+	}
+}
+
+// A saved point is listed with what it actually covers. A reader must not be
+// able to come away thinking one instruction is being rolled back.
+func TestSessionCheckpointsSaysWhatARestoreActuallyCovers(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "session", "checkpoints", agentSessionShort)
+	if code != 0 {
+		t.Fatalf("session checkpoints: exit %d\n%s%s", code, out, errs)
+	}
+	for _, want := range []string{"SAVED POINT", "ckpt_newest", "valid", "ckpt_older", "superseded",
+		"WHOLE-SESSION", "EVERY agent"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the saved-point listing lacks %q:\n%s", want, out)
+		}
+	}
+	assertOnlyPublishedRoutes(t, c.seen())
+}

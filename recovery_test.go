@@ -55,13 +55,39 @@ type recoveryCtl struct {
 	noCost        bool   // the service states no cost for continuing
 	contentGone   bool   // the content store cannot answer for the instructions
 	tasksFault    string // the typed refusal the task list route answers with
+	checkpoints   []map[string]any
+	ckFault       string   // the typed refusal the saved-point route answers with
+	restores      []string // the restore bodies this control plane received
+	restoreScope  []string // work a restore would affect; non-empty refuses without consent
+	reconciles    []string // the reconcile bodies this control plane received
+	attempts      []map[string]any
+	refusedCloses int    // task.finish_refused events the journal carries
+	eventsFault   string // the typed refusal the journal route answers with
 	cancelled     bool   // one instruction was cancelled while the queue was held
 	retryOffered  bool   // a later service that DOES offer a new attempt
 }
 
 func newRecoveryCtl() *recoveryCtl {
 	return &recoveryCtl{capability: "available", state: "active", cause: "task_failed", revision: 3, sessionEpoch: 1,
-		sessionID:     agentSessionRecord,
+		sessionID: agentSessionRecord,
+		checkpoints: []map[string]any{
+			{"id": "ckpt_older", "session_id": agentSessionRecord, "fleet_checkpoint_id": "fc_1",
+				"content_manifest_hash": "sha256:aa", "manifest_version": 1, "state": "superseded",
+				"boundary": "attempt_closed", "attempt_id": "att_1", "task_id": "tsk_1",
+				"source_epoch": 1, "task_watermark": 2, "event_watermark": 7,
+				"pending_effect_receipts": []string{}, "scope": "the WHOLE session", "created_at": "2026-09-22T11:40:00Z"},
+			{"id": "ckpt_newest", "session_id": agentSessionRecord, "fleet_checkpoint_id": "fc_2",
+				"content_manifest_hash": "sha256:bb", "manifest_version": 2, "state": "valid",
+				"boundary": "attempt_closed", "attempt_id": "att_2", "task_id": recoveryBlocking,
+				"source_epoch": 1, "task_watermark": 4, "event_watermark": 11,
+				"pending_effect_receipts": []string{}, "scope": "the WHOLE session", "created_at": "2026-09-22T11:54:00Z"},
+		},
+		attempts: []map[string]any{
+			{"id": "att_2", "task_id": recoveryBlocking, "attempt_index": 1, "execution_epoch": 1,
+				"dispatch_id": "dsp_1", "worker_id": "runner-1", "state": "closed", "closed_state": "failed",
+				"evidence_required": true, "receipt_ids": []string{}, "started_at": "2026-09-22T11:50:00Z",
+				"ended_at": "2026-09-22T11:55:00Z"},
+		},
 		blockingState: "failed", summary: "the test command exited 1 after writing three files; the work did not finish",
 		held: []string{"tsk_3", "tsk_4"}}
 }
@@ -70,6 +96,18 @@ func (c *recoveryCtl) seen() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return append([]string(nil), c.requests...)
+}
+
+func (c *recoveryCtl) sentRestores() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.restores...)
+}
+
+func (c *recoveryCtl) sentReconciles() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.reconciles...)
 }
 
 func (c *recoveryCtl) sentDecisions() []string {
@@ -251,6 +289,20 @@ func (c *recoveryCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			items = []map[string]any{}
 		}
 		env(200, map[string]any{"items": items, "observed_at": "x"})
+	case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/attempts") && strings.HasPrefix(r.URL.Path, "/api/v2/tasks/"):
+		id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/v2/tasks/"), "/attempts")
+		c.mu.Lock()
+		var items []map[string]any
+		for _, a := range c.attempts {
+			if a["task_id"] == id {
+				items = append(items, a)
+			}
+		}
+		c.mu.Unlock()
+		if items == nil {
+			items = []map[string]any{}
+		}
+		env(200, map[string]any{"items": items, "observed_at": "x"})
 	case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/content") && strings.HasPrefix(r.URL.Path, "/api/v2/tasks/"):
 		id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/v2/tasks/"), "/content")
 		c.mu.Lock()
@@ -276,6 +328,97 @@ func (c *recoveryCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		fault(404, "ks_not_found", "no such task")
+	case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/events") && strings.HasPrefix(r.URL.Path, "/api/v2/sessions/"):
+		c.mu.Lock()
+		n, ef := c.refusedCloses, c.eventsFault
+		c.mu.Unlock()
+		if ef != "" {
+			fault(503, ef, "the journal could not be read")
+			return
+		}
+		items := []map[string]any{}
+		for i := 0; i < n; i++ {
+			items = append(items, map[string]any{
+				"event_id": fmt.Sprintf("ev_%d", i), "stream_seq": i + 1,
+				"subject_type": "task", "subject_id": recoveryBlocking,
+				"task_id": recoveryBlocking, "attempt_id": "att_2", "epoch": 1,
+				"source": "control-plane", "recorded_at": "2026-09-22T11:56:00Z",
+				"payload": map[string]any{"type": "task.finish_refused",
+					"attempt_id": "att_2", "contradiction_digest": "sha256:cd",
+					"contradictions": []string{"this service's own record shows permission apr_1 claimed for this task and never resolved"}}})
+		}
+		env(200, map[string]any{"items": items, "next_cursor": "", "observed_at": "x"})
+	case r.Method == "GET" && r.URL.Path == "/api/v2/sessions/"+agentSessionRecord:
+		c.mu.Lock()
+		rev, epoch := c.revision, c.sessionEpoch
+		c.mu.Unlock()
+		env(200, map[string]any{"id": agentSessionRecord, "short_id": agentSessionShort,
+			"name": "checkout", "runtime_state": "running", "revision": rev,
+			"execution_epoch": epoch, "primary_agent_id": recoveryAgent,
+			"record_id": agentSessionRecord, "created_at": "x", "observed_at": "x"})
+	case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/checkpoints") && strings.HasPrefix(r.URL.Path, "/api/v2/sessions/"):
+		c.mu.Lock()
+		fault2, rows := c.ckFault, append([]map[string]any(nil), c.checkpoints...)
+		c.mu.Unlock()
+		if fault2 != "" {
+			fault(503, fault2, "the saved points could not be read")
+			return
+		}
+		env(200, map[string]any{"items": rows, "observed_at": "x"})
+	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/restore") && strings.HasPrefix(r.URL.Path, "/api/v2/sessions/"):
+		raw, _ := readAllBody(r)
+		var body map[string]any
+		_ = json.Unmarshal(raw, &body)
+		c.mu.Lock()
+		c.restores = append(c.restores, string(raw))
+		scope := append([]string(nil), c.restoreScope...)
+		c.mu.Unlock()
+		if len(scope) > 0 && body["accept_affected_digest"] != "sha256:scope" {
+			ids, _ := json.Marshal(scope)
+			fault(409, "ks_restore_scope", fmt.Sprintf("this restore would return %d other instruction(s) to that moment: %s. If that is what you mean, send accept_affected_digest=%q",
+				len(scope), string(ids), "sha256:scope"))
+			return
+		}
+		c.mu.Lock()
+		c.sessionEpoch++
+		newEpoch := c.sessionEpoch
+		c.attempts = append(c.attempts, map[string]any{
+			"id": "att_3", "task_id": recoveryBlocking, "attempt_index": 2, "execution_epoch": newEpoch,
+			"dispatch_id": "dsp_2", "state": "created", "evidence_required": true,
+			"receipt_ids": []string{}, "checkpoint_id": body["checkpoint_id"],
+			"retry_of": "att_2", "authorized_by": "hold_1"})
+		c.mu.Unlock()
+		env(200, map[string]any{"session_id": agentSessionRecord, "checkpoint_id": body["checkpoint_id"],
+			"phases": []map[string]any{
+				{"phase": "validate", "done": true, "detail": "the named saved point is valid"},
+				{"phase": "hold", "done": true}, {"phase": "effects", "done": true},
+				{"phase": "restore", "done": true}, {"phase": "authority", "done": true},
+				{"phase": "link", "done": true, "detail": "att_3"}, {"phase": "release", "done": true}},
+			"new_epoch": newEpoch, "superseded_attempts": []string{"att_2"}, "hold_id": "hold_1",
+			"scope": "the WHOLE session returns to that moment",
+			"note":  "dispatch is held; nothing was started"})
+	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/reconcile") && strings.HasPrefix(r.URL.Path, "/api/v2/tasks/"):
+		raw, _ := readAllBody(r)
+		c.mu.Lock()
+		c.reconciles = append(c.reconciles, string(raw))
+		c.mu.Unlock()
+		var body map[string]any
+		_ = json.Unmarshal(raw, &body)
+		if strings.TrimSpace(fmt.Sprint(body["finding"])) == "" {
+			fault(422, "ks_finding_required", "a finding is required")
+			return
+		}
+		row := map[string]any{}
+		for _, t := range recoveryTaskRows {
+			if t["id"] == strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/v2/tasks/"), "/reconcile") {
+				for k, v := range t {
+					row[k] = v
+				}
+			}
+		}
+		row["state"] = "reconciliation_required"
+		env(200, map[string]any{"task": row, "held_tasks": []string{"tsk_3", "tsk_4"},
+			"recorded_by": "acct_1", "note": "the outcome was not established; nothing claims it succeeded or failed"})
 	case r.Method == "GET" && r.URL.Path == "/api/v2/queue-holds":
 		c.mu.Lock()
 		if c.noHold {
@@ -713,26 +856,22 @@ func TestTheRecoveryVerbsRefuseWhileTheCapabilityIsUnavailable(t *testing.T) {
 // ---------------------------------------------------------------------
 
 // The whole point of this verb in this form. Somebody asks to run ONE
-// instruction again; the service cannot create the new attempt that would
-// be; so the command refuses by that exact reason and RELEASES NOTHING. An
-// earlier version continued the queue instead and reported success, which is
-// how a person ends up believing the failed instruction ran when the work
-// committed after it ran over it.
+// instruction again; a new attempt starts from a saved point and a saved
+// point is never chosen for them; so the command refuses by that exact
+// reason and RELEASES NOTHING. An earlier version continued the queue
+// instead and reported success, which is how a person ends up believing the
+// failed instruction ran when the work committed after it ran over it.
 func TestTaskResumeRefusesWithItsReasonAndReleasesNothing(t *testing.T) {
 	c, bin, cfg := recoveryFixture(t)
 	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "task", "resume", recoveryBlocking, "--session", agentSessionShort)
-	if code != exitFailed {
-		t.Fatalf("task resume: exit %d (want %d)\n%s%s", code, exitFailed, out, errs)
+	if code == 0 {
+		t.Fatalf("task resume with no named boundary succeeded\n%s%s", out, errs)
 	}
 	for _, want := range []string{
 		"was NOT run again",
 		"nothing was released",
-		"no decision was sent",
-		"a NEW attempt under it, started from a recorded boundary",
-		"this service records neither",
-		"nothing here to authorize",
-		// the service's OWN reason, quoted rather than paraphrased
-		"no save point is recorded for this task",
+		"a NEW attempt started from a saved point",
+		"NEVER chosen for you",
 	} {
 		if !strings.Contains(errs, want) {
 			t.Errorf("the refusal lacks %q:\n%s", want, errs)
@@ -742,6 +881,9 @@ func TestTaskResumeRefusesWithItsReasonAndReleasesNothing(t *testing.T) {
 	// held work is still held on the control plane
 	if d := c.sentDecisions(); len(d) != 0 {
 		t.Fatalf("the verb that cannot retry decided something instead: %v", d)
+	}
+	if r := c.sentRestores(); len(r) != 0 {
+		t.Fatalf("a restore was sent without a named boundary: %v", r)
 	}
 	for _, req := range c.seen() {
 		if strings.HasPrefix(req, "POST ") {
@@ -762,103 +904,45 @@ func TestTaskResumeRefusesWithItsReasonAndReleasesNothing(t *testing.T) {
 	}
 }
 
-// The problem is stated as FIELDS, not as prose to be parsed: which
-// instruction, what it is known to have done, what it reported, what waits
-// behind it, what nobody established, what is missing, and what may actually
-// be done instead — each with its own name, in --json as a document.
+// The refusal states the problem as FIELDS, not as prose to be parsed:
+// which instruction, which agent, and exactly which saved points exist to
+// name — each with its own name, in --json as a document.
 func TestTaskResumeStatesTheProblemAsFields(t *testing.T) {
-	c, bin, cfg := recoveryFixture(t)
+	_, bin, cfg := recoveryFixture(t)
 	dir := t.TempDir()
 	_, errs, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "task", "resume", recoveryBlocking, "--session", agentSessionShort)
-	if code != exitFailed {
-		t.Fatalf("exit %d (want %d)\n%s", code, exitFailed, errs)
+	if code == 0 {
+		t.Fatalf("exit 0\n%s", errs)
 	}
 	for _, want := range []string{
-		"what is blocked",
-		"instruction      " + recoveryBlocking,
-		"known outcome    failed",
-		"it reported      the test command exited 1 after writing three files",
-		"held behind it   2 instructions (tsk_3, tsk_4)",
-		"what is missing",
-		// the trap: a session save point is published as available and is NOT
-		// a boundary an instruction can resume from
-		"saving a session stores the whole machine at that moment",
-		"what you may do instead",
-		"release_successors",
-		"ks agent queue resume main --session " + agentSessionShort,
-		"keep_held",
-		"ks agent queue hold main --session " + agentSessionShort,
-		"retry_from_safe_point",
-		"NOT OFFERED",
+		"instruction        " + recoveryBlocking,
+		"agent              main",
+		"saved points       1 restorable",
+		"WHOLE-SESSION",
+		"ckpt_newest",
 	} {
 		if !strings.Contains(errs, want) {
-			t.Errorf("the refusal lacks the field %q:\n%s", want, errs)
+			t.Errorf("the refusal lacks %q:\n%s", want, errs)
 		}
 	}
-
-	// the same refusal as one document: fields, with values, not a sentence
-	out, _, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "task", "resume", recoveryBlocking, "--session", agentSessionShort, "--json")
-	if code != exitFailed {
-		t.Fatalf("--json: exit %d (want %d)\n%s", code, exitFailed, out)
+	out, _, _ := auditExec(t, bin, cfg, dir, fastEnv(cfg), "task", "resume", recoveryBlocking, "--session", agentSessionShort, "--json")
+	d := parseEnvelope(t, out)["error"].(map[string]any)["detail"].(map[string]any)
+	if d["task"] != recoveryBlocking {
+		t.Errorf("task: %v", d["task"])
 	}
-	e, ok := parseEnvelope(t, out)["error"].(map[string]any)
-	if !ok {
-		t.Fatalf("no error object: %s", out)
+	cks, _ := d["checkpoints"].([]any)
+	if len(cks) != 1 {
+		t.Fatalf("checkpoints: %v", d["checkpoints"])
 	}
-	if e["code"] != "retry_unavailable" {
-		t.Errorf("code: %v", e["code"])
-	}
-	if e["work_started"] != "no" {
-		t.Errorf("a refusal that started nothing does not say so: %v", e["work_started"])
-	}
-	d, ok := e["detail"].(map[string]any)
-	if !ok {
-		t.Fatalf("the refusal carries no structured detail: %v", e)
-	}
-	if d["instruction"] != recoveryBlocking || d["known_outcome"] != "failed" {
-		t.Errorf("detail: %v", d)
-	}
-	if s, _ := d["it_reported"].(string); !strings.Contains(s, "exited 1 after writing three files") {
-		t.Errorf("it_reported: %v", d["it_reported"])
-	}
-	if h := d["held_successors"].([]any); len(h) != 2 || h[0] != "tsk_3" || h[1] != "tsk_4" {
-		t.Errorf("held_successors: %v", h)
-	}
-	if m := d["what_is_missing"].([]any); len(m) != 2 {
-		t.Errorf("what_is_missing: %v", m)
-	}
-	acts := d["next_actions"].([]any)
-	if len(acts) != 3 {
-		t.Fatalf("next_actions: %v", acts)
-	}
-	for _, a := range acts {
-		m := a.(map[string]any)
-		switch m["decision"] {
-		case "release_successors", "keep_held":
-			if m["available"] != true || m["command"] == "" {
-				t.Errorf("an offered action carries no command: %v", m)
-			}
-		case "retry_from_safe_point":
-			if m["available"] != false {
-				t.Errorf("an unavailable action reads available: %v", m)
-			}
-			if _, has := m["command"]; has {
-				t.Errorf("an action that cannot be taken carries a command: %v", m)
-			}
-			if s, _ := m["not_offered_because"].(string); s == "" {
-				t.Errorf("an unavailable action carries no reason: %v", m)
-			}
-		}
-	}
-	if d := c.sentDecisions(); len(d) != 0 {
-		t.Errorf("stating the problem decided something: %v", d)
+	if first, _ := cks[0].(map[string]any); first["id"] != "ckpt_newest" {
+		t.Errorf("the restorable saved point was not the one listed: %v", cks[0])
 	}
 }
 
-// A boundary is never chosen for a reader. The proof is that the client asks
-// for no saved point at all — it touches only routes the control plane
-// publishes, and none of them is a boundary — opens no selector, and reads
-// nothing from the terminal, with and without --no-input.
+// A boundary is never chosen for a reader. The control plane offers two
+// saved points, one of them restorable; the proof that this client picks
+// neither is that without --checkpoint it LISTS them and stops, sends no
+// restore, and answers identically with and without --no-input.
 func TestTaskResumeChoosesNoBoundaryAndOpensNoSelector(t *testing.T) {
 	c, bin, cfg := recoveryFixture(t)
 	dir := t.TempDir()
@@ -867,14 +951,155 @@ func TestTaskResumeChoosesNoBoundaryAndOpensNoSelector(t *testing.T) {
 	if plainCode != quietCode || plainErr != quietErr || plain != quiet {
 		t.Errorf("--no-input changes the answer, so something was being decided interactively\nwith:\n%s%s\nwithout:\n%s%s", quiet, quietErr, plain, plainErr)
 	}
-	for _, req := range c.seen() {
-		if strings.Contains(req, "checkpoint") || strings.Contains(req, "boundary") || strings.Contains(req, "save-point") {
-			t.Errorf("a boundary was looked up so that one could be chosen: %q", req)
+	if plainCode == 0 {
+		t.Fatalf("a retry with no named boundary succeeded:\n%s%s", plain, plainErr)
+	}
+	if r := c.sentRestores(); len(r) != 0 {
+		t.Errorf("a restore was sent without a named boundary: %v", r)
+	}
+	if d := c.sentDecisions(); len(d) != 0 {
+		t.Errorf("a refused retry decided something: %v", d)
+	}
+	joined := plain + plainErr
+	for _, want := range []string{"NEVER chosen for you", "--checkpoint", "nothing was released", "ckpt_newest"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the refusal lacks %q:\n%s", want, joined)
 		}
 	}
+	// the one that cannot be restored is not offered as though it could be
+	if strings.Contains(joined, "ckpt_older") && !strings.Contains(joined, "superseded") {
+		t.Errorf("a superseded saved point was listed without saying so:\n%s", joined)
+	}
 	assertOnlyPublishedRoutes(t, c.seen())
-	if strings.Contains(plain+plainErr, "ckpt_") {
-		t.Errorf("a saved point was named on the reader's behalf:\n%s%s", plain, plainErr)
+}
+
+// Named, it restores from THAT saved point, reports the phases the service
+// reported, reads the new attempt back from the record, and says plainly
+// that the queue is still held. It never releases anything.
+func TestTaskResumeRestoresFromTheNamedBoundaryAndReleasesNothing(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg),
+		"task", "resume", recoveryBlocking, "--session", agentSessionShort,
+		"--checkpoint", "ckpt_newest", "--finding", "checked by hand: the publish never happened")
+	if code != 0 {
+		t.Fatalf("task resume: exit %d\n%s%s", code, out, errs)
+	}
+	sent := c.sentRestores()
+	if len(sent) != 1 {
+		t.Fatalf("restores sent: %v", sent)
+	}
+	if !strings.Contains(sent[0], `"checkpoint_id":"ckpt_newest"`) {
+		t.Errorf("the restore did not name the saved point the reader named: %s", sent[0])
+	}
+	for _, want := range []string{`"expected_revision"`, `"epoch"`, `"reason"`} {
+		if !strings.Contains(sent[0], want) {
+			t.Errorf("the restore was not bound by %s: %s", want, sent[0])
+		}
+	}
+	for _, want := range []string{"WHOLE session", "att_3", "follows att_2", "from saved point ckpt_newest",
+		"authorized by hold_1", "HELD", "Nothing was released"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the answer lacks %q:\n%s", want, out)
+		}
+	}
+	if d := c.sentDecisions(); len(d) != 0 {
+		t.Errorf("a retry released the queue: %v", d)
+	}
+	assertOnlyPublishedRoutes(t, c.seen())
+}
+
+// A repeated recovery request creates no second attempt: the service answers
+// and the client reports what the record says, rather than assuming a second
+// send made a second thing.
+func TestTaskResumeRepeatedAfterALostResponseCreatesNoSecondAttempt(t *testing.T) {
+	_, bin, cfg := recoveryFixture(t)
+	args := []string{"task", "resume", recoveryBlocking, "--session", agentSessionShort,
+		"--checkpoint", "ckpt_newest", "--finding", "the publish never happened", "--json"}
+	first, _, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), args...)
+	if code != 0 {
+		t.Fatalf("first: %d\n%s", code, first)
+	}
+	idOf := func(raw string) string {
+		d := parseEnvelope(t, raw)["data"].(map[string]any)
+		at, _ := d["attempt"].(map[string]any)
+		if at == nil {
+			return ""
+		}
+		return fmt.Sprint(at["id"])
+	}
+	one := idOf(first)
+	second, _, code2 := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), args...)
+	if code2 != 0 {
+		t.Fatalf("second: %d\n%s", code2, second)
+	}
+	if two := idOf(second); two != one {
+		t.Errorf("a repeated recovery request reported a different attempt: %q then %q", one, two)
+	}
+}
+
+// A restore is a WHOLE-SESSION restore. When other work would be returned to
+// that moment the service refuses with the exact list and a digest of it,
+// and this client prints the service's own words and composes no list of its
+// own. Consent is bound to that digest, never to the word yes.
+func TestTaskResumeShowsTheRestoreScopeAndBindsConsentToIt(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	c.set(func(c *recoveryCtl) { c.restoreScope = []string{"tsk_3", "tsk_4"} })
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg),
+		"task", "resume", recoveryBlocking, "--session", agentSessionShort,
+		"--checkpoint", "ckpt_newest", "--finding", "the publish never happened")
+	if code == 0 {
+		t.Fatalf("a restore with unconsented scope succeeded:\n%s%s", out, errs)
+	}
+	joined := out + errs
+	for _, want := range []string{"tsk_3", "tsk_4", "accept_affected_digest", "--accept-affected"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the scope refusal lacks %q:\n%s", want, joined)
+		}
+	}
+	// with the digest the service named, it proceeds
+	out2, errs2, code2 := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg),
+		"task", "resume", recoveryBlocking, "--session", agentSessionShort,
+		"--checkpoint", "ckpt_newest", "--finding", "the publish never happened",
+		"--accept-affected", "sha256:scope")
+	if code2 != 0 {
+		t.Fatalf("consented restore: exit %d\n%s%s", code2, out2, errs2)
+	}
+}
+
+// A saved point the service records as not restorable is refused by name,
+// and no other one is quietly used in its place.
+func TestTaskResumeRefusesASupersededBoundaryRatherThanSubstituting(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg),
+		"task", "resume", recoveryBlocking, "--session", agentSessionShort,
+		"--checkpoint", "ckpt_older", "--finding", "try the older one")
+	if code == 0 {
+		t.Fatalf("a superseded saved point was restored:\n%s%s", out, errs)
+	}
+	if !strings.Contains(out+errs, "superseded") {
+		t.Errorf("the refusal did not name the state:\n%s%s", out, errs)
+	}
+	if r := c.sentRestores(); len(r) != 0 {
+		t.Errorf("a restore was sent for a saved point that is not restorable: %v", r)
+	}
+}
+
+// A saved-point list that could not be READ is not an empty list, and a
+// client must not conclude from a failed read that no boundary exists.
+func TestTaskResumeNeverReadsAFailedCheckpointListAsNone(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	c.set(func(c *recoveryCtl) { c.ckFault = "ks_checkpoints_unreadable" })
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg),
+		"task", "resume", recoveryBlocking, "--session", agentSessionShort)
+	if code == 0 {
+		t.Fatalf("exit 0 with an unreadable saved-point list:\n%s%s", out, errs)
+	}
+	joined := out + errs
+	if !strings.Contains(joined, "could not be READ") || !strings.Contains(joined, "not the same as") {
+		t.Errorf("an unreadable list was not stated as unreadable:\n%s", joined)
+	}
+	if r := c.sentRestores(); len(r) != 0 {
+		t.Errorf("a restore was attempted over an unreadable list: %v", r)
 	}
 }
 
@@ -1049,97 +1274,23 @@ func TestTheRecoverySurfacesStateNoCostTheServiceDidNotState(t *testing.T) {
 		t.Fatalf("queue show: exit %d\n%s%s", code, view, viewErr)
 	}
 	refusal, refusalErr, _ := auditExec(t, bin, cfg, dir, fastEnv(cfg), "task", "resume", recoveryBlocking, "--session", agentSessionShort)
+	// no surface invents a figure the service withheld
 	for _, text := range []string{view + viewErr, refusal + refusalErr} {
 		if strings.Contains(text, "$") {
 			t.Errorf("a money figure appears where the service stated none:\n%s", text)
-		}
-		// the option is still listed; only its unstated cost is absent
-		if !strings.Contains(text, "release_successors") {
-			t.Errorf("the option vanished with its cost:\n%s", text)
 		}
 		if strings.Contains(text, "costs     the released instructions run") {
 			t.Errorf("a cost the service withheld was printed anyway:\n%s", text)
 		}
 	}
+	// and the recovery VIEW still lists the option; only its unstated cost
+	// is absent. The retry verb no longer restates the hold's choices — the
+	// view is where they are read — so it is not asked to.
+	if !strings.Contains(view+viewErr, "release_successors") {
+		t.Errorf("the option vanished with its cost:\n%s%s", view, viewErr)
+	}
 	// the option the service DOES cost still shows that cost
 	if !strings.Contains(view, "nothing runs, so nothing is metered") {
 		t.Errorf("a stated cost was dropped:\n%s", view)
-	}
-}
-
-// An unknown is not a failure and a missing report is not an empty one. Where
-// nobody established what the instruction did, the refusal says so as a field
-// and does not round the gap to a verdict in either direction.
-func TestTaskResumeNamesWhatNobodyEstablishedRatherThanInventingIt(t *testing.T) {
-	c, bin, cfg := recoveryFixture(t)
-	c.set(func(c *recoveryCtl) {
-		c.cause = "task_acceptance_unknown"
-		c.blockingState = "reconciliation_required"
-		c.summary = ""
-	})
-	dir := t.TempDir()
-	_, errs, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "task", "resume", recoveryBlocking, "--session", agentSessionShort)
-	if code != exitFailed {
-		t.Fatalf("exit %d (want %d)\n%s", code, exitFailed, errs)
-	}
-	for _, want := range []string{
-		"it reported      nothing was recorded",
-		"not established  what this instruction did: nothing was recorded",
-		"a result nobody could establish, not on a measured failure",
-	} {
-		if !strings.Contains(errs, want) {
-			t.Errorf("the refusal lacks %q:\n%s", want, errs)
-		}
-	}
-	// and it is never dressed up as a known failure
-	if strings.Contains(errs, "known outcome    failed") {
-		t.Errorf("an unresolved outcome is reported as a failure:\n%s", errs)
-	}
-
-	// the same facts as fields under --json
-	out, _, _ := auditExec(t, bin, cfg, dir, fastEnv(cfg), "task", "resume", recoveryBlocking, "--session", agentSessionShort, "--json")
-	d := parseEnvelope(t, out)["error"].(map[string]any)["detail"].(map[string]any)
-	if _, has := d["it_reported"]; has {
-		t.Errorf("a report nobody made is present as a value: %v", d["it_reported"])
-	}
-	if n := d["not_established"].([]any); len(n) != 2 {
-		t.Errorf("not_established: %v", n)
-	}
-	if d["known_outcome"] != "reconciliation_required" {
-		t.Errorf("known_outcome: %v", d["known_outcome"])
-	}
-}
-
-// The other direction of the same honesty. A later service that DOES record
-// boundaries and attempts is read by this client, which still cannot ask for
-// one: it refuses, and it explains the refusal by its OWN missing half
-// rather than by asserting something about the service that has stopped
-// being true. It still releases nothing.
-func TestTaskResumeDoesNotClaimTheServiceLacksWhatTheServiceOffers(t *testing.T) {
-	c, bin, cfg := recoveryFixture(t)
-	c.set(func(c *recoveryCtl) { c.retryOffered = true })
-	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "task", "resume", recoveryBlocking, "--session", agentSessionShort)
-	if code != exitFailed {
-		t.Fatalf("exit %d (want %d)\n%s%s", code, exitFailed, out, errs)
-	}
-	for _, want := range []string{"this version of the client cannot ask for one", "nothing was released"} {
-		if !strings.Contains(errs, want) {
-			t.Errorf("the refusal lacks %q:\n%s", want, errs)
-		}
-	}
-	for _, stale := range []string{
-		"this service records no attempt under an instruction",
-		"saving a session stores the whole machine",
-	} {
-		if strings.Contains(errs, stale) {
-			t.Errorf("the client asserts a service absence that is no longer true (%q):\n%s", stale, errs)
-		}
-	}
-	// and the option is shown as the service states it: offered
-	if strings.Contains(errs, "retry_from_safe_point  —  NOT OFFERED") {
-		t.Errorf("an option the service offers is reported as not offered:\n%s", errs)
-	}
-	if d := c.sentDecisions(); len(d) != 0 {
-		t.Fatalf("a refused retry decided something: %v", d)
 	}
 }

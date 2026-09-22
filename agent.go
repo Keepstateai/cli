@@ -136,13 +136,30 @@ type approvalRow struct {
 }
 
 // journalEvent is one row of the session's journal, as the stream serves it.
+// The correlation fields are read rather than re-derived: which instruction,
+// which attempt and which execution generation an event belongs to are facts
+// the service records, and a client that inferred them from ordering would
+// be guessing at exactly the joins this journal exists to make possible.
 type journalEvent struct {
 	EventID     string          `json:"event_id"`
 	StreamSeq   int64           `json:"stream_seq"`
 	SubjectType string          `json:"subject_type"`
 	SubjectID   string          `json:"subject_id"`
+	TaskID      string          `json:"task_id"`
+	AttemptID   string          `json:"attempt_id"`
+	Epoch       int64           `json:"epoch"`
+	Source      string          `json:"source"`
 	ObservedAt  string          `json:"observed_at"`
+	RecordedAt  string          `json:"recorded_at"`
 	Payload     json.RawMessage `json:"payload"`
+}
+
+func (e journalEvent) kind() string {
+	var p struct {
+		Type string `json:"type"`
+	}
+	_ = json.Unmarshal(e.Payload, &p)
+	return p.Type
 }
 
 // ---------------------------------------------------------------------

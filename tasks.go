@@ -37,6 +37,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -269,10 +270,11 @@ func hostedTaskShow(cr hostedCreds, inv *Invocation) {
 	if err != nil {
 		die(err)
 	}
-	agentName, sessionShort := "", ""
+	agentName, sessionShort, sessionForEvents := "", "", ""
 	if inv.Str("session") != "" {
 		sess := agentSession(cr, inv)
 		sessionShort = sess.ShortID
+		sessionForEvents = agentSessionID(sess)
 		a, aerr := resolveAgent(cr, sess, t.AgentID)
 		if aerr != nil {
 			die(aerr)
@@ -308,9 +310,28 @@ func hostedTaskShow(cr hostedCreds, inv *Invocation) {
 		holdState = fmt.Sprintf("the queue is held by a different instruction (%s, hold %s)", h.BlockingTask, h.ID)
 	}
 
+	// the attempt history, read back rather than derived. A retry is a new
+	// attempt and never a rewritten old one, so this is additive.
+	atts, attErr := fetchAttempts(cr, t.ID)
+	// and the one fact no other surface carries: whether a close of this
+	// instruction was REFUSED. A refused close records nothing against the
+	// instruction and, until a second refusal raises a hold, appears on no
+	// recovery surface — the instruction just reads running. Somebody who
+	// cannot see that cannot act on it.
+	var refusals []refusedClose
+	refusalProblem := ""
+	if sessionForEvents != "" {
+		var rerr error
+		refusals, rerr = fetchTaskRefusals(cr, sessionForEvents, t.ID)
+		if rerr != nil {
+			refusalProblem = sanitize(rerr.Error())
+		}
+	}
 	emit(map[string]any{"task": t, "agent": t.AgentID, "agent_name": agentName,
 		"content": content, "content_unreadable": contentProblem,
-		"hold": holdState, "hold_unreadable": holdProblem}, func() {
+		"hold": holdState, "hold_unreadable": holdProblem,
+		"attempts": atts, "attempts_unreadable": errText(attErr),
+		"refused_closes": refusals, "refusals_unreadable": refusalProblem}, func() {
 		fmt.Printf("instruction %s\n", t.ID)
 		if agentName != "" {
 			fmt.Printf("  agent          %s (%s) in session %s\n", agentName, t.AgentID, sessionShort)
@@ -328,6 +349,46 @@ func hostedTaskShow(cr hostedCreds, inv *Invocation) {
 		fmt.Printf("  held because   %s\n", notRecorded(t.HeldReason))
 		fmt.Printf("  verification   %s\n", verificationLine(t))
 		fmt.Printf("  attempt        %s\n", attemptLine(t))
+		if attErr != nil {
+			fmt.Printf("  attempts       the history could not be READ and is not shown; it is not known to be empty: %s\n", sanitize(attErr.Error()))
+		} else if len(atts) == 0 {
+			fmt.Printf("  attempts       none recorded\n")
+		} else {
+			fmt.Printf("  attempts       %d, oldest first:\n", len(atts))
+			for _, at := range atts {
+				closed := at.ClosedState
+				if closed == "" {
+					closed = "-"
+				}
+				fmt.Printf("    %-26s index %-3d generation %-3d %-11s closed %-24s worker %s\n",
+					at.ID, at.AttemptIndex, at.ExecutionEpoch, figure(at.State), closed, notRecorded(at.WorkerID))
+				if at.RetryOf != "" || at.CheckpointID != "" || at.AuthorizedBy != "" {
+					fmt.Printf("      follows %s, from saved point %s, authorized by %s\n",
+						notRecorded(at.RetryOf), notRecorded(at.CheckpointID), notRecorded(at.AuthorizedBy))
+				}
+			}
+		}
+		switch {
+		case sessionForEvents == "":
+			fmt.Printf("  refused closes not read: name --session to read this instruction's journal\n")
+		case refusalProblem != "":
+			fmt.Printf("  refused closes the journal could not be READ, so they are not shown; that is not the same as none: %s\n", refusalProblem)
+		case len(refusals) == 0:
+			fmt.Printf("  refused closes none\n")
+		default:
+			fmt.Printf("  refused closes %d. The service REFUSED to record a close of this instruction. The attempt is\n", len(refusals))
+			fmt.Printf("                 still running and nothing was recorded against it; it was not downgraded.\n")
+			for _, rc := range refusals {
+				fmt.Printf("    %s attempt %s\n", figure(rc.At), notRecorded(rc.AttemptID))
+				for _, why := range rc.Contradictions {
+					fmt.Printf("      %s\n", why)
+				}
+			}
+			fmt.Printf("                 If nobody closes it honestly, an authorized person may record that the\n")
+			fmt.Printf("                 outcome could NOT be established — never that it succeeded or failed:\n")
+			fmt.Printf("                 ks task reconcile %s --session %s --finding \"what you checked\"\n",
+				t.ID, sessionShort)
+		}
 		if holdProblem != "" {
 			fmt.Printf("  queue hold     could not be read, so whether this instruction holds the queue is NOT stated: %s\n", holdProblem)
 		} else {
@@ -345,4 +406,516 @@ func hostedTaskShow(cr hostedCreds, inv *Invocation) {
 			fmt.Printf("    (%d bytes, %s)\n", content.Bytes, notRecorded(content.Digest))
 		}
 	})
+}
+
+// ---------------------------------------------------------------------
+// ks task reconcile
+// ---------------------------------------------------------------------
+
+// A REFUSED CLOSE IS A CONDITION A PERSON CAN END, and this is the verb that
+// ends it.
+//
+// When the service refuses a runner's success — because the runner's own
+// report contradicts it, or because this service's records show a permission
+// still open — the attempt stays running and nothing is recorded. That is the
+// safe state: a refusal is never a downgrade, and an attempt that is still
+// running is an attempt whose successor cannot start. But safe is not the
+// same as finished. If the runner never closes it honestly, the instruction
+// and everything committed behind it wait for ever.
+//
+// So an authorized person may record what nobody could establish. It records
+// `reconciliation_required` and it CANNOT record succeeded or failed: nobody
+// measured those, and a person writing a verdict they did not measure is the
+// thing the refusal existed to prevent. It holds the dependent queue in the
+// same commit, exactly as a runner-reported unknown does.
+//
+// It is bound to the revision that was read and to the execution generation
+// it was prepared under, so a decision prepared before a restore cannot land
+// after one. The finding is required: a record about an outcome nobody
+// measured is worth nothing without the evidence beside it.
+func hostedTaskReconcile(cr hostedCreds, inv *Invocation) {
+	sess := agentSession(cr, inv)
+	id := strings.TrimSpace(inv.Arg(0))
+	if id == "" {
+		fail(&cliError{Code: exitUsage, Kind: "usage",
+			Message:    "the id of the instruction to reconcile is required",
+			NextAction: "ks task list --session " + sess.ShortID})
+	}
+	finding := strings.TrimSpace(inv.Str("finding"))
+	if finding == "" {
+		fail(&cliError{Code: exitUsage, Kind: "usage",
+			Message:    "--finding is required: this records that an outcome could NOT be established, and that record is worth nothing without what you established beside it",
+			NextAction: fmt.Sprintf("ks task reconcile %s --session %s --finding \"what you checked\"", id, sess.ShortID)})
+	}
+	t, err := fetchTask(cr, id)
+	if err != nil {
+		die(err)
+	}
+	// the instruction must belong to the session that was named: acting on
+	// another session's work after naming this one is never what anybody
+	// meant
+	a, err := resolveAgent(cr, sess, t.AgentID)
+	if err != nil {
+		die(err)
+	}
+	rec, err := fetchSessionRecord(cr, agentSessionID(sess))
+	if err != nil {
+		die(err)
+	}
+	var env struct {
+		Data struct {
+			Task       *taskRow `json:"task"`
+			HeldTasks  []string `json:"held_tasks"`
+			RecordedBy string   `json:"recorded_by"`
+			Note       string   `json:"note"`
+		} `json:"data"`
+	}
+	body := map[string]any{"expected_revision": t.Revision, "epoch": rec.ExecutionEpoch, "finding": finding}
+	if err := hostedMutate(cr, "POST", "/api/v2/tasks/"+url.PathEscape(t.ID)+"/reconcile", body, &env); err != nil {
+		die(err)
+	}
+	got := env.Data.Task
+	emit(map[string]any{"task": got, "held_tasks": env.Data.HeldTasks,
+		"recorded_by": env.Data.RecordedBy, "note": env.Data.Note,
+		"agent": a.Name, "session": sess.ID}, func() {
+		state := "reconciliation_required"
+		if got != nil && got.State != "" {
+			state = got.State
+		}
+		fmt.Printf("instruction %s now reads %s\n", t.ID, figure(state))
+		fmt.Printf("  this records that the outcome could NOT be established. It is not a success and not a\n")
+		fmt.Printf("  failure: nobody measured either, and nothing here claims one.\n")
+		fmt.Printf("  finding        %s\n", finding)
+		if env.Data.RecordedBy != "" {
+			fmt.Printf("  recorded by    %s\n", env.Data.RecordedBy)
+		}
+		if n := len(env.Data.HeldTasks); n > 0 {
+			fmt.Printf("  held behind it %d instruction(s): %s\n", n, strings.Join(env.Data.HeldTasks, ", "))
+			fmt.Printf("  continuing them is a separate decision: ks agent queue resume %s --session %s --finding \"...\"\n",
+				a.Name, sess.ShortID)
+		} else {
+			fmt.Printf("  held behind it nothing\n")
+		}
+		if env.Data.Note != "" {
+			fmt.Printf("  note           %s\n", env.Data.Note)
+		}
+	})
+}
+
+// ---------------------------------------------------------------------
+// attempts and saved points: read, never composed
+// ---------------------------------------------------------------------
+
+// attemptRowClient is one execution of one instruction, as the service
+// records it. A retry is a NEW attempt and never a rewritten old one, so the
+// history is additive and this client never collapses it.
+type attemptRowClient struct {
+	ID               string   `json:"id"`
+	TaskID           string   `json:"task_id"`
+	AttemptIndex     int64    `json:"attempt_index"`
+	ExecutionEpoch   int64    `json:"execution_epoch"`
+	WorkerID         string   `json:"worker_id"`
+	State            string   `json:"state"`
+	ClosedState      string   `json:"closed_state"`
+	EvidenceRequired bool     `json:"evidence_required"`
+	ReceiptIDs       []string `json:"receipt_ids"`
+	InputDigest      string   `json:"input_digest"`
+	CheckpointID     string   `json:"checkpoint_id"`
+	RetryOf          string   `json:"retry_of"`
+	AuthorizedBy     string   `json:"authorized_by"`
+	StartedAt        string   `json:"started_at"`
+	EndedAt          string   `json:"ended_at"`
+	ErrorCode        string   `json:"error_code"`
+}
+
+func fetchAttempts(cr hostedCreds, taskID string) ([]attemptRowClient, error) {
+	var env struct {
+		Data struct {
+			Items []attemptRowClient `json:"items"`
+		} `json:"data"`
+	}
+	if err := hostedCall(cr, "GET", "/api/v2/tasks/"+url.PathEscape(taskID)+"/attempts", nil, &env); err != nil {
+		return nil, err
+	}
+	return env.Data.Items, nil
+}
+
+// checkpointRowClient is one saved point. Its Scope is the sentence that
+// matters and is never abbreviated on a surface: restoring returns EVERY
+// agent and EVERY task in the session to that moment.
+type checkpointRowClient struct {
+	ID                string   `json:"id"`
+	SessionID         string   `json:"session_id"`
+	FleetCheckpointID string   `json:"fleet_checkpoint_id"`
+	ManifestHash      string   `json:"content_manifest_hash"`
+	ManifestVersion   int64    `json:"manifest_version"`
+	State             string   `json:"state"`
+	Boundary          string   `json:"boundary"`
+	AttemptID         string   `json:"attempt_id"`
+	TaskID            string   `json:"task_id"`
+	SourceEpoch       int64    `json:"source_epoch"`
+	TaskWatermark     int64    `json:"task_watermark"`
+	EventWatermark    int64    `json:"event_watermark"`
+	PendingReceipts   []string `json:"pending_effect_receipts"`
+	Scope             string   `json:"scope"`
+	Reason            string   `json:"reason"`
+	CreatedAt         string   `json:"created_at"`
+}
+
+func fetchCheckpoints(cr hostedCreds, sessionID string) ([]checkpointRowClient, error) {
+	var env struct {
+		Data struct {
+			Items []checkpointRowClient `json:"items"`
+		} `json:"data"`
+	}
+	if err := hostedCall(cr, "GET", "/api/v2/sessions/"+url.PathEscape(sessionID)+"/checkpoints", nil, &env); err != nil {
+		return nil, err
+	}
+	return env.Data.Items, nil
+}
+
+func checkpointLine(c checkpointRowClient) string {
+	task := c.TaskID
+	if task == "" {
+		task = "-"
+	}
+	return fmt.Sprintf("%-26s %-11s %-19s %-26s %s",
+		clip(c.ID, 26), clip(figure(c.State), 11), clip(figure(c.Boundary), 19),
+		clip(task, 26), figure(c.CreatedAt))
+}
+
+// ks session checkpoints — the saved points a restore may be NAMED against.
+// There is no "most recent" here and no default anywhere: a boundary is
+// chosen by a person, by id, or it is not chosen.
+func hostedSessionCheckpoints(cr hostedCreds, inv *Invocation) {
+	r, err := resolveSession(cr, inv.Arg(0))
+	if err != nil {
+		die(err)
+	}
+	rows, err := fetchCheckpoints(cr, agentSessionID(r))
+	if err != nil {
+		die(err)
+	}
+	emit(map[string]any{"session": r.ID, "checkpoints": rows, "count": len(rows)}, func() {
+		if len(rows) == 0 {
+			fmt.Printf("Session %s has no saved points recorded.\n", r.ShortID)
+			return
+		}
+		fmt.Printf("%-26s %-11s %-19s %-26s %s\n", "SAVED POINT", "STATE", "BOUNDARY", "ATTEMPT'S INSTRUCTION", "TAKEN")
+		for _, c := range rows {
+			fmt.Println(checkpointLine(c))
+		}
+		fmt.Printf("\nA saved point is a WHOLE-SESSION saved point. Restoring one returns EVERY agent and\n")
+		fmt.Printf("EVERY instruction in this session to that moment; it is not a file-level or a\n")
+		fmt.Printf("single-instruction rollback.\n")
+		fmt.Printf("%d saved point(s). Name one: ks task resume <instruction> --session %s --checkpoint <saved point>\n",
+			len(rows), r.ShortID)
+	})
+}
+
+// ---------------------------------------------------------------------
+// the journal, filtered to one instruction
+// ---------------------------------------------------------------------
+
+// refusedClose is what a task.finish_refused event says, as fields.
+type refusedClose struct {
+	At             string   `json:"at"`
+	AttemptID      string   `json:"attempt_id"`
+	Digest         string   `json:"contradiction_digest"`
+	Contradictions []string `json:"contradictions"`
+}
+
+// fetchTaskRefusals reads the session journal and answers the refused
+// closes of ONE instruction. A journal that cannot be read costs the
+// caller these facts and says so; it is never read as "none were refused".
+func fetchTaskRefusals(cr hostedCreds, sessionID, taskID string) ([]refusedClose, error) {
+	var env struct {
+		Data struct {
+			Items []journalEvent `json:"items"`
+		} `json:"data"`
+	}
+	q := url.Values{"limit": {"1000"}}
+	if err := hostedCall(cr, "GET", "/api/v2/sessions/"+url.PathEscape(sessionID)+"/events?"+q.Encode(), nil, &env); err != nil {
+		return nil, err
+	}
+	var out []refusedClose
+	for _, e := range env.Data.Items {
+		if e.kind() != "task.finish_refused" {
+			continue
+		}
+		if e.TaskID != taskID && e.SubjectID != taskID {
+			continue
+		}
+		var p struct {
+			AttemptID      string   `json:"attempt_id"`
+			Digest         string   `json:"contradiction_digest"`
+			Contradictions []string `json:"contradictions"`
+			Why            []string `json:"why"`
+		}
+		_ = json.Unmarshal(e.Payload, &p)
+		c := p.Contradictions
+		if len(c) == 0 {
+			c = p.Why
+		}
+		at := e.AttemptID
+		if at == "" {
+			at = p.AttemptID
+		}
+		out = append(out, refusedClose{At: e.RecordedAt, AttemptID: at,
+			Digest: p.Digest, Contradictions: c})
+	}
+	return out, nil
+}
+
+// ---------------------------------------------------------------------
+// ks task resume — a retry is a new attempt from a NAMED boundary
+// ---------------------------------------------------------------------
+
+// A RETRY AND A RELEASE ARE STILL DIFFERENT DECISIONS, and naming a
+// boundary does not merge them.
+//
+// `ks agent queue resume` permits the work waiting BEHIND a blocked
+// instruction and never restarts it. This verb is the other one: it runs
+// THAT instruction again as a new attempt, from a saved point a person
+// NAMED. It releases nothing; the restore path holds dispatch and leaves
+// starting the next instruction to the ordinary boundary, which is why a
+// retry here can never quietly become a release.
+//
+// Two things it will not do.
+//
+// It never chooses the boundary. Without --checkpoint it lists this
+// session's saved points and stops. There is no "most recent", because a
+// restore that landed somewhere nobody meant is indistinguishable, from
+// the outside, from one that worked.
+//
+// It never hides the scope. A KS saved point is a WHOLE-SESSION saved
+// point: restoring returns every agent and every instruction in the
+// session to that moment. Where work committed after the saved point would
+// be affected, the service refuses with the exact list and a digest of it,
+// and only a caller citing that digest may proceed — consent bound to what
+// was shown rather than to the word yes. This client passes the digest
+// through and composes none of its own.
+func hostedTaskResume(cr hostedCreds, inv *Invocation) {
+	sess := agentSession(cr, inv)
+	id := strings.TrimSpace(inv.Arg(0))
+	if id == "" {
+		fail(&cliError{Code: exitUsage, Kind: "usage",
+			Message:    "the id of the instruction to run again is required; nothing is retried by position",
+			NextAction: fmt.Sprintf("ks task list --session %s", sess.ShortID)})
+	}
+	t, err := fetchTask(cr, id)
+	if err != nil {
+		die(err)
+	}
+	a, err := resolveAgent(cr, sess, t.AgentID)
+	if err != nil {
+		die(err)
+	}
+	if !retryableState(t.State) {
+		// the hold is READ so the refusal can state what actually holds this
+		// queue rather than implying this instruction does. A hold that
+		// cannot be read costs the statement some fields and never turns
+		// this into a success.
+		var h *queueHold
+		if holds, herr := fetchQueueHolds(cr, t.AgentID); herr == nil {
+			if found, aerr := activeHold(holds); aerr == nil {
+				h = found
+			}
+		}
+		fail(&cliError{Code: exitConflict, Kind: "not_retryable",
+			Detail:     statementFor(sess, a.Name, t, h),
+			NextAction: fmt.Sprintf("ks agent queue show %s --session %s", a.Name, sess.ShortID),
+			Message: fmt.Sprintf("instruction %s reads %s: there is no failed or unresolved attempt under it to run again, so nothing was retried and nothing was released. A finished instruction is refined by submitting a new one.",
+				t.ID, figure(t.State))})
+	}
+	ckID := strings.TrimSpace(inv.Str("checkpoint"))
+	if ckID == "" {
+		refuseWithoutABoundary(cr, sess, a.Name, t)
+	}
+	finding := strings.TrimSpace(inv.Str("finding"))
+	if finding == "" {
+		fail(&cliError{Code: exitUsage, Kind: "usage",
+			Message: "--finding is required: a restore is recorded with the reason somebody asked for it",
+			NextAction: fmt.Sprintf("ks task resume %s --session %s --checkpoint %s --finding \"why\"",
+				t.ID, sess.ShortID, ckID)})
+	}
+	// the boundary is validated HERE against the service's own list, so a
+	// name that cannot be restored is refused before anything irreversible
+	// is asked for
+	cks, cerr := fetchCheckpoints(cr, agentSessionID(sess))
+	if cerr != nil {
+		die(cerr)
+	}
+	var chosen *checkpointRowClient
+	for i := range cks {
+		if cks[i].ID == ckID {
+			chosen = &cks[i]
+			break
+		}
+	}
+	if chosen == nil {
+		fail(&cliError{Code: exitUsage, Kind: "not_found",
+			Message:    fmt.Sprintf("session %s records no saved point %s", sess.ShortID, ckID),
+			NextAction: fmt.Sprintf("ks session checkpoints %s", sess.ShortID)})
+	}
+	if chosen.State != "valid" {
+		fail(&cliError{Code: exitConflict, Kind: "checkpoint_not_restorable",
+			Message: fmt.Sprintf("saved point %s reads %s, so it is not restorable. Nothing was restored, nothing was released and no other saved point was chosen for you.",
+				chosen.ID, figure(chosen.State)),
+			NextAction: fmt.Sprintf("ks session checkpoints %s", sess.ShortID)})
+	}
+	rec, err := fetchSessionRecord(cr, agentSessionID(sess))
+	if err != nil {
+		die(err)
+	}
+	body := map[string]any{"checkpoint_id": chosen.ID, "reason": finding,
+		"expected_revision": rec.Revision, "epoch": rec.ExecutionEpoch}
+	if d := strings.TrimSpace(inv.Str("accept-affected")); d != "" {
+		body["accept_affected_digest"] = d
+	}
+	var env struct {
+		Data restoreAnswer `json:"data"`
+	}
+	if err := hostedMutate(cr, "POST", "/api/v2/sessions/"+url.PathEscape(agentSessionID(sess))+"/restore", body, &env); err != nil {
+		var he *hostedErr
+		if errors.As(err, &he) && he.Type == "ks_restore_scope" {
+			// the service listed exactly what a restore would affect and
+			// minted the digest that binds consent to that list. This client
+			// prints its words and composes no list of its own.
+			fail(&cliError{Code: exitConflict, Kind: "restore_scope", Message: sanitize(he.Message),
+				NextAction: fmt.Sprintf("ks task resume %s --session %s --checkpoint %s --finding \"...\" --accept-affected <the digest above>",
+					t.ID, sess.ShortID, chosen.ID)})
+		}
+		die(err)
+	}
+	res := env.Data
+	// the new attempt is READ BACK from the attempt history, so what is
+	// reported is the record rather than this client's expectation of it
+	atts, aerr := fetchAttempts(cr, t.ID)
+	var newest *attemptRowClient
+	if aerr == nil {
+		for i := range atts {
+			if atts[i].CheckpointID == chosen.ID {
+				newest = &atts[i]
+			}
+		}
+	}
+	emit(map[string]any{"session": sess.ID, "task": t.ID, "checkpoint": chosen,
+		"restore": res, "attempt": newest, "attempts": atts,
+		"attempts_unreadable": errText(aerr)}, func() {
+		fmt.Printf("restored session %s from saved point %s\n", sess.ShortID, chosen.ID)
+		fmt.Printf("  scope          %s\n", figure(res.Scope))
+		for _, p := range res.Phases {
+			mark := "done"
+			if !p.Done {
+				mark = "STOPPED"
+			}
+			fmt.Printf("  %-14s %s %s\n", p.Phase, mark, p.Detail)
+		}
+		if res.StoppedAt != "" {
+			fmt.Printf("  the restore STOPPED at %s; the guest may or may not have been replaced — the phases above say which\n", res.StoppedAt)
+		}
+		if res.NewEpoch != 0 {
+			fmt.Printf("  generation     %d (every earlier worker is now refused)\n", res.NewEpoch)
+		}
+		if n := len(res.SupersededAtts); n > 0 {
+			fmt.Printf("  superseded     %d attempt(s): %s\n", n, strings.Join(res.SupersededAtts, ", "))
+		}
+		if aerr != nil {
+			fmt.Printf("  new attempt    the attempt history could not be READ, so it is not shown; it is not known to be absent: %s\n", sanitize(aerr.Error()))
+		} else if newest == nil {
+			fmt.Printf("  new attempt    the service linked none to this saved point, and this client invents none\n")
+		} else {
+			fmt.Printf("  new attempt    %s (index %d, generation %d)\n", newest.ID, newest.AttemptIndex, newest.ExecutionEpoch)
+			fmt.Printf("                 follows %s, from saved point %s, authorized by %s\n",
+				notRecorded(newest.RetryOf), notRecorded(newest.CheckpointID), notRecorded(newest.AuthorizedBy))
+		}
+		if res.HoldID != "" {
+			fmt.Printf("  queue          HELD (%s). Nothing was released and nothing was started: continuing the\n", res.HoldID)
+			fmt.Printf("                 queue is a separate decision — ks agent queue resume %s --session %s --finding \"...\"\n",
+				a.Name, sess.ShortID)
+		}
+		if res.Note != "" {
+			fmt.Printf("  note           %s\n", res.Note)
+		}
+	})
+}
+
+// restoreAnswer is what the restore route reports: the phases it completed,
+// where it stopped if it did, and what it changed.
+type restoreAnswer struct {
+	SessionID    string `json:"session_id"`
+	CheckpointID string `json:"checkpoint_id"`
+	Phases       []struct {
+		Phase  string `json:"phase"`
+		Done   bool   `json:"done"`
+		Detail string `json:"detail"`
+	} `json:"phases"`
+	StoppedAt      string   `json:"stopped_at"`
+	NewEpoch       int64    `json:"new_epoch"`
+	SupersededAtts []string `json:"superseded_attempts"`
+	HoldID         string   `json:"hold_id"`
+	Scope          string   `json:"scope"`
+	Note           string   `json:"note"`
+}
+
+func errText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return sanitize(err.Error())
+}
+
+// refuseWithoutABoundary is the answer when nobody named a saved point. It
+// lists what exists and stops. Choosing the newest here would be the exact
+// defect this verb was rewritten to remove.
+func refuseWithoutABoundary(cr hostedCreds, sess inventoryRow, agentName string, t taskRow) {
+	cks, cerr := fetchCheckpoints(cr, agentSessionID(sess))
+	var valid []checkpointRowClient
+	for _, c := range cks {
+		if c.State == "valid" {
+			valid = append(valid, c)
+		}
+	}
+	msg := fmt.Sprintf("instruction %s was NOT run again, and nothing was released. Running it again is a NEW attempt started from a saved point, and a saved point is NEVER chosen for you: name one with --checkpoint.",
+		t.ID)
+	if cerr != nil {
+		msg += " This session's saved points could not be READ, so none are listed below; that is not the same as there being none."
+	} else if len(valid) == 0 {
+		msg += fmt.Sprintf(" This session records no restorable saved point, so there is no boundary a new attempt could start from. Nothing here is unavailable because of a permission, and no other boundary exists to offer.")
+	}
+	det := boundaryChoices{Task: t.ID, Agent: agentName, Session: sess.ShortID,
+		Checkpoints: valid, Unreadable: errText(cerr)}
+	fail(&cliError{Code: exitUsage, Kind: "boundary_required", Detail: det, Message: msg,
+		NextAction: fmt.Sprintf("ks session checkpoints %s", sess.ShortID)})
+}
+
+// boundaryChoices is the refusal's facts as FIELDS: which instruction, and
+// exactly which saved points exist to name.
+type boundaryChoices struct {
+	Task        string                `json:"task"`
+	Agent       string                `json:"agent"`
+	Session     string                `json:"session"`
+	Checkpoints []checkpointRowClient `json:"checkpoints"`
+	Unreadable  string                `json:"unreadable,omitempty"`
+}
+
+func (b boundaryChoices) detailLines() []string {
+	lines := []string{
+		fmt.Sprintf("instruction        %s", b.Task),
+		fmt.Sprintf("agent              %s (session %s)", b.Agent, b.Session),
+	}
+	if b.Unreadable != "" {
+		lines = append(lines, "saved points       could not be READ, so none are listed; that is not the same as none existing: "+b.Unreadable)
+		return lines
+	}
+	if len(b.Checkpoints) == 0 {
+		lines = append(lines, "saved points       none restorable")
+		return lines
+	}
+	lines = append(lines, fmt.Sprintf("saved points       %d restorable; a restore is WHOLE-SESSION and returns every agent and every instruction in this session to that moment", len(b.Checkpoints)))
+	for _, c := range b.Checkpoints {
+		lines = append(lines, "  "+checkpointLine(c))
+	}
+	return lines
 }
