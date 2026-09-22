@@ -382,3 +382,85 @@ func TestSessionCheckpointsSaysWhatARestoreActuallyCovers(t *testing.T) {
 	}
 	assertOnlyPublishedRoutes(t, c.seen())
 }
+
+// The view C02 asks for is the JOURNAL, and the agent's conversation is
+// published to it. A view that rendered those entries as a compacted JSON
+// payload would make a person parse the thing the view exists to display.
+//
+// The words stay INERT throughout: they are the agent's, stored as data,
+// and nothing here reads one as an instruction.
+func TestTheAgentWindowRendersTheConversationRatherThanItsPayload(t *testing.T) {
+	cases := []struct {
+		name    string
+		payload string
+		want    []string
+		absent  []string
+	}{
+		{"what the agent said",
+			`{"type":"agent.transcript","kind":"assistant_text","text":"I read the login flow and it uses a signed cookie."}`,
+			[]string{"agent", "I read the login flow"}, []string{`"type"`, `"kind"`}},
+		{"what a person asked for",
+			`{"type":"agent.transcript","kind":"instruction","text":"explain the login flow"}`,
+			[]string{"asked", "explain the login flow"}, []string{`"kind"`}},
+		{"a tool starting",
+			`{"type":"agent.transcript","kind":"tool_started","tool_name":"bash","text":"go test ./..."}`,
+			[]string{"tool", "bash started", "go test"}, nil},
+		{"a tool that failed",
+			`{"type":"agent.transcript","kind":"tool_finished","tool_name":"bash","failed":true,"text":"exit 1"}`,
+			[]string{"tool", "bash FAILED", "exit 1"}, nil},
+		{"a tool nobody named",
+			`{"type":"agent.transcript","kind":"tool_started","text":"something"}`,
+			[]string{"an unnamed tool started"}, nil},
+		{"an entry the service clipped",
+			`{"type":"agent.transcript","kind":"assistant_text","text":"a long answer","clipped":true}`,
+			[]string{"clipped by the service"}, nil},
+		{"a kind this client does not know is shown, never dropped",
+			`{"type":"agent.transcript","kind":"some_future_kind","text":"a new thing"}`,
+			[]string{"some_future_kind", "a new thing"}, nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			line := agentEventLine(journalEvent{StreamSeq: 7, ObservedAt: "2026-09-22T11:22:33Z",
+				SubjectType: "agent", SubjectID: "agt_1", Payload: []byte(c.payload)})
+			for _, w := range c.want {
+				if !strings.Contains(line, w) {
+					t.Errorf("the rendered line lacks %q: %s", w, line)
+				}
+			}
+			for _, a := range c.absent {
+				if strings.Contains(line, a) {
+					t.Errorf("the raw payload leaked into the view (%q): %s", a, line)
+				}
+			}
+			if !strings.Contains(line, "11:22:33") {
+				t.Errorf("the line lost its place in time: %s", line)
+			}
+		})
+	}
+}
+
+// A multi-line answer is kept to one line in a live window; the rest is in
+// the journal and in --json, which is where a reader goes for it. The line
+// must say it was shortened rather than silently truncating.
+func TestTheWindowShortensALongAnswerVisibly(t *testing.T) {
+	line := agentEventLine(journalEvent{StreamSeq: 1, ObservedAt: "2026-09-22T00:00:00Z",
+		Payload: []byte(`{"type":"agent.transcript","kind":"assistant_text","text":"first line\nsecond line\nthird"}`)})
+	if !strings.Contains(line, "first line") || !strings.Contains(line, "…") {
+		t.Errorf("a multi-line answer was not visibly shortened: %s", line)
+	}
+	if strings.Contains(line, "second line") {
+		t.Errorf("the window printed more than one line for one entry: %s", line)
+	}
+}
+
+// Everything that is not a conversation entry renders exactly as it did.
+func TestNonTranscriptEventsRenderUnchanged(t *testing.T) {
+	line := agentEventLine(journalEvent{StreamSeq: 3, ObservedAt: "2026-09-22T09:08:07Z",
+		SubjectType: "approval", SubjectID: "apr_1",
+		Payload: []byte(`{"type":"approval.requested","human_scope":"edit README.md"}`)})
+	for _, want := range []string{"approval", "apr_1", "edit README.md", "!!"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("an approval event lost %q: %s", want, line)
+		}
+	}
+}

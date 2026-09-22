@@ -657,11 +657,107 @@ func followAgent(cr hostedCreds, win *liveWindow, w *agentWindow) {
 	}
 }
 
+// transcriptEntry is one thing the agent said or did, as the service
+// recorded it on the journal a view reads.
+//
+// The words are INERT. They are the agent's, stored as data; this client
+// renders them and reads nothing in them as an instruction, a command or a
+// decision. A view is a bystander to the work.
+type transcriptEntry struct {
+	Kind      string `json:"kind"`
+	Text      string `json:"text"`
+	TaskID    string `json:"task_id"`
+	AttemptID string `json:"attempt_id"`
+	ToolName  string `json:"tool_name"`
+	ToolUseID string `json:"tool_use_id"`
+	Failed    bool   `json:"failed"`
+	Clipped   bool   `json:"clipped"`
+}
+
+// transcriptOf answers the conversation entry in a journal row, or nil.
+func transcriptOf(e journalEvent) *transcriptEntry {
+	if e.kind() != "agent.transcript" {
+		return nil
+	}
+	var t transcriptEntry
+	if json.Unmarshal(e.Payload, &t) != nil {
+		return nil
+	}
+	return &t
+}
+
+// transcriptLine renders one conversation entry as a person reads it, with
+// a marker that says which kind of thing it was. A kind this client does
+// not know is shown as itself rather than dropped: a line nobody rendered
+// is a line a watcher never learns existed.
+func transcriptLine(t transcriptEntry) string {
+	mark, body := "·", firstLineOf(t.Text)
+	switch t.Kind {
+	case "assistant_text":
+		mark = "agent"
+	case "instruction":
+		mark = "asked"
+	case "tool_started":
+		mark = "tool"
+		body = orUnnamedTool(t.ToolName) + " started"
+		if s := firstLineOf(t.Text); s != "" {
+			body += ": " + s
+		}
+	case "tool_finished":
+		mark = "tool"
+		outcome := "finished"
+		if t.Failed {
+			outcome = "FAILED"
+		}
+		body = orUnnamedTool(t.ToolName) + " " + outcome
+		if s := firstLineOf(t.Text); s != "" {
+			body += ": " + s
+		}
+	case "runner_lifecycle":
+		mark = "runner"
+	default:
+		mark = figure(t.Kind)
+	}
+	if t.Clipped {
+		body += " […clipped by the service]"
+	}
+	return fmt.Sprintf("%-6s %s", mark, body)
+}
+
+func orUnnamedTool(n string) string {
+	if strings.TrimSpace(n) == "" {
+		return "an unnamed tool"
+	}
+	return n
+}
+
+// firstLineOf keeps a live window readable: the rest of a paragraph is in
+// the journal and in --json, which is where a reader goes for it.
+func firstLineOf(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return strings.TrimSpace(s[:i]) + " …"
+	}
+	return s
+}
+
 // agentEventLine renders one journal row for a person: its position, the
 // time of day, what it is about, and the payload the service sent,
 // compact. A permission request is marked so it cannot be skimmed past.
+//
+// A CONVERSATION entry is rendered as conversation rather than as a JSON
+// blob. The transcript is the view C02 asks for, and a view that showed it
+// as a compacted payload was making a person parse the thing the view
+// exists to display. Nothing in it is acted on: the agent's words are data.
 func agentEventLine(e journalEvent) string {
-	line := fmt.Sprintf("%-6d %s %s %s", e.StreamSeq, clock(e.ObservedAt), figure(e.SubjectType), figure(e.SubjectID))
+	head := fmt.Sprintf("%-6d %s", e.StreamSeq, clock(e.ObservedAt))
+	if t := transcriptOf(e); t != nil {
+		return sanitize(head + " " + transcriptLine(*t))
+	}
+	line := fmt.Sprintf("%s %s %s", head, figure(e.SubjectType), figure(e.SubjectID))
 	if d := compactPayload(e.Payload); d != "" {
 		line += " " + d
 	}
