@@ -1,0 +1,250 @@
+package main
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
+
+// Before these verbs the only way to read an instruction's
+// standing was the recovery view, which answers why a queue is STUCK — and
+// the control plane's own refusals named `ks task list` and `ks task show`
+// on nine different paths. Advice naming a command nobody can type is a
+// route the product only imagines it has.
+
+// The queue reads in the order it was COMMITTED, with every agent of the
+// session, and it never wanders into another session's work.
+func TestTaskListShowsTheQueueInCommittedOrder(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "task", "list", "--session", agentSessionShort)
+	if code != 0 {
+		t.Fatalf("task list: exit %d\n%s%s", code, out, errs)
+	}
+	for _, want := range []string{"INSTRUCTION", "POS", "STATE", "ORIGIN", "AUTHOR", "tsk_1", recoveryBlocking, "tsk_3", "tsk_4"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the queue listing lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "tsk_elsewhere") {
+		t.Errorf("another agent's instruction appeared in this session's queue:\n%s", out)
+	}
+	// committed order, not arrival order of the rows
+	pos := func(id string) int { return strings.Index(out, id) }
+	if !(pos("tsk_1") < pos(recoveryBlocking) && pos(recoveryBlocking) < pos("tsk_3") && pos("tsk_3") < pos("tsk_4")) {
+		t.Errorf("the queue is not in committed order:\n%s", out)
+	}
+	assertOnlyPublishedRoutes(t, c.seen())
+	if d := c.sentDecisions(); len(d) != 0 {
+		t.Errorf("a read verb sent a decision: %v", d)
+	}
+	for _, req := range c.seen() {
+		if strings.HasPrefix(req, "POST") || strings.HasPrefix(req, "PUT") || strings.HasPrefix(req, "DELETE") || strings.HasPrefix(req, "PATCH") {
+			t.Errorf("a read verb sent a mutation: %q", req)
+		}
+	}
+}
+
+// --json is the shape automation reads; it carries the rows, not prose.
+func TestTaskListJSONCarriesTheRowsAndTheCount(t *testing.T) {
+	_, bin, cfg := recoveryFixture(t)
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "task", "list", "--session", agentSessionShort, "--json")
+	if code != 0 {
+		t.Fatalf("task list --json: exit %d\n%s%s", code, out, errs)
+	}
+	var env struct {
+		Data struct {
+			Tasks  int `json:"tasks"`
+			Queues []struct {
+				Agent string `json:"agent"`
+				Tasks []struct {
+					ID       string `json:"id"`
+					QueueSeq int64  `json:"queue_seq"`
+					State    string `json:"state"`
+				} `json:"tasks"`
+			} `json:"queues"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatalf("task list --json is not JSON: %v\n%s", err, out)
+	}
+	doc := env.Data
+	if doc.Tasks != 4 {
+		t.Errorf("task count %d, want 4\n%s", doc.Tasks, out)
+	}
+	var main struct {
+		Agent string `json:"agent"`
+		Tasks []struct {
+			ID       string `json:"id"`
+			QueueSeq int64  `json:"queue_seq"`
+			State    string `json:"state"`
+		} `json:"tasks"`
+	}
+	found := false
+	for _, q := range doc.Queues {
+		if q.Agent == "main" {
+			main, found = q, true
+		}
+	}
+	if !found {
+		t.Fatalf("no queue for the agent under test: %+v", doc.Queues)
+	}
+	if len(main.Tasks) != 4 || main.Tasks[0].QueueSeq != 1 || main.Tasks[3].QueueSeq != 4 {
+		t.Errorf("rows: %+v", main.Tasks)
+	}
+}
+
+// A queue that could not be READ is not an empty queue. This is the same
+// mistake that let a release strand every instruction it was holding, asked
+// again at the surface a person reads.
+func TestTaskListNeverReportsAnUnreadableQueueAsEmpty(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	c.mu.Lock()
+	c.tasksFault = "ks_internal"
+	c.mu.Unlock()
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "task", "list", "--session", agentSessionShort)
+	if code == 0 {
+		t.Fatalf("an unreadable queue exited 0:\n%s%s", out, errs)
+	}
+	joined := out + errs
+	for _, want := range []string{"could not be READ", "not known to be empty"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the refusal lacks %q:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "no instructions") {
+		t.Errorf("an unreadable queue was reported as empty:\n%s", joined)
+	}
+	// and the machine-readable form is ONE envelope, not a listing followed
+	// by an error: two documents on stdout is a listing a parser would read
+	// as whole.
+	jout, jerr, jcode := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "task", "list", "--session", agentSessionShort, "--json")
+	if jcode == 0 {
+		t.Fatalf("an unreadable queue exited 0 in --json:\n%s%s", jout, jerr)
+	}
+	dec := json.NewDecoder(strings.NewReader(jout))
+	var first map[string]any
+	if err := dec.Decode(&first); err != nil {
+		t.Fatalf("--json is not JSON: %v\n%s", err, jout)
+	}
+	if _, ok := first["error"]; !ok {
+		t.Errorf("--json did not answer with an error envelope:\n%s", jout)
+	}
+	var second map[string]any
+	if err := dec.Decode(&second); err == nil {
+		t.Errorf("--json printed a second document after the first:\n%s", jout)
+	}
+}
+
+// One instruction in full, with its exact bytes quoted from the content
+// store rather than from the task row, which holds only a reference.
+func TestTaskShowQuotesTheExactInstructionAndNamesTheHold(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "task", "show", recoveryBlocking, "--session", agentSessionShort)
+	if code != 0 {
+		t.Fatalf("task show: exit %d\n%s%s", code, out, errs)
+	}
+	for _, want := range []string{
+		"instruction " + recoveryBlocking,
+		"publish the release",
+		"then tag it",
+		"THIS instruction is what holds the queue",
+		"queue position 2",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("task show lacks %q:\n%s", want, out)
+		}
+	}
+	assertOnlyPublishedRoutes(t, c.seen())
+	if d := c.sentDecisions(); len(d) != 0 {
+		t.Errorf("a read verb sent a decision: %v", d)
+	}
+}
+
+// C05's fourth column belongs to an independent verifier. An instruction
+// that finished without one reads finished and NEVER verified, and this
+// client does not derive the word from the state beside it.
+func TestTaskShowNeverPromotesFinishedToVerified(t *testing.T) {
+	_, bin, cfg := recoveryFixture(t)
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "task", "show", "tsk_1", "--session", agentSessionShort)
+	if code != 0 {
+		t.Fatalf("task show: exit %d\n%s%s", code, out, errs)
+	}
+	if !strings.Contains(out, "no independent verification") {
+		t.Errorf("a finished instruction did not say it lacks verification:\n%s", out)
+	}
+	if strings.Contains(strings.ToLower(out), "verified") && !strings.Contains(out, "never verified") {
+		t.Errorf("a finished instruction was shown as verified:\n%s", out)
+	}
+}
+
+// C03 asks for attempt history. This service records a current attempt and
+// no history; where it records none, that is what is said. A plausible
+// attempt rendered here would be read as a promise that `ks task resume`
+// works, and that verb refuses precisely because no attempt exists.
+func TestTaskShowInventsNoAttemptHistory(t *testing.T) {
+	_, bin, cfg := recoveryFixture(t)
+	out, _, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "task", "show", recoveryBlocking, "--session", agentSessionShort)
+	if code != 0 {
+		t.Fatalf("task show: exit %d\n%s", code, out)
+	}
+	if !strings.Contains(out, "records no attempt under this instruction") {
+		t.Errorf("the absent attempt was not stated as absent:\n%s", out)
+	}
+	for _, invented := range []string{"attempt 1", "attempt 0", "attempt #"} {
+		if strings.Contains(strings.ToLower(out), invented) {
+			t.Errorf("an attempt was invented (%q):\n%s", invented, out)
+		}
+	}
+}
+
+// Content that could not be read is not an empty instruction.
+func TestTaskShowNeverReportsUnreadableContentAsEmpty(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	c.mu.Lock()
+	c.contentGone = true
+	c.mu.Unlock()
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "task", "show", recoveryBlocking, "--session", agentSessionShort)
+	if code != 0 {
+		t.Fatalf("task show: exit %d\n%s%s", code, out, errs)
+	}
+	joined := out + errs
+	if !strings.Contains(joined, "could not be READ") || !strings.Contains(joined, "not known to be empty") {
+		t.Errorf("unreadable content was not stated as unreadable:\n%s", joined)
+	}
+}
+
+// --session is a GUARD, not a lookup key: an instruction belonging to
+// another session's agent is refused rather than shown.
+func TestTaskShowRefusesAnotherSessionsInstruction(t *testing.T) {
+	_, bin, cfg := recoveryFixture(t)
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "task", "show", "tsk_elsewhere", "--session", agentSessionShort)
+	if code == 0 {
+		t.Fatalf("another session's instruction was shown:\n%s%s", out, errs)
+	}
+}
+
+// Both verbs are gated on the capability the control plane publishes, and
+// neither reaches a route when it is not available.
+func TestTaskReadVerbsRespectTheCapabilityRegistry(t *testing.T) {
+	for _, verb := range [][]string{
+		{"task", "list", "--session", agentSessionShort},
+		{"task", "show", recoveryBlocking, "--session", agentSessionShort},
+	} {
+		c, bin, cfg := recoveryFixture(t)
+		c.mu.Lock()
+		c.capability = "unavailable"
+		c.mu.Unlock()
+		out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), verb...)
+		if code == 0 {
+			t.Fatalf("%v ran against a control plane that does not offer it:\n%s%s", verb, out, errs)
+		}
+		if !strings.Contains(out+errs, "agent.workspace") {
+			t.Errorf("%v did not name the capability it needs:\n%s%s", verb, out, errs)
+		}
+		for _, req := range c.seen() {
+			if strings.Contains(req, "/api/v2/tasks") {
+				t.Errorf("%v reached a task route despite the capability being unavailable: %q", verb, req)
+			}
+		}
+	}
+}

@@ -53,6 +53,8 @@ type recoveryCtl struct {
 	changeOnRead  bool   // the hold changes the moment it has been read
 	decisionFault string // the typed refusal the decision route answers with
 	noCost        bool   // the service states no cost for continuing
+	contentGone   bool   // the content store cannot answer for the instructions
+	tasksFault    string // the typed refusal the task list route answers with
 	cancelled     bool   // one instruction was cancelled while the queue was held
 	retryOffered  bool   // a later service that DOES offer a new attempt
 }
@@ -143,13 +145,46 @@ func (c *recoveryCtl) holdDoc() map[string]any {
 	return doc
 }
 
+// recoveryTaskRows carry the FULL field set the task routes answer with —
+// every key the service's own task row has, not the subset an earlier test
+// happened to need. A double that answers fewer fields than the service does
+// lets a client quietly depend on deriving the rest.
+func taskFixture(id, state string, seq int64, extra map[string]any) map[string]any {
+	row := map[string]any{
+		"id": id, "agent_id": recoveryAgent, "submission_id": "sub_" + id, "state": state,
+		"queue_seq": seq, "origin": "live", "content_ref": "ref_" + id,
+		"created_at": "2026-09-21T11:5" + fmt.Sprint(seq) + ":00Z",
+		"updated_at": "2026-09-21T12:00:00Z", "revision": 2,
+		"author_type": "account", "author_id": "acct_1",
+		"content_hash": "sha256:" + id, "held_reason": "", "verification_state": "",
+		"current_attempt_id": "",
+	}
+	for k, v := range extra {
+		row[k] = v
+	}
+	return row
+}
+
 var recoveryTaskRows = []map[string]any{
-	{"id": "tsk_1", "agent_id": recoveryAgent, "submission_id": "sub_1", "state": "succeeded", "queue_seq": 1, "origin": "live", "content_ref": "ref_1", "created_at": "2026-09-21T11:50:00Z"},
-	{"id": recoveryBlocking, "agent_id": recoveryAgent, "submission_id": "sub_2", "state": "failed", "queue_seq": 2, "origin": "live", "content_ref": "ref_2", "created_at": "2026-09-21T11:55:00Z"},
-	{"id": "tsk_3", "agent_id": recoveryAgent, "submission_id": "sub_3", "state": "held", "queue_seq": 3, "origin": "live", "content_ref": "ref_3", "created_at": "2026-09-21T11:56:00Z"},
-	{"id": "tsk_4", "agent_id": recoveryAgent, "submission_id": "sub_4", "state": "held", "queue_seq": 4, "origin": "live", "content_ref": "ref_4", "created_at": "2026-09-21T11:57:00Z"},
+	taskFixture("tsk_1", "succeeded", 1, nil),
+	taskFixture(recoveryBlocking, "failed", 2, map[string]any{"held_reason": ""}),
+	taskFixture("tsk_3", "held", 3, map[string]any{"held_reason": "a predecessor failed and nobody has decided"}),
+	taskFixture("tsk_4", "held", 4, map[string]any{"held_reason": "a predecessor failed and nobody has decided"}),
 	// an instruction of an agent that is not in the session under test
-	{"id": "tsk_elsewhere", "agent_id": "agt_other0001", "submission_id": "sub_9", "state": "held", "queue_seq": 1, "origin": "live", "content_ref": "ref_9", "created_at": "2026-09-21T11:58:00Z"},
+	{"id": "tsk_elsewhere", "agent_id": "agt_other0001", "submission_id": "sub_9", "state": "held", "queue_seq": 1,
+		"origin": "live", "content_ref": "ref_9", "created_at": "2026-09-21T11:58:00Z", "updated_at": "2026-09-21T11:58:00Z",
+		"revision": 1, "author_type": "account", "author_id": "acct_1", "content_hash": "sha256:9",
+		"held_reason": "", "verification_state": "", "current_attempt_id": ""},
+}
+
+// recoveryTaskText is what the content store answers for each instruction:
+// the exact bytes, read from the route that serves them rather than from the
+// task row, which carries only a reference.
+var recoveryTaskText = map[string]string{
+	"tsk_1":          "read the changelog",
+	recoveryBlocking: "publish the release\nthen tag it",
+	"tsk_3":          "announce the release",
+	"tsk_4":          "close the milestone",
 }
 
 // recoveryCancelledRow is an instruction somebody cancelled WHILE the queue
@@ -192,6 +227,14 @@ func (c *recoveryCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == "GET" && r.URL.Path == "/api/v2/agents":
 		env(200, map[string]any{"items": agentRows, "observed_at": "x"})
 	case r.Method == "GET" && r.URL.Path == "/api/v2/tasks":
+		c.mu.Lock()
+		tf := c.tasksFault
+		c.mu.Unlock()
+		if tf != "" {
+			// a FAILED READ of a queue, which is not an empty queue
+			fault(503, tf, "the queue could not be read right now")
+			return
+		}
 		var items []map[string]any
 		rows := recoveryTaskRows
 		c.mu.Lock()
@@ -208,15 +251,22 @@ func (c *recoveryCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			items = []map[string]any{}
 		}
 		env(200, map[string]any{"items": items, "observed_at": "x"})
-	// A saved point this client could pick if it were willing to pick one.
-	// It answers so that a client which silently chose the newest would
-	// SUCCEED rather than fail on a missing route: the proof that it chooses
-	// none is that nothing here is ever requested.
-	case strings.HasPrefix(r.URL.Path, "/api/v2/checkpoints"):
-		env(200, map[string]any{"items": []map[string]any{
-			{"id": "ckpt_older", "session_id": agentSessionRecord, "state": "valid", "created_at": "2026-09-21T11:40:00Z"},
-			{"id": "ckpt_newest", "session_id": agentSessionRecord, "state": "valid", "created_at": "2026-09-21T11:54:00Z"},
-		}, "observed_at": "x"})
+	case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/content") && strings.HasPrefix(r.URL.Path, "/api/v2/tasks/"):
+		id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/v2/tasks/"), "/content")
+		c.mu.Lock()
+		gone := c.contentGone
+		c.mu.Unlock()
+		if gone {
+			fault(422, "ks_content_unavailable", "the stored instructions could not be read")
+			return
+		}
+		text, ok := recoveryTaskText[id]
+		if !ok {
+			fault(404, "ks_not_found", "no such task")
+			return
+		}
+		env(200, map[string]any{"task_id": id, "ref": "ref_" + id, "digest": "sha256:" + id,
+			"media_type": "text/plain; charset=utf-8", "bytes": len(text), "text": text})
 	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/v2/tasks/"):
 		id := strings.TrimPrefix(r.URL.Path, "/api/v2/tasks/")
 		for _, t := range recoveryTaskRows {
@@ -285,7 +335,59 @@ func (c *recoveryCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		env(200, doc)
 	default:
+		// Every unknown path answers the way the REAL service answers one:
+		// 404. This double used to serve a saved-point route the control
+		// plane does not publish, so that a client which picked a boundary
+		// on its own would SUCCEED here — a bait that modelled a world that
+		// does not exist, and a payload invented rather than read from the
+		// route table. The request is recorded above; a client that reached
+		// for a boundary is caught by publishedRouteFamilies below, which
+		// is the same proof without the invention.
 		fault(404, "ks_not_found", "no such route")
+	}
+}
+
+// publishedRouteFamilies are the customer route families this client is
+// entitled to reach: every one is a path the control plane's own route
+// table serves. A request outside this list is a route the client imagined,
+// and imagining one is how a verb comes to "work" in tests and 404 in front
+// of a person.
+var publishedRouteFamilies = []string{
+	"/api/capabilities",
+	"/api/v2/agents",
+	"/api/v2/approvals",
+	"/api/v2/contents",
+	"/api/v2/control-leases",
+	"/api/v2/identity",
+	"/api/v2/keys",
+	"/api/v2/operations",
+	"/api/v2/preflight",
+	"/api/v2/projects",
+	"/api/v2/queue-holds",
+	"/api/v2/sessions",
+	"/api/v2/tasks",
+}
+
+// assertOnlyPublishedRoutes fails on any request to a path outside the
+// families above. It is the permanent guard for the defect it replaces.
+func assertOnlyPublishedRoutes(t *testing.T, requests []string) {
+	t.Helper()
+	for _, req := range requests {
+		parts := strings.SplitN(req, " ", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		path := strings.SplitN(parts[1], "?", 2)[0]
+		ok := false
+		for _, fam := range publishedRouteFamilies {
+			if path == fam || strings.HasPrefix(path, fam+"/") {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			t.Errorf("the client reached for %q, which the control plane does not publish", req)
+		}
 	}
 }
 
@@ -753,9 +855,9 @@ func TestTaskResumeStatesTheProblemAsFields(t *testing.T) {
 	}
 }
 
-// A boundary is never chosen for a reader. The fake serves saved points that
-// a client willing to pick the newest would succeed with; the proof that it
-// picks none is that it never asks for them, opens no selector and reads
+// A boundary is never chosen for a reader. The proof is that the client asks
+// for no saved point at all — it touches only routes the control plane
+// publishes, and none of them is a boundary — opens no selector, and reads
 // nothing from the terminal, with and without --no-input.
 func TestTaskResumeChoosesNoBoundaryAndOpensNoSelector(t *testing.T) {
 	c, bin, cfg := recoveryFixture(t)
@@ -766,14 +868,13 @@ func TestTaskResumeChoosesNoBoundaryAndOpensNoSelector(t *testing.T) {
 		t.Errorf("--no-input changes the answer, so something was being decided interactively\nwith:\n%s%s\nwithout:\n%s%s", quiet, quietErr, plain, plainErr)
 	}
 	for _, req := range c.seen() {
-		if strings.Contains(req, "checkpoint") {
+		if strings.Contains(req, "checkpoint") || strings.Contains(req, "boundary") || strings.Contains(req, "save-point") {
 			t.Errorf("a boundary was looked up so that one could be chosen: %q", req)
 		}
 	}
-	for _, picked := range []string{"ckpt_newest", "ckpt_older"} {
-		if strings.Contains(plain+plainErr, picked) {
-			t.Errorf("a saved point was named on the reader's behalf (%s):\n%s%s", picked, plain, plainErr)
-		}
+	assertOnlyPublishedRoutes(t, c.seen())
+	if strings.Contains(plain+plainErr, "ckpt_") {
+		t.Errorf("a saved point was named on the reader's behalf:\n%s%s", plain, plainErr)
 	}
 }
 

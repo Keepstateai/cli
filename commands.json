@@ -648,6 +648,42 @@
      "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
     }
    ]
+  },
+  {
+   "verb": "task list",
+   "aliases": [
+    "task ls"
+   ],
+   "usage": "ks task list [--session ID] [--agent NAME]",
+   "summary": "the instructions of a session's agents, in the order they were committed",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session whose instructions to read; a short id is accepted when it is unique among yours"
+    },
+    {
+     "flag": "--agent NAME",
+     "summary": "read one agent's queue instead of every agent's"
+    }
+   ]
+  },
+  {
+   "verb": "task show",
+   "aliases": [],
+   "usage": "ks task show <instruction> [--session ID]",
+   "summary": "one instruction in full: where it sits, what it says, what it last reported and what attempt exists",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "refuse unless the instruction belongs to this session; optional, and only ever a guard"
+    }
+   ]
   }
  ]
 }

@@ -92,6 +92,27 @@ type taskRow struct {
 	Origin       string `json:"origin"`
 	ContentRef   string `json:"content_ref"`
 	CreatedAt    string `json:"created_at"`
+	// Every field below is one the service already returns on this row, so
+	// it is READ rather than derived. A client that recomputed an
+	// instruction's standing from the fields it happened to know would be
+	// stating its own opinion in the service's voice.
+	UpdatedAt  string `json:"updated_at"`
+	Revision   int64  `json:"revision"`
+	AuthorType string `json:"author_type"`
+	AuthorID   string `json:"author_id"`
+	// HeldReason is the service's own word for why this instruction is not
+	// moving. It is empty when the service recorded none, and an empty one
+	// is reported as not recorded, never filled in from the state.
+	HeldReason string `json:"held_reason"`
+	// Verification is an INDEPENDENT verifier's finding. A runner may not
+	// write it and this client never infers it: an instruction that
+	// finished without one reads Finished, never Verified.
+	Verification string `json:"verification_state"`
+	// CurrentAttempt is the attempt identity the service holds for this
+	// instruction, or empty when it holds none. Empty is stated as "the
+	// service records none" and is never rendered as attempt zero.
+	CurrentAttempt string `json:"current_attempt_id"`
+	ContentHash    string `json:"content_hash"`
 }
 
 // submittedTask is a task as the submission route answers it: the task,
@@ -176,6 +197,17 @@ func resolveAgent(cr hostedCreds, sess inventoryRow, arg string) (agentRow, erro
 	agents, err := fetchAgents(cr, agentSessionID(sess))
 	if err != nil {
 		return agentRow{}, err
+	}
+	return pickAgent(sess, agents, arg)
+}
+
+// pickAgent is resolveAgent's decision over a list ALREADY READ, so a
+// caller that has the session's agents in hand resolves a name against the
+// same view it is about to show rather than against a second read that may
+// have moved underneath it.
+func pickAgent(sess inventoryRow, agents []agentRow, arg string) (agentRow, error) {
+	if arg == "" {
+		return agentRow{}, &cliError{Code: exitUsage, Kind: "usage", Message: "an agent name is required", NextAction: "ks agent list --session " + sess.ShortID}
 	}
 	var byName []agentRow
 	for _, a := range agents {
