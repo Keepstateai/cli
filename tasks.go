@@ -99,14 +99,16 @@ func verificationLine(t taskRow) string {
 	return figure(t.Verification)
 }
 
-// attemptLine states the attempt identity the service holds, or the fact
-// that it holds none. C03 asks for attempt history; this service records a
-// current attempt and no history, and that is what is reported.
+// attemptLine states the attempt identity the service holds for this
+// instruction NOW, or the fact that it holds none. It says nothing about
+// history: the history is read from the attempts route and printed below
+// it, and a sentence here claiming there is none would be false the moment
+// the service began keeping it — which it now does.
 func attemptLine(t taskRow) string {
 	if strings.TrimSpace(t.CurrentAttempt) == "" {
-		return "the service records no attempt under this instruction, and no history of earlier ones"
+		return "the service records no attempt under this instruction"
 	}
-	return t.CurrentAttempt + " (the service records this attempt; it keeps no history of earlier ones)"
+	return t.CurrentAttempt + " (the one running or last dispatched; earlier ones are listed below)"
 }
 
 func taskListLine(t taskRow) string {

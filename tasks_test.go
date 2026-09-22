@@ -464,3 +464,29 @@ func TestNonTranscriptEventsRenderUnchanged(t *testing.T) {
 		}
 	}
 }
+
+// The history line and the current-attempt line must not contradict each
+// other. This client once said "it keeps no history of earlier ones" on the
+// same screen that listed two attempts, because the sentence was written
+// when the service kept none and was never revisited when it began to.
+func TestTaskShowDoesNotDenyAHistoryItIsAboutToPrint(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	c.set(func(c *recoveryCtl) {
+		c.attempts = append(c.attempts, map[string]any{
+			"id": "att_9", "task_id": recoveryBlocking, "attempt_index": 2, "execution_epoch": 2,
+			"dispatch_id": "dsp_9", "state": "intent", "evidence_required": true,
+			"receipt_ids": []string{}, "retry_of": "att_2", "checkpoint_id": "ckpt_newest",
+			"authorized_by": "hold_1"})
+	})
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg),
+		"task", "show", recoveryBlocking, "--session", agentSessionShort)
+	if code != 0 {
+		t.Fatalf("task show: exit %d\n%s%s", code, out, errs)
+	}
+	if !strings.Contains(out, "attempts       2") {
+		t.Fatalf("the history was not printed:\n%s", out)
+	}
+	if strings.Contains(out, "keeps no history") || strings.Contains(out, "no history of earlier ones") {
+		t.Errorf("the screen denies a history it prints two lines later:\n%s", out)
+	}
+}
