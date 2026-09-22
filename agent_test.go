@@ -53,6 +53,9 @@ type agentCtl struct {
 	mu             sync.Mutex
 	capability     string // what /api/capabilities reports for agent.workspace
 	held           bool   // another window holds control of the primary agent
+	holdsFault     string // the typed refusal the queue-hold route answers with
+	activeHold     bool   // this agent's queue is held behind a failed instruction
+	backlog        int    // conversation entries the journal already carries
 	endless        bool   // the event stream never ends by itself
 	requests       []string
 	taskBodies     []string
@@ -414,6 +417,38 @@ func (c *agentCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		env(200, map[string]any{"runtime_state": "running", "note": "resumed from the last save"})
+	case r.Method == "GET" && r.URL.Path == "/api/v2/queue-holds":
+		c.mu.Lock()
+		hf, active := c.holdsFault, c.activeHold
+		c.mu.Unlock()
+		if hf != "" {
+			fault(503, hf, "the held queue could not be read")
+			return
+		}
+		items := []map[string]any{}
+		if active {
+			items = append(items, map[string]any{
+				"id": "hold_w1", "session_id": agentSessionRecord, "agent_id": "agt_main0001",
+				"state": "active", "cause": "task_failed", "cause_id": "tsk_2",
+				"blocking_task": "tsk_2", "blocking_task_state": "failed",
+				"reason": "the attempt failed", "epoch": 1, "session_epoch": 1,
+				"revision": 3, "held_tasks": []string{"tsk_3", "tsk_4"}, "choices": []any{}})
+		}
+		env(200, map[string]any{"items": items, "observed_at": "x"})
+	case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/events") && strings.HasPrefix(r.URL.Path, "/api/v2/sessions/"):
+		c.mu.Lock()
+		n := c.backlog
+		c.mu.Unlock()
+		rows := []map[string]any{}
+		for i := 0; i < n; i++ {
+			rows = append(rows, map[string]any{
+				"event_id": fmt.Sprintf("bk_%d", i), "stream_seq": i + 1,
+				"subject_type": "agent", "subject_id": "agt_main0001",
+				"observed_at": fmt.Sprintf("2026-09-22T11:00:0%dZ", i),
+				"payload": map[string]any{"type": "agent.transcript",
+					"kind": "assistant_text", "text": fmt.Sprintf("an earlier line %d", i)}})
+		}
+		env(200, map[string]any{"items": rows, "next_cursor": "", "observed_at": "x"})
 	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/v2/sessions/") && !strings.Contains(r.URL.Path, "/events/"):
 		c.mu.Lock()
 		c.stateReads++
@@ -1602,5 +1637,71 @@ func TestAgentResumeWaitsOutTheStopThenResumes(t *testing.T) {
 	}
 	if _, resumes, _ := c2.counts(); resumes != 1 {
 		t.Errorf("a refused resume was asked %d times", resumes)
+	}
+}
+
+// A window that began at the live edge showed a person an empty screen and
+// called it an agent: the conversation they opened it to read had already
+// been written to the journal. It renders the tail of that first, marked as
+// history, and only then follows.
+func TestTheWindowShowsWhatAlreadyHappenedBeforeWhatHappensNext(t *testing.T) {
+	c, bin, cfg := agentFixture(t)
+	c.mu.Lock()
+	c.backlog = 4
+	c.mu.Unlock()
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg),
+		"agent", "open", "main", "--session", agentSessionShort)
+	joined := out + errs
+	if code != 0 && !strings.Contains(joined, "what already happened") {
+		t.Fatalf("agent open: exit %d\n%s", code, joined)
+	}
+	for _, want := range []string{"what already happened", "an earlier line", "live from here"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the window did not render the history (%q):\n%s", want, joined)
+		}
+	}
+	// history is marked as history: nothing on the screen pretends to arrive now
+	if strings.Index(joined, "what already happened") > strings.Index(joined, "live from here") {
+		t.Errorf("the history was printed after the live marker:\n%s", joined)
+	}
+}
+
+// A window showing "3 queued" beside an agent that cannot start any of them
+// is telling a person the number and withholding the fact.
+func TestTheWindowSaysWhetherTheQueueIsHeld(t *testing.T) {
+	c, bin, cfg := agentFixture(t)
+	c.mu.Lock()
+	c.activeHold = true
+	c.mu.Unlock()
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg),
+		"agent", "open", "main", "--session", agentSessionShort, "--no-follow")
+	if code != 0 {
+		t.Fatalf("agent open: exit %d\n%s%s", code, out, errs)
+	}
+	joined := out + errs
+	for _, want := range []string{"HELD", "ks agent queue show"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the window does not surface the hold (%q):\n%s", want, joined)
+		}
+	}
+}
+
+// A hold that could not be READ is never rendered as no hold.
+func TestTheWindowNeverReadsAFailedHoldReadAsNoHold(t *testing.T) {
+	c, bin, cfg := agentFixture(t)
+	c.mu.Lock()
+	c.holdsFault = "ks_internal"
+	c.mu.Unlock()
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg),
+		"agent", "open", "main", "--session", agentSessionShort, "--no-follow")
+	if code != 0 {
+		t.Fatalf("agent open: exit %d\n%s%s", code, out, errs)
+	}
+	joined := out + errs
+	if !strings.Contains(joined, "could not be read") {
+		t.Errorf("an unreadable hold was not stated as unreadable:\n%s", joined)
+	}
+	if strings.Contains(joined, "no hold stands") {
+		t.Errorf("an unreadable hold was rendered as no hold:\n%s", joined)
 	}
 }

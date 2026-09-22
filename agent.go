@@ -568,6 +568,17 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 	progress("agent %s (%s) in session %s · %s · %s · %s · %d queued",
 		a.Name, a.ID, sess.ShortID, figure(w.Agent.Activity), joined, controlLine(w), w.QueueDepth)
 
+	// WHETHER THE QUEUE IS MOVING. A window showing "3 queued" beside an
+	// agent that cannot start any of them is telling a person the number
+	// and withholding the fact. A hold that cannot be READ is said to be
+	// unreadable and is never rendered as "nothing is holding it".
+	held, heldErr := heldSummary(cr, a.ID, sess)
+	if heldErr != "" {
+		progress("whether this queue is held could not be read, so it is not stated: %s", heldErr)
+	} else if held != "" {
+		progress("%s", held)
+	}
+
 	pending, perr := fetchPendingApprovals(cr, agentSessionID(sess))
 	if perr != nil {
 		progress("the pending permission requests could not be read: %s", sanitize(perr.Error()))
@@ -588,6 +599,14 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 			fmt.Printf("  activity       %s\n", figure(w.Agent.Activity))
 			fmt.Printf("  control        %s\n", controlLine(w))
 			fmt.Printf("  queue          %d queued\n", w.QueueDepth)
+			switch {
+			case heldErr != "":
+				fmt.Printf("  held           could not be read, so it is not stated: %s\n", heldErr)
+			case held != "":
+				fmt.Printf("  held           %s\n", held)
+			default:
+				fmt.Printf("  held           no hold stands on this queue\n")
+			}
 			fmt.Printf("  events from    %d\n", w.Resume.AfterSeq)
 			for _, ap := range pending {
 				fmt.Println(approvalHuman(ap, decideVerbs(sess, ap)))
@@ -596,11 +615,84 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 		})
 		return
 	}
+	// WHAT ALREADY HAPPENED, before what happens next. A window that began
+	// at the live edge showed a person an empty screen and called it an
+	// agent: the conversation they opened the window to read had already
+	// been written to the journal. This renders the tail of it, marked as
+	// history so nothing on the screen pretends to be arriving now.
+	showBacklog(cr, sess, w.Resume.AfterSeq)
 	for _, ap := range pending {
 		emitLine(map[string]any{"type": "approval_pending", "approval": ap}, approvalHuman(ap, inWindowDecision(ap)))
 	}
 	win := &liveWindow{sess: sess, agent: a, lease: w.Lease}
 	followAgent(cr, win, w)
+}
+
+// heldSummary answers, in one sentence, whether this agent's queue is
+// moving — and says so from the service's own hold record rather than from
+// the queue depth, which cannot carry the difference.
+func heldSummary(cr hostedCreds, agentID string, sess inventoryRow) (string, string) {
+	holds, err := fetchQueueHolds(cr, agentID)
+	if err != nil {
+		return "", sanitize(err.Error())
+	}
+	h, aerr := activeHold(holds)
+	if aerr != nil {
+		return "", sanitize(aerr.Error())
+	}
+	if h == nil {
+		return "", ""
+	}
+	what := h.BlockingTask
+	if what == "" {
+		what = "an instruction the service did not name"
+	}
+	n := len(h.HeldTasks)
+	return fmt.Sprintf("this queue is HELD behind %s (%s); %d instruction(s) wait and no worker may start one. Read it: ks agent queue show %s --session %s",
+		what, figure(h.Cause), n, "<name>", sess.ShortID), ""
+}
+
+// backlogMax bounds what a window prints before the live edge. A person
+// opening a window wants the end of the conversation, not all of it; the
+// whole of it is in the journal and in --json.
+const backlogMax = 30
+
+// showBacklog renders the tail of the conversation that already happened,
+// marked as history. It is best effort in exactly one direction: a journal
+// that cannot be read costs the screen its history and SAYS so, and is
+// never rendered as an agent that has said nothing.
+func showBacklog(cr hostedCreds, sess inventoryRow, upto int64) {
+	if upto <= 0 {
+		return
+	}
+	var env struct {
+		Data struct {
+			Items []journalEvent `json:"items"`
+		} `json:"data"`
+	}
+	q := url.Values{"limit": {"400"}}
+	if err := hostedCall(cr, "GET", "/api/v2/sessions/"+url.PathEscape(agentSessionID(sess))+"/events?"+q.Encode(), nil, &env); err != nil {
+		progress("what already happened could not be read, so none of it is shown; that is not the same as nothing having happened: %s", sanitize(err.Error()))
+		return
+	}
+	var past []journalEvent
+	for _, e := range env.Data.Items {
+		if e.StreamSeq <= upto {
+			past = append(past, e)
+		}
+	}
+	if len(past) == 0 {
+		return
+	}
+	if len(past) > backlogMax {
+		progress("... %d earlier entries are in the journal and are not printed here", len(past)-backlogMax)
+		past = past[len(past)-backlogMax:]
+	}
+	progress("--- what already happened (history; nothing below is arriving now) ---")
+	for _, e := range past {
+		emitLine(e, agentEventLine(e))
+	}
+	progress("--- live from here ---")
 }
 
 // followAgent renders the session journal from where the window resumes,

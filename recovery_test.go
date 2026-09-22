@@ -63,6 +63,8 @@ type recoveryCtl struct {
 	attempts      []map[string]any
 	refusedCloses int    // task.finish_refused events the journal carries
 	eventsFault   string // the typed refusal the journal route answers with
+	holdsFault    string // the typed refusal the queue-hold route answers with
+	backlog       int    // conversation entries the journal already carries
 	cancelled     bool   // one instruction was cancelled while the queue was held
 	retryOffered  bool   // a later service that DOES offer a new attempt
 }
@@ -337,6 +339,14 @@ func (c *recoveryCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		items := []map[string]any{}
+		for i := 0; i < c.backlog; i++ {
+			items = append(items, map[string]any{
+				"event_id": fmt.Sprintf("bk_%d", i), "stream_seq": i + 1,
+				"subject_type": "agent", "subject_id": recoveryAgent,
+				"observed_at": "2026-09-22T11:00:0" + fmt.Sprint(i) + "Z",
+				"payload": map[string]any{"type": "agent.transcript",
+					"kind": "assistant_text", "text": fmt.Sprintf("an earlier line %d", i)}})
+		}
 		for i := 0; i < n; i++ {
 			items = append(items, map[string]any{
 				"event_id": fmt.Sprintf("ev_%d", i), "stream_seq": i + 1,
@@ -421,6 +431,12 @@ func (c *recoveryCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"recorded_by": "acct_1", "note": "the outcome was not established; nothing claims it succeeded or failed"})
 	case r.Method == "GET" && r.URL.Path == "/api/v2/queue-holds":
 		c.mu.Lock()
+		if c.holdsFault != "" {
+			hf := c.holdsFault
+			c.mu.Unlock()
+			fault(503, hf, "the held queue could not be read")
+			return
+		}
 		if c.noHold {
 			c.mu.Unlock()
 			env(200, map[string]any{"items": []map[string]any{}, "observed_at": "x"})
