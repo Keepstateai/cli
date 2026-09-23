@@ -12,7 +12,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"os/signal"
 	"strings"
+	"sync"
+	"syscall"
 )
 
 type customerKey struct {
@@ -103,6 +107,64 @@ func hostedKeyShow(cr hostedCreds, inv *Invocation) {
 	})
 }
 
+// noEcho turns terminal echo off for the duration of a secret read and
+// returns a restore func plus whether it actually took effect.
+//
+// `stty` reads the terminal from ITS OWN standard input, so the child is
+// given os.Stdin explicitly. Omitting that is not a detail: a stty child
+// with no Stdin gets /dev/null, `stty -g` fails on it, and the suppression
+// silently does nothing while appearing to succeed.
+//
+// Echo only -- not raw mode. The line discipline stays canonical so paste,
+// backspace and Ctrl-C keep working while the key is being entered.
+//
+// A no-op when stdin is not a terminal, so the piped path every gate drives
+// is unchanged.
+func noEcho() (func(), bool) {
+	saved, err := sttyOut("-g")
+	if err != nil || saved == "" {
+		return func() {}, false
+	}
+	if err := sttyRun("-echo"); err != nil {
+		return func() {}, false
+	}
+	var once sync.Once
+	restore := func() { once.Do(func() { _ = sttyRun(saved) }) }
+
+	// A terminal left with echo off is a worse bug than the one this fixes,
+	// and fail() ends in os.Exit, which runs no defers. Restore on the
+	// signals that would otherwise kill us first, then re-raise so the exit
+	// status is still the signal's.
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGHUP)
+	go func() {
+		s, ok := <-ch
+		if !ok {
+			return
+		}
+		restore()
+		signal.Stop(ch)
+		signal.Reset(s)
+		if p, err := os.FindProcess(os.Getpid()); err == nil {
+			_ = p.Signal(s)
+		}
+	}()
+	return func() { signal.Stop(ch); restore() }, true
+}
+
+func sttyOut(args ...string) (string, error) {
+	cmd := exec.Command("stty", args...)
+	cmd.Stdin = os.Stdin
+	out, err := cmd.Output()
+	return strings.TrimSpace(string(out)), err
+}
+
+func sttyRun(args ...string) error {
+	cmd := exec.Command("stty", args...)
+	cmd.Stdin = os.Stdin
+	return cmd.Run()
+}
+
 // hostedKeyAdd reads the secret from standard input, whole, and sends it
 // once. Nothing about the secret is echoed, logged or kept.
 func hostedKeyAdd(cr hostedCreds, inv *Invocation) {
@@ -110,10 +172,30 @@ func hostedKeyAdd(cr hostedCreds, inv *Invocation) {
 	if provider == "" {
 		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--provider is required (anthropic, openai or openrouter)", NextAction: "ks key add --provider anthropic < key.txt"})
 	}
+	tty := false
 	if fi, err := os.Stdin.Stat(); err == nil && fi.Mode()&os.ModeCharDevice != 0 && !out.noInput {
-		fmt.Fprintln(os.Stderr, "paste the key, then Enter and Ctrl-D (it is not echoed and not kept):")
+		tty = true
+	}
+	restore := func() {}
+	if tty {
+		// Suppress FIRST, then say what is actually true. The prompt used
+		// to promise "it is not echoed" while nothing suppressed anything,
+		// so a pasted key stayed in the user's scrollback.
+		var off bool
+		restore, off = noEcho()
+		defer restore()
+		if off {
+			fmt.Fprintln(os.Stderr, "paste the key, then Enter and Ctrl-D (it is not echoed and not kept):")
+		} else {
+			fmt.Fprintln(os.Stderr, "paste the key, then Enter and Ctrl-D (this terminal will SHOW it; it is not kept):")
+		}
 	}
 	raw, err := io.ReadAll(io.LimitReader(bufio.NewReader(os.Stdin), 8192))
+	// Before anything that can exit: fail() calls os.Exit and runs no defers.
+	if tty {
+		restore()
+		fmt.Fprintln(os.Stderr)
+	}
 	if err != nil {
 		die(err)
 	}
