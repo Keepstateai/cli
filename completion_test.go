@@ -6,7 +6,9 @@ package main
 
 import (
 	"net/http/httptest"
+	"os"
 	"os/exec"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -63,18 +65,55 @@ func TestCompletionScriptsCoverTheRegistry(t *testing.T) {
 }
 
 // Each script is accepted by its shell's parser where that shell is installed.
+//
+// This test used to PASS while never exercising fish: an absent shell was a
+// t.Logf and a `continue` inside one flat test, so a third of the matrix
+// could be vacuous and the single green said nothing about which third ran.
+// VER-087-1 asks for exactly the thing that hid: the combinations actually
+// exercised, named.
+//
+// Now every shell is its own subtest, so an absent one is reported by the
+// test runner as `--- SKIP: .../fish` under its own name and can never be
+// mistaken for a parse that happened. The exercised set is logged in one
+// machine-readable line, a run that exercises NOTHING fails rather than
+// passing vacuously, and KS_REQUIRE_ALL_SHELLS=1 (for release CI, where the
+// matrix is supposed to be complete) turns an absent shell into a failure.
 func TestCompletionScriptsParseInTheirShells(t *testing.T) {
-	for shell, check := range map[string][]string{"bash": {"bash", "-n"}, "zsh": {"zsh", "-n"}, "fish": {"fish", "--no-execute"}} {
-		if _, err := exec.LookPath(check[0]); err != nil {
-			t.Logf("%s not installed; parse check skipped", shell)
-			continue
-		}
-		script, _ := completionScript(shell)
-		cmd := exec.Command(check[0], check[1:]...)
-		cmd.Stdin = strings.NewReader(script)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Errorf("%s rejected the generated script: %v\n%s", shell, err, out)
-		}
+	checks := map[string][]string{"bash": {"bash", "-n"}, "zsh": {"zsh", "-n"}, "fish": {"fish", "--no-execute"}}
+	shells := make([]string, 0, len(checks))
+	for shell := range checks {
+		shells = append(shells, shell)
+	}
+	sort.Strings(shells)
+
+	strict := os.Getenv("KS_REQUIRE_ALL_SHELLS") == "1"
+	var exercised, absent []string
+	for _, shell := range shells {
+		check := checks[shell]
+		t.Run(shell, func(t *testing.T) {
+			path, err := exec.LookPath(check[0])
+			if err != nil {
+				if strict {
+					t.Fatalf("%s is not installed and KS_REQUIRE_ALL_SHELLS=1: the matrix is incomplete", shell)
+				}
+				absent = append(absent, shell)
+				t.Skipf("%s is not installed: this shell's script was NOT parsed by anything", shell)
+			}
+			script, _ := completionScript(shell)
+			cmd := exec.Command(check[0], check[1:]...)
+			cmd.Stdin = strings.NewReader(script)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Errorf("%s rejected the generated script: %v\n%s", shell, err, out)
+				return
+			}
+			exercised = append(exercised, shell+"="+path)
+		})
+	}
+	// The matrix this run actually exercised, recorded rather than implied.
+	t.Logf("shell parse matrix: platform=%s/%s exercised=[%s] absent=[%s]",
+		runtime.GOOS, runtime.GOARCH, strings.Join(exercised, " "), strings.Join(absent, " "))
+	if len(exercised) == 0 {
+		t.Fatalf("no shell was exercised: this test proved nothing about any generated script")
 	}
 }
 
