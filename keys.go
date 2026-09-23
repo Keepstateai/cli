@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"os/signal"
 	"strings"
 	"sync"
@@ -150,19 +149,6 @@ func noEcho() (func(), bool) {
 		}
 	}()
 	return func() { signal.Stop(ch); restore() }, true
-}
-
-func sttyOut(args ...string) (string, error) {
-	cmd := exec.Command("stty", args...)
-	cmd.Stdin = os.Stdin
-	out, err := cmd.Output()
-	return strings.TrimSpace(string(out)), err
-}
-
-func sttyRun(args ...string) error {
-	cmd := exec.Command("stty", args...)
-	cmd.Stdin = os.Stdin
-	return cmd.Run()
 }
 
 // hostedKeyAdd reads the secret from standard input, whole, and sends it

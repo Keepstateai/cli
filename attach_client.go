@@ -20,16 +20,42 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
+	"sync"
+	"syscall"
 )
 
 func urlQueryEscape(s string) string { return url.QueryEscape(s) }
 
+// sttyOut and sttyRun run stty against THE TERMINAL, which means wiring
+// the child's stdin to ours. `stty` takes the terminal from its own
+// standard input; an exec.Command with no Stdin set hands the child
+// /dev/null, where every stty invocation fails with "stdin isn't a
+// terminal". session.go's termColumns has always done this correctly and
+// is the precedent; termSize and rawMode below did not, and both were
+// therefore inert in exactly the way a discarded error hides.
+func sttyOut(args ...string) (string, error) {
+	cmd := exec.Command("stty", args...)
+	cmd.Stdin = os.Stdin
+	out, err := cmd.Output()
+	return strings.TrimSpace(string(out)), err
+}
+
+func sttyRun(args ...string) error {
+	cmd := exec.Command("stty", args...)
+	cmd.Stdin = os.Stdin
+	return cmd.Run()
+}
+
+// termSize is the real window, for sizing the remote tmux. It answered
+// 80x24 for every window ever attached, because its stty child read
+// /dev/null and the error was swallowed by the `err == nil` guard.
 func termSize() (cols, rows int) {
 	cols, rows = 80, 24
-	out, err := exec.Command("stty", "size").Output() // "rows cols"
+	out, err := sttyOut("size") // "rows cols"
 	if err == nil {
-		_, _ = fmt.Sscanf(strings.TrimSpace(string(out)), "%d %d", &rows, &cols)
+		_, _ = fmt.Sscanf(out, "%d %d", &rows, &cols)
 	}
 	return
 }
@@ -38,15 +64,38 @@ func termSize() (cols, rows int) {
 // returns a restore func. A no-op (with a restore no-op) when stdin is
 // not a terminal, so the gate can drive attach with piped stdin.
 func rawMode() func() {
-	saved, err := exec.Command("stty", "-g").Output()
-	if err != nil {
-		return func() {}
+	saved, err := sttyOut("-g")
+	if err != nil || saved == "" {
+		return func() {} // not a terminal: the piped path the gates drive
 	}
-	g := strings.TrimSpace(string(saved))
 	// -icanon -echo -isig off so keystrokes (incl. Ctrl-C, tmux prefix)
 	// reach the remote unmangled; the remote tmux/shell owns them.
-	_ = exec.Command("stty", "raw", "-echo").Run()
-	return func() { _ = exec.Command("stty", g).Run() }
+	if err := sttyRun("raw", "-echo"); err != nil {
+		return func() {} // nothing was changed, so there is nothing to undo
+	}
+	var once sync.Once
+	restore := func() { once.Do(func() { _ = sttyRun(saved) }) }
+
+	// A terminal left raw with echo off is far worse than one that never
+	// entered it, and a deferred restore does not run when a signal ends
+	// the process. Restore first, then re-raise so the exit status is
+	// still the signal's. Ctrl-C is NOT among these in practice: raw mode
+	// turns off isig precisely so Ctrl-C reaches the remote instead.
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGHUP)
+	go func() {
+		s, ok := <-ch
+		if !ok {
+			return
+		}
+		restore()
+		signal.Stop(ch)
+		signal.Reset(s)
+		if p, err := os.FindProcess(os.Getpid()); err == nil {
+			_ = p.Signal(s)
+		}
+	}()
+	return func() { signal.Stop(ch); restore() }
 }
 
 func hostedAttach(cr hostedCreds, id string) error {
