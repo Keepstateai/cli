@@ -45,7 +45,12 @@ ARCH=$(uname -m)
 case "$ARCH" in
   arm64|aarch64) ARCH=arm64 ;;
   x86_64|amd64)  ARCH=amd64 ;;
-  *) echo "unsupported architecture: $ARCH" >&2; exit 1 ;;
+  # Name what IS supported, not only what is not. The OS branch below has
+  # always said so; this one said only "unsupported: <arch>", which tells a
+  # person on an unsupported machine nothing about which machines work.
+  # arm64 and amd64 are exactly what release.yml builds, and a test holds
+  # this line to that workflow so the two cannot drift apart.
+  *) echo "unsupported architecture: $ARCH (arm64 and amd64 today)" >&2; exit 1 ;;
 esac
 case "$OS" in
   darwin|linux) : ;;
