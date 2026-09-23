@@ -548,7 +548,7 @@ func TestTaskCancelWordsCancellingAsARequestAndNeverClaimsAnUndo(t *testing.T) {
 	c, bin, cfg := recoveryFixture(t)
 	c.mu.Lock()
 	c.cancelState = "cancelling"
-	c.cancelUnknown = []string{"a file write that was already sent to the tool"}
+	c.cancelUnknown = []string{"2026-09-23T18:00:00Z"} // becomes signal_deadline
 	c.mu.Unlock()
 	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg),
 		"task", "cancel", recoveryBlocking, "--session", agentSessionShort)
@@ -556,8 +556,8 @@ func TestTaskCancelWordsCancellingAsARequestAndNeverClaimsAnUndo(t *testing.T) {
 		t.Fatalf("exit %d\n%s%s", code, out, errs)
 	}
 	for _, want := range []string{"cancelling", "REQUESTED", "not established yet",
-		"does not say the work stopped", "NOT established",
-		"a file write that was already sent to the tool", "nothing above was undone"} {
+		"does not say the work stopped", "effects already in flight stay unresolved",
+		"2026-09-23T18:00:00Z"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("a requested cancellation did not say %q:\n%s", want, out)
 		}
@@ -614,8 +614,7 @@ func TestTaskCancelLeavesTheHeldQueueHeldAndSaysSo(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d\n%s%s", code, out, errs)
 	}
-	for _, want := range []string{"held behind it 2", "they stay held",
-		"does not continue the rest", "ks agent queue resume"} {
+	for _, want := range []string{"stay held", "not a queue", "ks agent queue resume"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("cancelling did not say the held queue stays held (%q):\n%s", want, out)
 		}

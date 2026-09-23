@@ -222,7 +222,7 @@ var registry = []*Command{
 		Args: []Arg{{Name: "instruction", Required: true}},
 		Flags: []Flag{
 			{Name: "session", Kind: flagString, Value: "ID", Summary: "the session the instruction belongs to; a short id is accepted when it is unique among yours"},
-			{Name: "finding", Kind: flagString, Value: "TEXT", Summary: "why you are cancelling it; optional, and recorded with the decision"},
+			{Name: "reason", Kind: flagString, Value: "TEXT", Summary: "why you are cancelling it; optional, and recorded with the request"},
 		},
 		Needs:    "agent.workspace",
 		Effects:  "asks the service to end ONE instruction. Queued or held work is prevented from ever dispatching, with no runner execution and no model call; active work has interruption REQUESTED through the supported runner integration, and reads `cancelling` until the real stopping outcome is known. It never claims a tool's or a provider's completed effects were undone, and unresolved effects are printed as unresolved. It is bound to the revision that was read and to the execution generation it was prepared under. It does not release the instructions held behind it, does not retry anything, does not delete the session and does not park the machine; if the instruction finished while the request was in flight, the outcome that genuinely won the race is what is reported",

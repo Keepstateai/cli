@@ -552,27 +552,30 @@ func hostedTaskCancel(cr hostedCreds, inv *Invocation) {
 	if err != nil {
 		die(err)
 	}
+	// EXACTLY the declared result. `requested` distinguishes "this call
+	// recorded the intent" from "it was already recorded or already
+	// settled"; `replayed` is how a repeat after a lost reply says it
+	// changed nothing; `signal_deadline` is the DOCUMENTED bound for work a
+	// worker is already executing, derived from the supervision lease rather
+	// than a number anybody picked.
 	var env struct {
 		Data struct {
-			Task      *taskRow `json:"task"`
-			HeldTasks []string `json:"held_tasks"`
-			// RequestedBy and Note are the service's own words about what it
-			// did; they are printed verbatim and never paraphrased.
-			RequestedBy string `json:"requested_by"`
-			Note        string `json:"note"`
-			// UnresolvedEffects is what the service could NOT establish about
-			// work already in flight. It is printed as uncertainty, never
-			// summarised away.
-			UnresolvedEffects []string `json:"unresolved_effects"`
+			Task           *taskRow `json:"task"`
+			Requested      bool     `json:"requested"`
+			Replayed       bool     `json:"replayed"`
+			Note           string   `json:"note"`
+			SignalDeadline string   `json:"signal_deadline"`
 		} `json:"data"`
 	}
 	// Bound to the revision that was read and the generation it was prepared
-	// under, so a cancellation prepared before a restore cannot land after
-	// one. Sent through the ordinary operation mechanism, so a lost reply
+	// under. Both are optional in the contract on purpose -- a caller
+	// repeating after a lost reply never saw the revision its own first call
+	// produced -- so they are sent, and the service decides when to enforce
+	// them. Sent through the ordinary operation mechanism, so a lost reply
 	// leaves a recorded key to ask about rather than a second request.
 	body := map[string]any{"expected_revision": t.Revision, "epoch": rec.ExecutionEpoch}
-	if f := strings.TrimSpace(inv.Str("finding")); f != "" {
-		body["finding"] = f
+	if r := strings.TrimSpace(inv.Str("reason")); r != "" {
+		body["reason"] = r
 	}
 	if err := hostedMutate(cr, "POST", "/api/v2/tasks/"+url.PathEscape(t.ID)+"/cancel", body, &env); err != nil {
 		die(err)
@@ -582,15 +585,23 @@ func hostedTaskCancel(cr hostedCreds, inv *Invocation) {
 	if got != nil {
 		state = got.State
 	}
-	emit(map[string]any{"task": got, "held_tasks": env.Data.HeldTasks,
-		"requested_by": env.Data.RequestedBy, "note": env.Data.Note,
-		"unresolved_effects": env.Data.UnresolvedEffects,
-		"agent":              a.Name, "session": sess.ID}, func() {
+	emit(map[string]any{"task": got, "requested": env.Data.Requested,
+		"replayed": env.Data.Replayed, "note": env.Data.Note,
+		"signal_deadline": env.Data.SignalDeadline,
+		"agent":           a.Name, "session": sess.ID}, func() {
 		switch state {
 		case "cancelling":
 			fmt.Printf("instruction %s now reads %s\n", t.ID, figure(state))
 			fmt.Printf("  cancellation is REQUESTED. The stopping outcome is not established yet,\n")
 			fmt.Printf("  and this does not say the work stopped.\n")
+			// the negator stays on the SAME line as the claim it denies: a
+			// disclaimer split across two lines can be quoted as the claim
+			fmt.Printf("  effects already in flight stay unresolved.\n")
+			fmt.Printf("  nothing outside this service is claimed to be reversed.\n")
+			if env.Data.SignalDeadline != "" {
+				fmt.Printf("  by             %s the worker has either been handed the request or no\n", env.Data.SignalDeadline)
+				fmt.Printf("                 longer supervises this agent\n")
+			}
 		case "cancelled":
 			fmt.Printf("instruction %s now reads %s\n", t.ID, figure(state))
 			fmt.Printf("  it will not run. Its identity, content and history are kept.\n")
@@ -598,27 +609,16 @@ func hostedTaskCancel(cr hostedCreds, inv *Invocation) {
 			fmt.Printf("instruction %s: the service returned no state for it\n", t.ID)
 			fmt.Printf("  nothing here claims it was cancelled.\n")
 		default:
-			// the race was lost, or it was already terminal: report what IS
+			// a completion that won the race keeps its outcome
 			fmt.Printf("instruction %s reads %s\n", t.ID, figure(state))
 			fmt.Printf("  this is the outcome that stands; the cancellation did not replace it.\n")
 		}
-		if len(env.Data.UnresolvedEffects) > 0 {
-			fmt.Printf("  NOT established:\n")
-			for _, u := range env.Data.UnresolvedEffects {
-				fmt.Printf("    %s\n", u)
-			}
-			fmt.Printf("  nothing above was undone; cancelling asks work to stop, it does not reverse\n")
-			fmt.Printf("  what a tool or a provider already did.\n")
+		if env.Data.Replayed {
+			fmt.Printf("  the same request was already recorded; this changed nothing.\n")
 		}
-		if env.Data.RequestedBy != "" {
-			fmt.Printf("  requested by   %s\n", env.Data.RequestedBy)
-		}
-		if n := len(env.Data.HeldTasks); n > 0 {
-			fmt.Printf("  held behind it %d instruction(s): %s\n", n, strings.Join(env.Data.HeldTasks, ", "))
-			fmt.Printf("  they stay held: cancelling one instruction does not continue the rest.\n")
-			fmt.Printf("  continuing them is a separate decision: ks agent queue resume %s --session %s --finding \"...\"\n",
-				a.Name, sess.ShortID)
-		}
+		fmt.Printf("  instructions committed after it stay held: cancelling one is not a queue\n")
+		fmt.Printf("  release, and continuing them is a separate decision.\n")
+		fmt.Printf("    ks agent queue resume %s --session %s --finding \"...\"\n", a.Name, sess.ShortID)
 		if env.Data.Note != "" {
 			fmt.Printf("  note           %s\n", env.Data.Note)
 		}

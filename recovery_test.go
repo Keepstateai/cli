@@ -441,10 +441,11 @@ func (c *recoveryCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		row["state"] = st
-		out := map[string]any{"task": row, "held_tasks": []string{"tsk_3", "tsk_4"},
-			"requested_by": "acct_1"}
+		out := map[string]any{"task": row, "requested": true, "replayed": false,
+			"note": "recording is synchronous; work that had not started is stopped by the time you are answered"}
 		if len(unknown) > 0 {
-			out["unresolved_effects"] = unknown
+			// the declared bound, present only for work a worker is executing
+			out["signal_deadline"] = unknown[0]
 		}
 		env(200, out)
 	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/reconcile") && strings.HasPrefix(r.URL.Path, "/api/v2/tasks/"):
