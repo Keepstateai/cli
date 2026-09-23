@@ -707,6 +707,25 @@
    "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not"
   },
   {
+   "verb": "task cancel",
+   "aliases": [],
+   "usage": "ks task cancel <instruction> [--session ID] [--finding TEXT]",
+   "summary": "end one instruction: it will not run, and the instructions held behind it stay held",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the instruction belongs to; a short id is accepted when it is unique among yours"
+    },
+    {
+     "flag": "--finding TEXT",
+     "summary": "why you are cancelling it; optional, and recorded with the decision"
+    }
+   ]
+  },
+  {
    "verb": "task reconcile",
    "aliases": [],
    "usage": "ks task reconcile <instruction> [--session ID] [--finding TEXT]",

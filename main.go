@@ -218,6 +218,16 @@ var registry = []*Command{
 		Effects:  "reads one instruction, its exact words from the content store, and whether it is what holds its agent's queue. Nothing is decided, nothing is started, nothing is metered and nothing changes. Where the service recorded nothing — no held reason, no independent verification, no attempt — this says so in those words rather than filling the gap, and it never reports an instruction as verified on the strength of it having finished",
 		Examples: []string{"ks task show tsk_9c21", "ks task show tsk_9c21 --session 3f2a1c --json"},
 		Nothing:  "Nothing was read.", Run: hosted(hostedTaskShow)},
+	{Path: []string{"task", "cancel"}, Summary: "end one instruction: it will not run, and the instructions held behind it stay held", Surface: "hosted",
+		Args: []Arg{{Name: "instruction", Required: true}},
+		Flags: []Flag{
+			{Name: "session", Kind: flagString, Value: "ID", Summary: "the session the instruction belongs to; a short id is accepted when it is unique among yours"},
+			{Name: "finding", Kind: flagString, Value: "TEXT", Summary: "why you are cancelling it; optional, and recorded with the decision"},
+		},
+		Needs:    "agent.workspace",
+		Effects:  "asks the service to end ONE instruction. Queued or held work is prevented from ever dispatching, with no runner execution and no model call; active work has interruption REQUESTED through the supported runner integration, and reads `cancelling` until the real stopping outcome is known. It never claims a tool's or a provider's completed effects were undone, and unresolved effects are printed as unresolved. It is bound to the revision that was read and to the execution generation it was prepared under. It does not release the instructions held behind it, does not retry anything, does not delete the session and does not park the machine; if the instruction finished while the request was in flight, the outcome that genuinely won the race is what is reported",
+		Examples: []string{"ks task cancel tsk_9c21 --session 3f2a1c", "ks task cancel tsk_9c21 --session 3f2a1c --finding \"superseded by the rollback\""},
+		Run:      hosted(hostedTaskCancel)},
 	{Path: []string{"task", "reconcile"}, Summary: "record that a running attempt's outcome could NOT be established, after the service refused its close", Surface: "hosted",
 		Args: []Arg{{Name: "instruction", Required: true}},
 		Flags: []Flag{

@@ -505,6 +505,127 @@ func hostedTaskReconcile(cr hostedCreds, inv *Invocation) {
 }
 
 // ---------------------------------------------------------------------
+// ks task cancel — end one instruction, and say only what is established
+// ---------------------------------------------------------------------
+
+// hostedTaskCancel asks the service to cancel ONE instruction (KS-044).
+//
+// THE WHOLE DIFFICULTY IS THE WORDING, not the request. The service's own
+// vocabulary separates two things this command must never blur:
+//
+//	cancelling  cancellation has been REQUESTED and the stopping outcome is
+//	            not yet known
+//	cancelled   terminal: it will not run, and nothing resurrects it
+//
+// So this prints `cancelling` as a request whose outcome is still open, and
+// it NEVER says an external effect was undone. Work already done by a tool
+// or a provider is not reversed by asking for cancellation, and a client
+// that implies otherwise is lying about the blast radius.
+//
+// It also never claims a cancellation it did not win. If the instruction
+// finished while the request was in flight, the service returns the real
+// outcome of that race and this prints THAT, because a false "cancelled"
+// over a genuine completion is the worst answer available.
+//
+// Cancelling is not permission to continue the rest of the queue: the
+// instructions held behind this one stay held, and continuing them remains
+// a separate decision with its own command.
+func hostedTaskCancel(cr hostedCreds, inv *Invocation) {
+	sess := agentSession(cr, inv)
+	id := strings.TrimSpace(inv.Arg(0))
+	if id == "" {
+		fail(&cliError{Code: exitUsage, Kind: "usage",
+			Message:    "the id of the instruction to cancel is required",
+			NextAction: "ks task list --session " + sess.ShortID})
+	}
+	t, err := fetchTask(cr, id)
+	if err != nil {
+		die(err)
+	}
+	// the instruction must belong to the session that was named: acting on
+	// another session's work after naming this one is never what anybody meant
+	a, err := resolveAgent(cr, sess, t.AgentID)
+	if err != nil {
+		die(err)
+	}
+	rec, err := fetchSessionRecord(cr, agentSessionID(sess))
+	if err != nil {
+		die(err)
+	}
+	var env struct {
+		Data struct {
+			Task      *taskRow `json:"task"`
+			HeldTasks []string `json:"held_tasks"`
+			// RequestedBy and Note are the service's own words about what it
+			// did; they are printed verbatim and never paraphrased.
+			RequestedBy string `json:"requested_by"`
+			Note        string `json:"note"`
+			// UnresolvedEffects is what the service could NOT establish about
+			// work already in flight. It is printed as uncertainty, never
+			// summarised away.
+			UnresolvedEffects []string `json:"unresolved_effects"`
+		} `json:"data"`
+	}
+	// Bound to the revision that was read and the generation it was prepared
+	// under, so a cancellation prepared before a restore cannot land after
+	// one. Sent through the ordinary operation mechanism, so a lost reply
+	// leaves a recorded key to ask about rather than a second request.
+	body := map[string]any{"expected_revision": t.Revision, "epoch": rec.ExecutionEpoch}
+	if f := strings.TrimSpace(inv.Str("finding")); f != "" {
+		body["finding"] = f
+	}
+	if err := hostedMutate(cr, "POST", "/api/v2/tasks/"+url.PathEscape(t.ID)+"/cancel", body, &env); err != nil {
+		die(err)
+	}
+	got := env.Data.Task
+	state := ""
+	if got != nil {
+		state = got.State
+	}
+	emit(map[string]any{"task": got, "held_tasks": env.Data.HeldTasks,
+		"requested_by": env.Data.RequestedBy, "note": env.Data.Note,
+		"unresolved_effects": env.Data.UnresolvedEffects,
+		"agent":              a.Name, "session": sess.ID}, func() {
+		switch state {
+		case "cancelling":
+			fmt.Printf("instruction %s now reads %s\n", t.ID, figure(state))
+			fmt.Printf("  cancellation is REQUESTED. The stopping outcome is not established yet,\n")
+			fmt.Printf("  and this does not say the work stopped.\n")
+		case "cancelled":
+			fmt.Printf("instruction %s now reads %s\n", t.ID, figure(state))
+			fmt.Printf("  it will not run. Its identity, content and history are kept.\n")
+		case "":
+			fmt.Printf("instruction %s: the service returned no state for it\n", t.ID)
+			fmt.Printf("  nothing here claims it was cancelled.\n")
+		default:
+			// the race was lost, or it was already terminal: report what IS
+			fmt.Printf("instruction %s reads %s\n", t.ID, figure(state))
+			fmt.Printf("  this is the outcome that stands; the cancellation did not replace it.\n")
+		}
+		if len(env.Data.UnresolvedEffects) > 0 {
+			fmt.Printf("  NOT established:\n")
+			for _, u := range env.Data.UnresolvedEffects {
+				fmt.Printf("    %s\n", u)
+			}
+			fmt.Printf("  nothing above was undone; cancelling asks work to stop, it does not reverse\n")
+			fmt.Printf("  what a tool or a provider already did.\n")
+		}
+		if env.Data.RequestedBy != "" {
+			fmt.Printf("  requested by   %s\n", env.Data.RequestedBy)
+		}
+		if n := len(env.Data.HeldTasks); n > 0 {
+			fmt.Printf("  held behind it %d instruction(s): %s\n", n, strings.Join(env.Data.HeldTasks, ", "))
+			fmt.Printf("  they stay held: cancelling one instruction does not continue the rest.\n")
+			fmt.Printf("  continuing them is a separate decision: ks agent queue resume %s --session %s --finding \"...\"\n",
+				a.Name, sess.ShortID)
+		}
+		if env.Data.Note != "" {
+			fmt.Printf("  note           %s\n", env.Data.Note)
+		}
+	})
+}
+
+// ---------------------------------------------------------------------
 // attempts and saved points: read, never composed
 // ---------------------------------------------------------------------
 

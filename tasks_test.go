@@ -490,3 +490,150 @@ func TestTaskShowDoesNotDenyAHistoryItIsAboutToPrint(t *testing.T) {
 		t.Errorf("the screen denies a history it prints two lines later:\n%s", out)
 	}
 }
+
+// ---------------------------------------------------------------------
+// KS-044: ks task cancel. The request is the easy half; the WORDING is the
+// half that can lie, so most of what follows is about what is printed.
+// ---------------------------------------------------------------------
+
+// The route the client calls must be the one the service declares. This
+// pins it, so a divergence between the two slices fails in the client's own
+// suite rather than as a 404 during acceptance on the integrated candidate.
+func TestTaskCancelUsesTheRouteTheRegistryPublishes(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	_, _, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg),
+		"task", "cancel", recoveryBlocking, "--session", agentSessionShort)
+	if code != 0 {
+		t.Fatalf("task cancel: exit %d", code)
+	}
+	if got := len(c.sentCancels()); got != 1 {
+		t.Fatalf("cancels sent: %d, want exactly 1", got)
+	}
+	want := "POST /api/v2/tasks/" + recoveryBlocking + "/cancel"
+	found := false
+	for _, req := range c.seen() {
+		if strings.HasPrefix(req, want) {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the client did not call %q; it called %v", want, c.seen())
+	}
+	assertOnlyPublishedRoutes(t, c.seen())
+}
+
+// Bound to what was read, and sent once. A cancellation prepared before a
+// restore must not land after one, and a second request is a second chance
+// to duplicate work.
+func TestTaskCancelIsBoundToRevisionAndGenerationAndSentOnce(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	if _, _, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg),
+		"task", "cancel", recoveryBlocking, "--session", agentSessionShort); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	sent := c.sentCancels()
+	if len(sent) != 1 {
+		t.Fatalf("cancels sent: %v", sent)
+	}
+	for _, want := range []string{`"expected_revision"`, `"epoch"`} {
+		if !strings.Contains(sent[0], want) {
+			t.Errorf("the cancellation was not bound by %s: %s", want, sent[0])
+		}
+	}
+}
+
+// `cancelling` means the stopping outcome is NOT known. The client must say
+// so, and must never say a tool's or a provider's completed work was undone.
+func TestTaskCancelWordsCancellingAsARequestAndNeverClaimsAnUndo(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	c.mu.Lock()
+	c.cancelState = "cancelling"
+	c.cancelUnknown = []string{"a file write that was already sent to the tool"}
+	c.mu.Unlock()
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg),
+		"task", "cancel", recoveryBlocking, "--session", agentSessionShort)
+	if code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	for _, want := range []string{"cancelling", "REQUESTED", "not established yet",
+		"does not say the work stopped", "NOT established",
+		"a file write that was already sent to the tool", "nothing above was undone"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("a requested cancellation did not say %q:\n%s", want, out)
+		}
+	}
+	// A substring check cannot tell a claim from its denial: the client's own
+	// honest line is "nothing above was undone", which contains "was undone".
+	// So each phrase is judged per LINE, and a line carrying a negator is the
+	// disclaimer rather than the claim. The first version of this test failed
+	// on the client's correct wording.
+	for _, never := range []string{"was undone", "reversed", "rolled back", "the work stopped"} {
+		for _, line := range strings.Split(out, "\n") {
+			if !strings.Contains(line, never) {
+				continue
+			}
+			negated := false
+			for _, n := range []string{"nothing", "not ", "never", "does not", "no "} {
+				if strings.Contains(strings.ToLower(line), n) {
+					negated = true
+					break
+				}
+			}
+			if !negated {
+				t.Errorf("the client claimed %q, which it cannot know:\n%s", never, line)
+			}
+		}
+	}
+}
+
+// A completion that genuinely won the race is the outcome that stands. A
+// false "cancelled" over real work is the worst answer available.
+func TestTaskCancelDoesNotClaimACancellationItLost(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	c.mu.Lock()
+	c.cancelState = "succeeded"
+	c.mu.Unlock()
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg),
+		"task", "cancel", recoveryBlocking, "--session", agentSessionShort)
+	if code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	if !strings.Contains(out, "succeeded") || !strings.Contains(out, "the cancellation did not replace it") {
+		t.Errorf("a lost race was not reported as the outcome that stands:\n%s", out)
+	}
+	if strings.Contains(out, "it will not run") {
+		t.Errorf("the client called a completed instruction cancelled:\n%s", out)
+	}
+}
+
+// Cancelling one instruction is not permission to continue the rest.
+func TestTaskCancelLeavesTheHeldQueueHeldAndSaysSo(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg),
+		"task", "cancel", recoveryBlocking, "--session", agentSessionShort)
+	if code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	for _, want := range []string{"held behind it 2", "they stay held",
+		"does not continue the rest", "ks agent queue resume"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("cancelling did not say the held queue stays held (%q):\n%s", want, out)
+		}
+	}
+	if d := c.sentDecisions(); len(d) != 0 {
+		t.Errorf("cancelling sent a queue decision: %v", d)
+	}
+}
+
+// No instruction named, nothing sent.
+func TestTaskCancelRefusesWithoutAnInstructionAndSendsNothing(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg),
+		"task", "cancel", "--session", agentSessionShort)
+	if code == 0 {
+		t.Fatalf("a cancellation with no instruction succeeded:\n%s%s", out, errs)
+	}
+	if got := len(c.sentCancels()); got != 0 {
+		t.Errorf("it sent %d cancellation(s) without an instruction", got)
+	}
+}

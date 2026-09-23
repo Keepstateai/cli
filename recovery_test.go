@@ -60,6 +60,13 @@ type recoveryCtl struct {
 	restores      []string // the restore bodies this control plane received
 	restoreScope  []string // work a restore would affect; non-empty refuses without consent
 	reconciles    []string // the reconcile bodies this control plane received
+	cancels       []string // the cancel bodies this control plane received
+	// what the service answers a cancel with. Cancellation has more than
+	// one truthful answer -- requested-but-not-yet-stopped, terminal, and
+	// "you lost the race to a real completion" -- and the client has to
+	// word all three differently, so the fixture can produce each.
+	cancelState   string
+	cancelUnknown []string
 	attempts      []map[string]any
 	refusedCloses int    // task.finish_refused events the journal carries
 	eventsFault   string // the typed refusal the journal route answers with
@@ -110,6 +117,12 @@ func (c *recoveryCtl) sentReconciles() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return append([]string(nil), c.reconciles...)
+}
+
+func (c *recoveryCtl) sentCancels() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.cancels...)
 }
 
 func (c *recoveryCtl) sentDecisions() []string {
@@ -407,6 +420,33 @@ func (c *recoveryCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"new_epoch": newEpoch, "superseded_attempts": []string{"att_2"}, "hold_id": "hold_1",
 			"scope": "the WHOLE session returns to that moment",
 			"note":  "dispatch is held; nothing was started"})
+	// POST /api/v2/tasks/{id}/cancel -- KS-044. This fixture must match the
+	// path the SERVICE declares in its registry; TestTaskCancelUsesTheRoute
+	// pins it so a divergence fails here rather than at acceptance.
+	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/cancel") && strings.HasPrefix(r.URL.Path, "/api/v2/tasks/"):
+		raw, _ := readAllBody(r)
+		c.mu.Lock()
+		c.cancels = append(c.cancels, string(raw))
+		st, unknown := c.cancelState, append([]string(nil), c.cancelUnknown...)
+		c.mu.Unlock()
+		if st == "" {
+			st = "cancelled"
+		}
+		row := map[string]any{}
+		for _, t := range recoveryTaskRows {
+			if t["id"] == strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/v2/tasks/"), "/cancel") {
+				for k, v := range t {
+					row[k] = v
+				}
+			}
+		}
+		row["state"] = st
+		out := map[string]any{"task": row, "held_tasks": []string{"tsk_3", "tsk_4"},
+			"requested_by": "acct_1"}
+		if len(unknown) > 0 {
+			out["unresolved_effects"] = unknown
+		}
+		env(200, out)
 	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/reconcile") && strings.HasPrefix(r.URL.Path, "/api/v2/tasks/"):
 		raw, _ := readAllBody(r)
 		c.mu.Lock()
