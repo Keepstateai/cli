@@ -17,15 +17,19 @@ import (
 )
 
 type inventoryRow struct {
-	ID               string `json:"id"`
-	ShortID          string `json:"short_id"`
-	Name             string `json:"name"`
-	RuntimeState     string `json:"runtime_state"`
-	FleetState       string `json:"fleet_state"`
-	Image            string `json:"image"`
-	Parent           string `json:"parent,omitempty"`
-	BudgetTokens     int64  `json:"budget_tokens"`
-	ExecutionEpoch   int64  `json:"execution_epoch"`
+	ID             string `json:"id"`
+	ShortID        string `json:"short_id"`
+	Name           string `json:"name"`
+	RuntimeState   string `json:"runtime_state"`
+	FleetState     string `json:"fleet_state"`
+	Image          string `json:"image"`
+	Parent         string `json:"parent,omitempty"`
+	BudgetTokens   int64  `json:"budget_tokens"`
+	ExecutionEpoch int64  `json:"execution_epoch"`
+	// Revision is the record's concurrency token. A decision that changes a
+	// session is bound to the revision it was prepared against, so one
+	// prepared before something moved cannot land after it.
+	Revision         int64  `json:"revision"`
 	CreatedAt        string `json:"created_at"`
 	LastActivityAt   string `json:"last_activity_at"`
 	LastCheckpointID string `json:"last_checkpoint_id,omitempty"`

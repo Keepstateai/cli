@@ -1,5 +1,5 @@
 name: npm-sabotage
-# The trusted-publishing sabotage (founder order 2026-09-04, item 4):
+# The trusted-publishing sabotage (release policy 2026-09-04, item 4):
 # this workflow attempts an npm publish with a VALID GitHub OIDC token
 # whose job_workflow_ref names THIS file, not release.yml. npm's trusted
 # publisher pins release.yml, so the exchange must be refused and

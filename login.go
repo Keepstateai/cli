@@ -2,7 +2,7 @@
 // The token is printed NEVER — not on success, not on error. It lands in
 // the OS credential store: macOS Keychain via security(1); elsewhere a
 // 0600 file in a 0700 dir (the Linux bench and CI have no keychain
-// daemon). ADR-012 decision 5 governs custody.
+// daemon). The project's credential-custody decision governs this.
 package main
 
 import (

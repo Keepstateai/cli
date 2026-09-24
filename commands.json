@@ -452,6 +452,297 @@
      "summary": "the provider the run will use (default anthropic)"
     }
    ]
+  },
+  {
+   "verb": "agent list",
+   "aliases": [],
+   "usage": "ks agent list [--session ID]",
+   "summary": "the agents of a session: name, id, activity, role, current task",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agents live in; a short id is accepted when it is unique among yours"
+    }
+   ]
+  },
+  {
+   "verb": "agent open",
+   "aliases": [],
+   "usage": "ks agent open <name> [--session ID] [--take-control] [--no-follow]",
+   "summary": "the agent window: its state, then its events as they happen",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+    },
+    {
+     "flag": "--take-control",
+     "summary": "take the control lease from the window that holds it; without it a held agent is refused, never taken"
+    },
+    {
+     "flag": "--no-follow",
+     "summary": "print the window's current state and exit, following nothing"
+    }
+   ]
+  },
+  {
+   "verb": "agent status",
+   "aliases": [],
+   "usage": "ks agent status <name> [--session ID]",
+   "summary": "one agent's activity, queue depth and current task",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+    }
+   ]
+  },
+  {
+   "verb": "agent tell",
+   "aliases": [],
+   "usage": "ks agent tell <name> <instruction> [--session ID]",
+   "summary": "queue one instruction for an agent from outside any window",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+    }
+   ]
+  },
+  {
+   "verb": "agent queue show",
+   "aliases": [],
+   "usage": "ks agent queue show <name> [--session ID]",
+   "summary": "why an agent's queue is not moving: what blocks it, what waits behind it, what each choice would do",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+    }
+   ]
+  },
+  {
+   "verb": "agent queue resume",
+   "aliases": [],
+   "usage": "ks agent queue resume <name> [--session ID] [--finding TEXT]",
+   "summary": "continue the instructions held behind a failed or unresolved one; that one is never restarted",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+    },
+    {
+     "flag": "--finding TEXT",
+     "summary": "what you established about the blocked instruction; required, and recorded with the decision"
+    }
+   ]
+  },
+  {
+   "verb": "agent queue hold",
+   "aliases": [],
+   "usage": "ks agent queue hold <name> [--session ID] [--finding TEXT]",
+   "summary": "record that an agent's queue stays held, and what you established",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+    },
+    {
+     "flag": "--finding TEXT",
+     "summary": "what you established about the blocked instruction; required, and recorded with the decision"
+    }
+   ]
+  },
+  {
+   "verb": "task resume",
+   "aliases": [],
+   "usage": "ks task resume <instruction> [--session ID] [--checkpoint ID] [--finding TEXT] [--accept-affected DIGEST]",
+   "summary": "run one blocked instruction again as a new attempt from a saved point you name; it never continues the rest of the queue instead",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available. Measured: with no --checkpoint it lists the session's restorable saved points and refuses, sending nothing; with one it restores from THAT saved point only, never substituting another, and it releases no held instruction on any path",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the instruction belongs to; a short id is accepted when it is unique among yours"
+    },
+    {
+     "flag": "--checkpoint ID",
+     "summary": "the saved point to start the new attempt from; required, and never chosen for you"
+    },
+    {
+     "flag": "--finding TEXT",
+     "summary": "why you are running it again; required, and recorded with the restore"
+    },
+    {
+     "flag": "--accept-affected DIGEST",
+     "summary": "the digest the service printed with the exact list of other work a restore would return to that moment; consent is bound to that list and never to the word yes"
+    }
+   ]
+  },
+  {
+   "verb": "agent approve",
+   "aliases": [],
+   "usage": "ks agent approve <request> [--session ID]",
+   "summary": "approve one permission request an agent is waiting on, by its id",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the request belongs to; a short id is accepted when it is unique among yours"
+    }
+   ]
+  },
+  {
+   "verb": "agent deny",
+   "aliases": [],
+   "usage": "ks agent deny <request> [--session ID]",
+   "summary": "deny one permission request an agent is waiting on, by its id",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the request belongs to; a short id is accepted when it is unique among yours"
+    }
+   ]
+  },
+  {
+   "verb": "agent pause",
+   "aliases": [],
+   "usage": "ks agent pause <name> [--session ID]",
+   "summary": "save the session an agent lives in and park it, waiting until it is parked",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+    }
+   ]
+  },
+  {
+   "verb": "agent resume",
+   "aliases": [],
+   "usage": "ks agent resume <name> [--session ID]",
+   "summary": "resume the parked session an agent lives in, waiting out a save that is still completing",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+    }
+   ]
+  },
+  {
+   "verb": "task list",
+   "aliases": [
+    "task ls"
+   ],
+   "usage": "ks task list [--session ID] [--agent NAME]",
+   "summary": "the instructions of a session's agents, in the order they were committed",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session whose instructions to read; a short id is accepted when it is unique among yours"
+    },
+    {
+     "flag": "--agent NAME",
+     "summary": "read one agent's queue instead of every agent's"
+    }
+   ]
+  },
+  {
+   "verb": "task show",
+   "aliases": [],
+   "usage": "ks task show <instruction> [--session ID]",
+   "summary": "one instruction in full: where it sits, what it says, what it last reported and what attempt exists",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "refuse unless the instruction belongs to this session; optional, and only ever a guard"
+    }
+   ]
+  },
+  {
+   "verb": "session checkpoints",
+   "aliases": [],
+   "usage": "ks session checkpoints <session>",
+   "summary": "the saved points a restore may be named against: boundary, state, scope and manifest identity",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not"
+  },
+  {
+   "verb": "task cancel",
+   "aliases": [],
+   "usage": "ks task cancel <instruction> [--session ID] [--reason TEXT]",
+   "summary": "end one instruction: it will not run, and the instructions held behind it stay held",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the instruction belongs to; a short id is accepted when it is unique among yours"
+    },
+    {
+     "flag": "--reason TEXT",
+     "summary": "why you are cancelling it; optional, and recorded with the request"
+    }
+   ]
+  },
+  {
+   "verb": "task reconcile",
+   "aliases": [],
+   "usage": "ks task reconcile <instruction> [--session ID] [--finding TEXT]",
+   "summary": "record that a running attempt's outcome could NOT be established, after the service refused its close",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the instruction belongs to; a short id is accepted when it is unique among yours"
+    },
+    {
+     "flag": "--finding TEXT",
+     "summary": "what you established about the attempt; required, and recorded with the decision"
+    }
+   ]
   }
  ]
 }

@@ -1,13 +1,40 @@
 name: release
-# Public CI builds and publishes every release (ADR-021, founder order
+# Public CI builds and publishes every release (release policy,
 # 2026-09-03): one tag push produces the four platform binaries with
 # SHA256SUMS and build-provenance attestations, the GitHub release, the
 # npm package (via OIDC trusted publishing — NO npm token anywhere), and
 # the Homebrew tap formula bump. What a stranger runs is what this public
 # source built.
+#
+# Publication gate (2026-09-20): a release runs only under a publication
+# attestation bound to the exact source tree and to the checksums the
+# build must reproduce. The gate itself runs privately on the builder and
+# its rules are not in this public file; its result travels as the
+# annotated tag's message, one line:
+#
+#   ks-publication-gate: status=PASS tree=<git tree sha1> checker=<12 hex> rules=<version> sums=<sha256 of SHA256SUMS | none>
+#
+# The gate job refuses to build when that line is absent, is not PASS or
+# names another tree than the tagged one; the build job refuses to release
+# when the SHA256SUMS it produced hash differently from the attested value.
+# A rehearsal (manual dispatch, never a tag) runs the same jobs with the
+# attestation given as an input and publishes nothing; it exists to prove
+# the refusal paths on the real workflow with faults injected.
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      attestation:
+        description: 'REHEARSAL ONLY: the ks-publication-gate line to test the workflow against (nothing is published)'
+        required: false
+        default: ''
+      fault:
+        description: 'REHEARSAL ONLY: absent | status-fail | tree-mismatch | sums-mismatch | none'
+        required: false
+        default: none
+        type: choice
+        options: [none, absent, status-fail, tree-mismatch, sums-mismatch]
 
 permissions:
   contents: write
@@ -15,21 +42,129 @@ permissions:
   attestations: write
 
 jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      sums: ${{ steps.att.outputs.sums }}
+      rehearsal: ${{ steps.att.outputs.rehearsal }}
+      publishing: ${{ steps.att.outputs.publishing }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Read the publication attestation bound to this tree
+        id: att
+        env:
+          ATT_INPUT: ${{ inputs.attestation }}
+          FAULT: ${{ inputs.fault }}
+        run: |
+          set -eu
+          # A v* TAG PUSH is the only publishing trigger. A rehearsal is only
+          # ever a manual dispatch, and a publishing trigger can never select
+          # rehearsal behaviour (checked explicitly below).
+          PUBLISHING=false; REHEARSAL=false
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then PUBLISHING=true; fi
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            REHEARSAL=true; ATT="$ATT_INPUT"
+            case "${FAULT:-none}" in
+              absent)        ATT="" ;;
+              status-fail)   ATT=$(printf '%s' "$ATT" | sed 's/status=PASS/status=FAIL/') ;;
+              tree-mismatch) ATT=$(printf '%s' "$ATT" | sed -E 's/tree=[0-9a-f]{40}/tree=0000000000000000000000000000000000000000/') ;;
+              sums-mismatch) ATT=$(printf '%s' "$ATT" | sed -E 's/sums=[0-9a-f]{64}|sums=none/sums=1111111111111111111111111111111111111111111111111111111111111111/') ;;
+              none) ;;
+              *) echo "::error::unknown fault"; exit 1 ;;
+            esac
+            [ "${FAULT:-none}" = none ] || echo "rehearsal fault injected: $FAULT"
+          else
+            git fetch --force --tags origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME" >/dev/null 2>&1 || true
+            ATT="$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME")"
+          fi
+          if [ "$PUBLISHING" = "true" ] && [ "$REHEARSAL" = "true" ]; then
+            echo "::error::publication gate: a publishing trigger cannot run in rehearsal mode"; exit 1
+          fi
+          # EXACTLY ONE approval line. Zero is unapproved; more than one is an
+          # ambiguous approval and must never be resolved by taking the first.
+          COUNT=$(printf '%s\n' "$ATT" | grep -c '^ks-publication-gate:' || true)
+          if [ "$COUNT" != "1" ]; then
+            echo "::error::publication gate: expected exactly one ks-publication-gate approval line, found $COUNT; nothing is built or published"
+            exit 1
+          fi
+          LINE=$(printf '%s\n' "$ATT" | grep '^ks-publication-gate:')
+          # every mandatory field exactly once: a repeated field is ambiguous
+          for f in status tree checker rules sums; do
+            n=$(printf '%s' "$LINE" | grep -o "[[:space:]]$f=" | wc -l | tr -d ' ')
+            if [ "$n" != "1" ]; then
+              echo "::error::publication gate: field '$f' appears $n time(s) in the approval; exactly one is required"
+              exit 1
+            fi
+          done
+          field() { printf '%s' "$LINE" | sed -nE "s/.*[[:space:]]$1=([^[:space:]]+).*/\1/p"; }
+          STATUS=$(field status); TREE=$(field tree); CHECKER=$(field checker); RULES=$(field rules); SUMS=$(field sums)
+          TREE_NOW=$(git rev-parse 'HEAD^{tree}')
+          [ "$STATUS" = "PASS" ] || { echo "::error::publication gate: attestation status is '${STATUS:-missing}', not PASS; nothing is built or published"; exit 1; }
+          [ "$TREE" = "$TREE_NOW" ] || { echo "::error::publication gate: the attestation names another source tree; nothing is built or published"; exit 1; }
+          # R-GATE-01: a PUBLISHING run is bound to the exact checked binaries.
+          # There is no 'none' escape: absent, empty, none or malformed blocks
+          # here, before anything is built or published.
+          if [ "$PUBLISHING" = "true" ]; then
+            if ! printf '%s' "$SUMS" | grep -qE '^[0-9a-f]{64}$'; then
+              echo "::error::publication gate: a publishing run requires sums=<sha256 of SHA256SUMS>; got '${SUMS:-missing}'; nothing is built or published"
+              exit 1
+            fi
+          else
+            printf '%s' "$SUMS" | grep -qE '^([0-9a-f]{64}|none)$' || { echo "::error::publication gate: malformed sums field"; exit 1; }
+          fi
+          echo "sums=$SUMS" >> "$GITHUB_OUTPUT"
+          echo "rehearsal=$REHEARSAL" >> "$GITHUB_OUTPUT"
+          echo "publishing=$PUBLISHING" >> "$GITHUB_OUTPUT"
+          echo "publication gate: PASS for tree $TREE_NOW (checker $CHECKER, rules $RULES, attested sums ${SUMS%${SUMS#????????????????}}); publishing=$PUBLISHING rehearsal=$REHEARSAL"
+
+      # AUTHORITY (review item 2): a status=PASS line is a declaration, not
+      # proof that the authorized private gate ran. A publishing run therefore
+      # requires the approval to be carried by a tag SIGNED by an authorized
+      # approver. The allowed signers are configured once by the owner in the
+      # repository variable KS_RELEASE_ALLOWED_SIGNERS (ssh allowed_signers
+      # format). Absent that configuration a publishing run FAILS CLOSED: the
+      # authority control is unconfigured, so no publication is authorized.
+      - name: The approval must be signed by an authorized approver
+        if: steps.att.outputs.publishing == 'true'
+        env:
+          ALLOWED: ${{ vars.KS_RELEASE_ALLOWED_SIGNERS }}
+        run: |
+          set -eu
+          if [ -z "${ALLOWED:-}" ]; then
+            echo "::error::publication gate: KS_RELEASE_ALLOWED_SIGNERS is not configured, so the approver authority control cannot be verified; nothing is published. Configure the allowed signers once before the first release."
+            exit 1
+          fi
+          printf '%s\n' "$ALLOWED" > /tmp/ks-allowed-signers
+          git config gpg.ssh.allowedSignersFile /tmp/ks-allowed-signers
+          git config gpg.format ssh
+          if ! git verify-tag "$GITHUB_REF_NAME" 2>/tmp/ks-verify.err; then
+            echo "::error::publication gate: the tag's approval is not signed by an authorized approver; nothing is published"
+            sed -E 's/[A-Za-z0-9+\/]{40,}/[redacted]/g' /tmp/ks-verify.err || true
+            exit 1
+          fi
+          echo "approval signature verified against the configured authorized approvers"
+
   build:
+    needs: gate
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.ver.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+      # pinned exactly so the builder reproduces the same bytes (and the
+      # attested checksums) with GOTOOLCHAIN=go1.22.12
       - uses: actions/setup-go@v5
-        with: { go-version: "1.22" }
+        with: { go-version: "1.22.12" }
       - name: Test (manifest drift fails the release)
         run: go test ./...
       - id: ver
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then echo "version=0.0.0-rehearsal" >> "$GITHUB_OUTPUT"; else echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"; fi
       - name: Build all platforms
         run: |
           set -eu
+          go version
           mkdir -p dist
           for target in darwin/arm64 darwin/amd64 linux/arm64 linux/amd64; do
             GOOS=${target%/*} GOARCH=${target#*/} CGO_ENABLED=0 \
@@ -37,11 +172,40 @@ jobs:
               -o "dist/ks-${target%/*}-${target#*/}" .
           done
           cd dist && sha256sum ks-* > SHA256SUMS && cat SHA256SUMS
+      - name: Bind the built checksums to the attestation
+        env:
+          ATTESTED: ${{ needs.gate.outputs.sums }}
+          PUBLISHING: ${{ needs.gate.outputs.publishing }}
+        run: |
+          set -eu
+          BUILT=$(sha256sum dist/SHA256SUMS | cut -d' ' -f1)
+          echo "built SHA256SUMS digest $BUILT; attested ${ATTESTED:-missing} (publishing=${PUBLISHING:-false})"
+          # R-GATE-01: on a publishing run the comparison is UNCONDITIONAL.
+          # There is no value of the approval that skips it.
+          if [ "${PUBLISHING:-false}" = "true" ]; then
+            if ! printf '%s' "${ATTESTED:-}" | grep -qE '^[0-9a-f]{64}$'; then
+              echo "::error::publication gate: a publishing run requires an attested SHA256SUMS digest; nothing is published"
+              exit 1
+            fi
+            if [ "$BUILT" != "$ATTESTED" ]; then
+              echo "::error::publication gate: the built checksums differ from the attested ones (toolchain or source drift); nothing is published"
+              exit 1
+            fi
+          elif [ "${ATTESTED:-none}" != "none" ] && [ "$BUILT" != "$ATTESTED" ]; then
+            echo "::error::rehearsal: the built checksums differ from the supplied digest"
+            exit 1
+          fi
+      - name: 'REHEARSAL: the gate and the build ran; no publication step is executed'
+        if: needs.gate.outputs.rehearsal == 'true'
+        run: |
+          echo "REHEARSAL STOP: no attestation upload, no release, no npm publish, no tap bump"
       - name: Attest build provenance
+        if: needs.gate.outputs.rehearsal != 'true'
         uses: actions/attest-build-provenance@v1
         with:
           subject-path: "dist/ks-*"
       - name: Create release
+        if: needs.gate.outputs.rehearsal != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -55,14 +219,15 @@ jobs:
   # npmjs.com. A run from a fork, a branch, or another workflow presents a
   # different claim and is refused — that IS the sabotage guarantee.
   npm:
-    needs: build
+    needs: [gate, build]
+    if: needs.gate.outputs.rehearsal != 'true'
     runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: read
     steps:
       - uses: actions/checkout@v4
-      # Trusted-publishing debug (founder order 2026-09-04): decode the OIDC
+      # Trusted-publishing debug (release policy 2026-09-04): decode the OIDC
       # token the runner would present and print ONLY the claims the npmjs.com
       # trusted-publisher form matches against. The token value itself is
       # never printed (it stays in a shell variable; only four decoded claims
@@ -75,7 +240,7 @@ jobs:
           payload=$(printf '%s' "$resp" | jq -r '.value' | cut -d. -f2 | tr '_-' '/+')
           case $(( ${#payload} % 4 )) in 2) payload="$payload==";; 3) payload="$payload=";; esac
           printf '%s' "$payload" | base64 -d | jq '{repository, job_workflow_ref, ref, environment}'
-      # NO registry-url (founder order item 4): setup-node's registry-url
+      # NO registry-url (release policy item 4): setup-node's registry-url
       # writes an .npmrc authToken placeholder, and trusted publishing needs
       # no NODE_AUTH_TOKEN at all.
       - uses: actions/setup-node@v4
@@ -97,7 +262,8 @@ jobs:
   # tap repo (secret HOMEBREW_TAP_TOKEN). Absent secret => skipped with a
   # notice, never a silent no-op.
   brew:
-    needs: build
+    needs: [gate, build]
+    if: needs.gate.outputs.rehearsal != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Guard on the tap token
