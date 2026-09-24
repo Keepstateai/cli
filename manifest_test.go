@@ -249,3 +249,51 @@ func TestProvenanceOfStatedFacts(t *testing.T) {
 		t.Error("no verb states budgetDefaults; the per-tier budgets are a ruled entry (DEC-01 finding 3)")
 	}
 }
+
+// TestManifestDeclaresTheGlobalFlags: commands.json lists the flags every
+// command accepts, exactly as output.go's globalFlags defines them.
+//
+// Written 2026-09-24. v0.1.9's manifest listed each verb's own flags and
+// none of the global ones, so a downstream reader could not tell that
+// `ks meter <session> --json` is valid: the website's docs lint refused a
+// correct instruction because nothing it could read said --json exists.
+// A flag the binary accepts and the manifest omits is a statement the
+// manifest fails to make; this holds the two together in both directions.
+func TestManifestDeclaresTheGlobalFlags(t *testing.T) {
+	raw, err := os.ReadFile("commands.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m struct {
+		GlobalFlags []struct {
+			Flag    string `json:"flag"`
+			Summary string `json:"summary"`
+		} `json:"globalFlags"`
+	}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	if len(m.GlobalFlags) == 0 {
+		t.Fatal("commands.json declares no globalFlags; every command accepts output.go's globalFlags and the manifest must say so")
+	}
+	want := map[string]string{}
+	for _, f := range globalFlags {
+		want[f.render()] = f.Summary
+	}
+	got := map[string]string{}
+	for _, f := range m.GlobalFlags {
+		got[f.Flag] = f.Summary
+	}
+	for k, v := range want {
+		if g, ok := got[k]; !ok {
+			t.Errorf("the binary accepts global flag %q and commands.json does not declare it", k)
+		} else if g != v {
+			t.Errorf("global flag %q: manifest says %q, output.go says %q", k, g, v)
+		}
+	}
+	for k := range got {
+		if _, ok := want[k]; !ok {
+			t.Errorf("commands.json declares global flag %q the binary does not accept", k)
+		}
+	}
+}

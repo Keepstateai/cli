@@ -1,6 +1,36 @@
 {
- "$comment": "The machine-readable command manifest of ks. One row per verb the binary dispatches; manifest_test.go fails the build if this file and the source disagree in either direction. Downstream (keepstate.ai/docs/cli and its verb-count lint) renders FROM this file and must never hand-type a verb. Rows may carry `safety` (a refusal the product makes on the customer's behalf, which the docs page renders as the safety property it is) and `budgetDefaults` (the per-tier session token budget). Both are DESCRIPTIONS OF MEASURED OR SOURCED BEHAVIOUR, and manifest_test.go fails if a row states one without saying where the number came from. A two-word verb (`cruise init`) is a subcommand: the first word is the case arm in main.go, the second the case arm in cruise.go's runCruise; both directions are checked. Rows may carry `flags`, one entry per flag with its one-line meaning.",
+ "$comment": "The machine-readable command manifest of ks. One row per verb the binary dispatches; manifest_test.go fails the build if this file and the source disagree in either direction. Downstream (keepstate.ai/docs/cli and its verb-count lint) renders FROM this file and must never hand-type a verb. Rows may carry `safety` (a refusal the product makes on the customer's behalf, which the docs page renders as the safety property it is) and `budgetDefaults` (the per-tier session token budget). Both are DESCRIPTIONS OF MEASURED OR SOURCED BEHAVIOUR, and manifest_test.go fails if a row states one without saying where the number came from. A two-word verb (`cruise init`) is a subcommand: the first word is the case arm in main.go, the second the case arm in cruise.go's runCruise; both directions are checked. Rows may carry `flags`, one entry per flag with its one-line meaning. `globalFlags` lists the flags every verb accepts after its own options, exactly as output.go defines them; manifest_test.go fails if the two differ in either direction.",
  "schema": 1,
+ "globalFlags": [
+  {
+   "flag": "--json",
+   "summary": "stable JSON on stdout: schema_version, request_id, data or error; progress stays on stderr"
+  },
+  {
+   "flag": "--plain",
+   "summary": "one fact per line, no alignment or colour (the human output is already plain; this pins it)"
+  },
+  {
+   "flag": "--no-color",
+   "summary": "no colour codes (this release prints none; accepted so scripts can pass it)"
+  },
+  {
+   "flag": "--quiet",
+   "summary": "no progress lines on stderr; results and errors still print"
+  },
+  {
+   "flag": "--no-input",
+   "summary": "never prompt or open a browser; a decision that needs you fails with exit 2 and the flag to pass"
+  },
+  {
+   "flag": "--yes",
+   "summary": "skip a displayed non-destructive confirmation when every input is already exact; never a deletion plan, grant, budget, approval or trust"
+  },
+  {
+   "flag": "--wait-timeout DURATION",
+   "summary": "how long to wait for an accepted operation before reporting it as continuing; default 120s"
+  }
+ ],
  "commands": [
   {
    "verb": "login",
