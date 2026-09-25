@@ -9,6 +9,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -309,7 +310,7 @@ func hostedPreflight(cr hostedCreds, inv *Invocation) {
 		}
 	}
 	emit(map[string]any{"service": d, "workspace": local}, func() {
-		fmt.Printf("account %v (%v) · credit %s %v · registry %v\n", d["account_id"], d["cohort_state"], figure(d["credit_microusd"]), d["currency"], d["registry_version"])
+		fmt.Printf("account %v (%v) · credit %s · registry %v\n", d["account_id"], d["cohort_state"], microdollars(d["credit_microusd"]), d["registry_version"])
 		if keys, ok := d["keys"].([]any); ok {
 			fmt.Printf("keys: %d\n", len(keys))
 		}
@@ -335,4 +336,26 @@ func hostedPreflight(cr hostedCreds, inv *Invocation) {
 			fmt.Println("not ready; clear the blockers above")
 		}
 	})
+}
+
+// microdollars renders a possibly-absent microdollar amount as dollars:
+// -31673162 is -$31.673162, a missing value is "unavailable". The service
+// reports credit in microdollars; printing that integer beside the
+// currency code read a -$31.67 balance as "-31,673,162 USD".
+func microdollars(v any) string {
+	switch n := v.(type) {
+	case nil:
+		return "unavailable"
+	case float64:
+		return dollars(int64(n))
+	case int64:
+		return dollars(n)
+	case int:
+		return dollars(int64(n))
+	case json.Number:
+		if i, err := n.Int64(); err == nil {
+			return dollars(i)
+		}
+	}
+	return "unavailable"
 }
