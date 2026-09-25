@@ -20,6 +20,9 @@ import (
 type inventoryCtl struct {
 	n     int
 	pages atomic.Int32 // read by the test while the server may still be serving
+	// noFleetState answers the way the service has since 2026-09-20: rows
+	// carry no fleet_state (the engine's own vocabulary is not exposed).
+	noFleetState bool
 }
 
 func (c *inventoryCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -59,6 +62,9 @@ func (c *inventoryCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			items = append(items, map[string]any{"id": id, "short_id": id[:10], "name": id[:6], "runtime_state": state, "fleet_state": state, "image": "base",
 				"budget_tokens": 500000, "execution_epoch": 1, "created_at": "2026-09-20T00:00:00Z", "last_activity_at": fmt.Sprintf("2026-09-20T10:%02d:00Z", i%60),
 				"last_checkpoint_id": map[bool]string{true: "ckpt_1", false: ""}[i%3 == 1], "agent_activity": activity, "task_state": task, "key_alias": "unavailable", "observed_at": "2026-09-20T12:00:00Z"})
+			if c.noFleetState {
+				delete(items[len(items)-1], "fleet_state")
+			}
 		}
 		next := ""
 		if start+limit < c.n {
@@ -175,4 +181,28 @@ func TestSessionListEmptyStateAndCapabilityGate(t *testing.T) {
 		t.Errorf("without the capability: %d %s", code, errs)
 	}
 	_ = url.Values{}
+}
+
+// TestSessionShowPrintsNoBlankFleetState: the service stopped exposing the
+// engine's own state word (its inventory test forbids fleet_state), but
+// `ks session show` kept printing "state running (fleet: )" with an empty
+// value, and its --json re-emitted "fleet_state":"". Found against
+// production on 2026-09-25. A value the service does not send is not shown.
+func TestSessionShowPrintsNoBlankFleetState(t *testing.T) {
+	c := &inventoryCtl{n: 2, noFleetState: true}
+	srv := httptest.NewServer(c)
+	defer srv.Close()
+	bin, cfg := buildAndAuth(t, srv)
+	id := fmt.Sprintf("%08x%024x", 0, 0)
+	out, _, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "session", "show", id)
+	if code != 0 {
+		t.Fatalf("show: %d %s", code, out)
+	}
+	if strings.Contains(out, "(fleet: )") {
+		t.Errorf("session show prints an empty fleet state:\n%s", out)
+	}
+	js, _, _ := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "session", "show", id, "--json")
+	if strings.Contains(js, `"fleet_state":""`) {
+		t.Errorf("session show --json emits an empty fleet_state: %s", js)
+	}
 }

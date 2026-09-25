@@ -21,7 +21,7 @@ type inventoryRow struct {
 	ShortID        string `json:"short_id"`
 	Name           string `json:"name"`
 	RuntimeState   string `json:"runtime_state"`
-	FleetState     string `json:"fleet_state"`
+	FleetState     string `json:"fleet_state,omitempty"` // no longer sent by the service; shown only when present
 	Image          string `json:"image"`
 	Parent         string `json:"parent,omitempty"`
 	BudgetTokens   int64  `json:"budget_tokens"`
@@ -203,7 +203,11 @@ func hostedSessionShow(cr hostedCreds, inv *Invocation) {
 	emit(r, func() {
 		fmt.Printf("session %s (%s)\n", r.ID, r.ShortID)
 		fmt.Printf("  name           %s\n", r.Name)
-		fmt.Printf("  state          %s (fleet: %s)\n", r.RuntimeState, r.FleetState)
+		if r.FleetState != "" {
+			fmt.Printf("  state          %s (fleet: %s)\n", r.RuntimeState, r.FleetState)
+		} else {
+			fmt.Printf("  state          %s\n", r.RuntimeState)
+		}
 		fmt.Printf("  agent          %s\n", r.AgentActivity)
 		fmt.Printf("  task           %s\n", r.TaskState)
 		fmt.Printf("  key            %s\n", r.KeyAlias)
