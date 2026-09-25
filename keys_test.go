@@ -135,7 +135,9 @@ func TestKeyVerbsNeverCarryTheSecret(t *testing.T) {
 	}
 	// preflight reports and starts nothing
 	out, _, code = auditExec(t, bin, cfg, dir, fastEnv(cfg), "preflight")
-	if code != 0 || !strings.Contains(out, "blocker: no credit") || !strings.Contains(out, "not ready") {
+	// blocked is exit 5 (KS-029: a blocked preflight is not a success a
+	// script can mistake for ready); the blocker is still printed
+	if code != exitConflict || !strings.Contains(out, "no credit on the account") || !strings.Contains(out, "not ready") {
 		t.Errorf("preflight: %d %s", code, out)
 	}
 	for _, r := range c.requests {
@@ -205,5 +207,81 @@ func TestPreflightShowsCreditInDollars(t *testing.T) {
 		if !strings.Contains(line, tc.want) || strings.Contains(line, tc.not) {
 			t.Errorf("credit %v: preflight printed %q, want it to contain %q and not %q", tc.credit, line, tc.want, tc.not)
 		}
+	}
+}
+
+// KS-029 on the client: each check is shown with its status, the workspace
+// is sized locally against the service's limit, and the exit says ready (0),
+// blocked (5) or not known (4).
+type checksCtl struct {
+	checks []any
+	limit  float64
+}
+
+func (c *checksCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	switch r.URL.Path {
+	case "/api/capabilities":
+		fmt.Fprint(w, `{"schema_version":2,"data":{"registry_version":"t","build":"b","fetched_at":"x","price_book":"v1.3","capabilities":[{"id":"preflight","availability":"available","summary":"s","surface":"api"}],"limits":{}}}`)
+	case "/api/v2/preflight":
+		blockers := []any{}
+		ready := true
+		for _, x := range c.checks {
+			m := x.(map[string]any)
+			if m["status"] == "block" {
+				blockers = append(blockers, m["detail"])
+			}
+			if m["status"] != "pass" {
+				ready = false
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"schema_version": 2, "request_id": "r", "data": map[string]any{
+			"account_id": "acct_x", "cohort_state": "active", "credit_microusd": 5000000, "registry_version": "t",
+			"limits": map[string]any{"workspace_bytes": c.limit}, "checks": c.checks, "blockers": blockers, "ready": ready}})
+	default:
+		w.WriteHeader(404)
+	}
+}
+
+func TestPreflightShowsEveryCheckAndExitsByReadiness(t *testing.T) {
+	pass := func(n string) map[string]any { return map[string]any{"check": n, "status": "pass", "detail": n + " ok"} }
+	for _, tc := range []struct {
+		name   string
+		checks []any
+		limit  float64
+		files  map[string]string
+		exit   int
+		want   []string
+	}{
+		{"ready", []any{pass("account"), pass("key"), pass("credit")}, 1 << 20, map[string]string{"a.py": "x"}, 0, []string{"key          PASS", "workspace    PASS", "ready"}},
+		{"no key", []any{pass("account"), map[string]any{"check": "key", "status": "block", "detail": "no enabled anthropic key on the account", "next_action": "ks key add --provider anthropic"}, pass("credit")}, 1 << 20, nil, exitConflict,
+			[]string{"key          BLOCK", "→ ks key add --provider anthropic", "not ready; clear the blockers"}},
+		{"unsupported runner", []any{pass("account"), pass("key"), pass("credit"), map[string]any{"check": "runner", "status": "block", "detail": "agent mode is not available on this service: not certified", "next_action": "ks doctor"}}, 1 << 20, nil, exitConflict,
+			[]string{"runner       BLOCK", "agent mode is not available"}},
+		{"oversize workspace", []any{pass("account"), pass("key"), pass("credit")}, 10, map[string]string{"big.py": strings.Repeat("x", 100)}, exitConflict,
+			[]string{"workspace    BLOCK", "over the 10-byte limit"}},
+		{"credit not checkable", []any{pass("account"), pass("key"), map[string]any{"check": "credit", "status": "unavailable", "detail": "the credit balance could not be read"}}, 1 << 20, nil, exitTemporary,
+			[]string{"credit       UNAVAILABLE", "readiness is not known"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(&checksCtl{checks: tc.checks, limit: tc.limit})
+			defer srv.Close()
+			bin, cfg := buildAndAuth(t, srv)
+			dir := t.TempDir()
+			for n, body := range tc.files {
+				if err := os.WriteFile(filepath.Join(dir, n), []byte(body), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			out, errOut, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "preflight")
+			if code != tc.exit {
+				t.Fatalf("exit %d, want %d\n%s\n%s", code, tc.exit, out, errOut)
+			}
+			for _, w := range tc.want {
+				if !strings.Contains(out, w) {
+					t.Fatalf("output lacks %q:\n%s", w, out)
+				}
+			}
+		})
 	}
 }

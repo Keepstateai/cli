@@ -49,7 +49,7 @@ func hostedRunAgent(cr hostedCreds, inv *Invocation) {
 	var pf struct {
 		Data map[string]any `json:"data"`
 	}
-	if err := hostedCall(cr, "POST", "/api/v2/preflight", map[string]any{"provider": runnerProvider}, &pf); err != nil {
+	if err := hostedCall(cr, "POST", "/api/v2/preflight", map[string]any{"provider": runnerProvider, "mode": "agent"}, &pf); err != nil {
 		die(err)
 	}
 	if b, ok := pf.Data["blockers"].([]any); ok && len(b) > 0 {
