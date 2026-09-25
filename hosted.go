@@ -172,6 +172,18 @@ func hostedCall(cr hostedCreds, method, path string, body any, out any) error {
 // supplied one is sent exactly. Zero and negative never get this far: the
 // parser refuses them.
 func hostedRun(cr hostedCreds, inv *Invocation) {
+	if inv.Bool("agent") {
+		if inv.Set("image") {
+			fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--image is for a plain session; an agent session runs the agent image", NextAction: "ks run --agent"})
+		}
+		hostedRunAgent(cr, inv)
+		return
+	}
+	for _, f := range []string{"name", "agent-name", "task", "open"} {
+		if inv.Set(f) {
+			fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--" + f + " belongs to an agent session", NextAction: "ks run --agent --" + f + " ..."})
+		}
+	}
 	req := map[string]any{}
 	if inv.Set("image") {
 		req["Image"] = inv.Str("image")

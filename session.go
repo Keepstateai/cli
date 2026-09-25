@@ -174,7 +174,7 @@ func resolveSession(cr hostedCreds, arg string) (inventoryRow, error) {
 	}
 	var hits []inventoryRow
 	for _, r := range rows {
-		if r.ID == arg {
+		if r.ID == arg || (r.RecordID != "" && r.RecordID == arg) {
 			return r, nil
 		}
 		if len(arg) >= 4 && strings.HasPrefix(r.ID, arg) {

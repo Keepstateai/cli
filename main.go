@@ -25,12 +25,17 @@ var registry = []*Command{
 				die(err)
 			}
 		}},
-	{Path: []string{"run"}, Summary: "start a hosted session", Surface: "hosted",
-		Effects:  "starts a session on the fleet: session time is metered from this moment until the session is killed or parked",
-		Examples: []string{"ks run", "ks run --budget-tokens 750000"},
+	{Path: []string{"run"}, Summary: "start a hosted session; with --agent, an agent session whose main agent is Ready", Surface: "hosted",
+		Effects:  "starts a session on the fleet: session time is metered from this moment until the session is killed or parked. With --agent: preflight first (nothing is created on a blocker), then one session, its primary agent and a machine; Ready is printed only when the agent reports it, a setup that does not complete is destroyed and said so, and no model is called unless --task gives it work",
+		Examples: []string{"ks run", "ks run --budget-tokens 750000", "ks run --agent", "ks run --agent --name checkout --task \"run the tests\" --open"},
 		Flags: []Flag{
-			{Name: "image", Kind: flagString, Value: "I", Summary: "the agent image; default your onboarding choice"},
+			{Name: "image", Kind: flagString, Value: "I", Summary: "the image of a plain session; default your onboarding choice (not with --agent)"},
 			{Name: "budget-tokens", Aliases: []string{"budget"}, Kind: flagInt, Positive: true, Value: "N", Summary: "the session's token budget; default per tier (500,000 free, 2,000,000 paid); zero and negative are refused"},
+			{Name: "agent", Kind: flagBool, Summary: "start an agent session: a session, its primary agent and a machine, Ready only when the agent says so"},
+			{Name: "name", Kind: flagString, Value: "NAME", Summary: "the agent session's name (with --agent); default run-<UTC time>"},
+			{Name: "agent-name", Kind: flagString, Value: "NAME", Summary: "the primary agent's name (with --agent); default main"},
+			{Name: "task", Kind: flagString, Value: "TEXT", Summary: "a first task for the agent, submitted after Ready (with --agent)"},
+			{Name: "open", Kind: flagBool, Summary: "open the agent's window after Ready (with --agent)"},
 		},
 		Nothing: "No session was started.", Run: hosted(hostedRun)},
 	{Path: []string{"checkpoint"}, Aliases: [][]string{{"save"}}, Summary: "save the session (durably); --stop parks it", Surface: "hosted",

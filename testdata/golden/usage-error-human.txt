@@ -4,4 +4,4 @@ exit 2
 Unknown option: --buget
 Did you mean --budget-tokens?
 No session was started.
-usage: ks run [--image I] [--budget-tokens N]
+usage: ks run [--image I] [--budget-tokens N] [--agent] [--name NAME] [--agent-name NAME] [--task TEXT] [--open]
