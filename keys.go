@@ -294,6 +294,9 @@ func hostedPreflight(cr hostedCreds, inv *Invocation) {
 	if p := inv.Str("provider"); p != "" {
 		body["provider"] = p
 	}
+	if m := inv.Str("mode"); m != "" {
+		body["mode"] = m
+	}
 	var env struct {
 		Data map[string]any `json:"data"`
 	}
@@ -301,41 +304,105 @@ func hostedPreflight(cr hostedCreds, inv *Invocation) {
 		die(err)
 	}
 	d := env.Data
+	checks := preflightChecks(d)
+	// the workspace is checked here, locally, against the service's limit:
+	// preflight uploads nothing
 	local := map[string]any{}
 	if root, err := os.Getwd(); err == nil {
 		if _, sel, err := scanSelected(root, nil, readSelectionOverrides(root)); err == nil {
 			local = map[string]any{"files": sel.Files, "bytes": sel.Bytes, "excluded": len(sel.Excluded), "selection_digest": sel.Digest}
+			limit := int64(0)
+			if l, ok := d["limits"].(map[string]any); ok {
+				if n, ok := l["workspace_bytes"].(float64); ok {
+					limit = int64(n)
+				}
+			}
+			switch {
+			case limit <= 0:
+				checks = append(checks, preflightCheck{Check: "workspace", Status: "unavailable", Detail: "the service did not state its workspace limit, so the size could not be checked"})
+			case int64(sel.Bytes) > limit:
+				checks = append(checks, preflightCheck{Check: "workspace", Status: "block",
+					Detail:     fmt.Sprintf("the workspace selection is %d bytes, over the %d-byte limit", sel.Bytes, limit),
+					NextAction: "ks cruise preview (to see what is selected and exclude the largest files)"})
+			default:
+				checks = append(checks, preflightCheck{Check: "workspace", Status: "pass", Detail: fmt.Sprintf("%d files, %d bytes, within the limit", sel.Files, sel.Bytes)})
+			}
 		} else {
 			local = map[string]any{"error": err.Error()}
+			checks = append(checks, preflightCheck{Check: "workspace", Status: "unavailable", Detail: "the workspace could not be read here: " + sanitize(err.Error())})
 		}
 	}
-	emit(map[string]any{"service": d, "workspace": local}, func() {
+	blocked, unknown := 0, 0
+	for _, c := range checks {
+		switch c.Status {
+		case "block":
+			blocked++
+		case "unavailable":
+			unknown++
+		}
+	}
+	ready := blocked == 0 && unknown == 0
+	if r, ok := d["ready"].(bool); ok && !r {
+		ready = false
+	}
+	emit(map[string]any{"service": d, "workspace": local, "checks": checks, "ready": ready}, func() {
 		fmt.Printf("account %v (%v) · credit %s · registry %v\n", d["account_id"], d["cohort_state"], microdollars(d["credit_microusd"]), d["registry_version"])
-		if keys, ok := d["keys"].([]any); ok {
-			fmt.Printf("keys: %d\n", len(keys))
-		}
-		if b, ok := d["blockers"].([]any); ok && len(b) > 0 {
-			for _, x := range b {
-				fmt.Printf("blocker: %v\n", x)
+		for _, c := range checks {
+			line := fmt.Sprintf("%-12s %-11s %s", c.Check, strings.ToUpper(c.Status), c.Detail)
+			if c.NextAction != "" && c.Status != "pass" {
+				line += " → " + c.NextAction
 			}
+			fmt.Println(line)
 		}
-		if n, ok := d["next_actions"].(map[string]any); ok {
-			for k, v := range n {
-				fmt.Printf("next (%s): %v\n", k, v)
-			}
-		}
-		if e, ok := local["error"]; ok {
-			fmt.Printf("workspace: %v\n", e)
-		} else if f, ok := local["files"]; ok {
-			fmt.Printf("workspace: %v files, %v bytes, %v excluded (ks cruise preview for the list)\n", f, local["bytes"], local["excluded"])
-		}
-		ready, _ := d["ready"].(bool)
 		if ready {
-			fmt.Println("ready for cruise jobs; agent mode is not available in this release")
-		} else {
+			fmt.Println("ready")
+		} else if blocked > 0 {
 			fmt.Println("not ready; clear the blockers above")
+		} else {
+			fmt.Println("not ready; a check could not be made, so readiness is not known")
 		}
 	})
+	switch {
+	case blocked > 0:
+		os.Exit(exitConflict)
+	case !ready:
+		os.Exit(exitTemporary)
+	}
+}
+
+type preflightCheck struct {
+	Check      string `json:"check"`
+	Status     string `json:"status"`
+	Detail     string `json:"detail"`
+	NextAction string `json:"next_action,omitempty"`
+}
+
+// preflightChecks reads the service's per-check answers; a control plane that
+// predates them sends blockers only, and each is shown as a block.
+func preflightChecks(d map[string]any) []preflightCheck {
+	var out []preflightCheck
+	if items, ok := d["checks"].([]any); ok {
+		for _, it := range items {
+			if c, ok := it.(map[string]any); ok {
+				out = append(out, preflightCheck{Check: fmt.Sprint(c["check"]), Status: fmt.Sprint(c["status"]),
+					Detail: fmt.Sprint(c["detail"]), NextAction: strOr(c["next_action"])})
+			}
+		}
+		return out
+	}
+	if b, ok := d["blockers"].([]any); ok {
+		for _, x := range b {
+			out = append(out, preflightCheck{Check: "service", Status: "block", Detail: fmt.Sprint(x)})
+		}
+	}
+	return out
+}
+
+func strOr(v any) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
 }
 
 // microdollars renders a possibly-absent microdollar amount as dollars:

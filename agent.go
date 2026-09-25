@@ -393,13 +393,36 @@ func openAgent(cr hostedCreds, sess inventoryRow, a agentRow, take bool) (*agent
 			// another window is steering this agent. Taking control from it
 			// is a decision, never a retry the client makes for you.
 			return nil, &cliError{Code: exitConflict, Kind: "controller_held",
-				Message:    fmt.Sprintf("another window holds control of agent %s: %s", a.Name, sanitize(he.Message)),
-				NextAction: fmt.Sprintf("ks agent open %s --session %s --take-control", a.Name, sess.ShortID)}
+				Message: fmt.Sprintf("another window holds control of agent %s: %s", a.Name, sanitize(he.Message)),
+				NextAction: fmt.Sprintf("ks agent open %s --session %s --view (to watch beside it), or --take-control (to steer)",
+					a.Name, sess.ShortID)}
 		case "ks_not_found":
 			return nil, &cliError{Code: exitUsage, Kind: "not_found",
 				Message:    fmt.Sprintf("agent %s is no longer in session %s", a.Name, sess.ShortID),
 				NextAction: "ks agent list --session " + sess.ShortID}
 		}
+	}
+	return nil, err
+}
+
+// openAgentView opens a WATCHING window: the service answers the agent and
+// the journal position and grants no lease, so this window steers nothing and
+// can open beside the window that holds control (C02 OpenView: two views on
+// one agent). Closing it touches the runner not at all.
+func openAgentView(cr hostedCreds, sess inventoryRow, a agentRow) (*agentWindow, error) {
+	var env struct {
+		Data agentWindow `json:"data"`
+	}
+	err := hostedCall(cr, "POST", "/api/v2/agents/"+url.PathEscape(a.ID)+"/open", map[string]any{"view_only": true}, &env)
+	if err == nil {
+		env.Data.Lease = nil // a watching window holds nothing, whatever it is told
+		return &env.Data, nil
+	}
+	var he *hostedErr
+	if errors.As(err, &he) && he.Type == "ks_not_found" {
+		return nil, &cliError{Code: exitUsage, Kind: "not_found",
+			Message:    fmt.Sprintf("agent %s is no longer in session %s", a.Name, sess.ShortID),
+			NextAction: "ks agent list --session " + sess.ShortID}
 	}
 	return nil, err
 }
@@ -555,7 +578,16 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 	if err != nil {
 		die(err)
 	}
-	w, err := openAgent(cr, sess, a, inv.Bool("take-control"))
+	if inv.Bool("view") && inv.Bool("take-control") {
+		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--view watches and --take-control steers; a window is one or the other",
+			NextAction: fmt.Sprintf("ks agent open %s --session %s --view", a.Name, sess.ShortID)})
+	}
+	var w *agentWindow
+	if inv.Bool("view") {
+		w, err = openAgentView(cr, sess, a)
+	} else {
+		w, err = openAgent(cr, sess, a, inv.Bool("take-control"))
+	}
 	if err != nil {
 		die(err)
 	}

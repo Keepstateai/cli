@@ -49,8 +49,8 @@
   {
    "verb": "run",
    "aliases": [],
-   "usage": "ks run [--image I] [--budget-tokens N]",
-   "summary": "start a hosted session",
+   "usage": "ks run [--image I] [--budget-tokens N] [--agent] [--name NAME] [--agent-name NAME] [--task TEXT] [--open]",
+   "summary": "start a hosted session; with --agent, an agent session whose main agent is Ready",
    "status": "available",
    "surface": "hosted",
    "budgetDefaults": {
@@ -64,11 +64,31 @@
    "flags": [
     {
      "flag": "--image I",
-     "summary": "the agent image; default your onboarding choice"
+     "summary": "the image of a plain session; default your onboarding choice (not with --agent)"
     },
     {
      "flag": "--budget-tokens N (also --budget)",
      "summary": "the session's token budget; default per tier (500,000 free, 2,000,000 paid); zero and negative are refused"
+    },
+    {
+     "flag": "--agent",
+     "summary": "start an agent session: a session, its primary agent and a machine, Ready only when the agent says so"
+    },
+    {
+     "flag": "--name NAME",
+     "summary": "the agent session's name (with --agent); default run-<UTC time>"
+    },
+    {
+     "flag": "--agent-name NAME",
+     "summary": "the primary agent's name (with --agent); default main"
+    },
+    {
+     "flag": "--task TEXT",
+     "summary": "a first task for the agent, submitted after Ready (with --agent)"
+    },
+    {
+     "flag": "--open",
+     "summary": "open the agent's window after Ready (with --agent)"
     }
    ]
   },
@@ -472,7 +492,7 @@
   {
    "verb": "preflight",
    "aliases": [],
-   "usage": "ks preflight [--provider PROVIDER]",
+   "usage": "ks preflight [--provider PROVIDER] [--mode MODE]",
    "summary": "what a run needs and what is missing: identity, keys, credit, capabilities, and the local upload preview; starts nothing",
    "status": "available",
    "surface": "hosted",
@@ -480,6 +500,10 @@
     {
      "flag": "--provider PROVIDER",
      "summary": "the provider the run will use (default anthropic)"
+    },
+    {
+     "flag": "--mode MODE",
+     "summary": "what you are about to start: cruise (default) or agent"
     }
    ]
   },
@@ -501,7 +525,7 @@
   {
    "verb": "agent open",
    "aliases": [],
-   "usage": "ks agent open <name> [--session ID] [--take-control] [--no-follow]",
+   "usage": "ks agent open <name> [--session ID] [--take-control] [--view] [--no-follow]",
    "summary": "the agent window: its state, then its events as they happen",
    "status": "planned",
    "surface": "hosted",
@@ -514,6 +538,10 @@
     {
      "flag": "--take-control",
      "summary": "take the control lease from the window that holds it; without it a held agent is refused, never taken"
+    },
+    {
+     "flag": "--view",
+     "summary": "open a watching window: it follows the agent and steers nothing, so it opens beside a window that holds control and never takes it"
     },
     {
      "flag": "--no-follow",

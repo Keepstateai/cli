@@ -53,6 +53,7 @@ type agentCtl struct {
 	mu             sync.Mutex
 	capability     string // what /api/capabilities reports for agent.workspace
 	held           bool   // another window holds control of the primary agent
+	viewOpens      int    // view-only opens (a watching window)
 	holdsFault     string // the typed refusal the queue-hold route answers with
 	activeHold     bool   // this agent's queue is held behind a failed instruction
 	backlog        int    // conversation entries the journal already carries
@@ -241,6 +242,7 @@ func (c *agentCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/open"):
 		var body struct {
 			TakeControl bool `json:"take_control"`
+			ViewOnly    bool `json:"view_only"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		id := agentID()
@@ -252,6 +254,16 @@ func (c *agentCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if found == nil {
 			fault(404, "ks_not_found", "no such agent")
+			return
+		}
+		if body.ViewOnly {
+			// a watching window: no lease, whoever holds control keeps it
+			c.mu.Lock()
+			c.viewOpens++
+			c.mu.Unlock()
+			env(200, map[string]any{"agent": found, "reconnected": false,
+				"controller": map[string]any{"holder": "win_other", "fence": 3},
+				"resume":     map[string]any{"after_seq": 41, "cursor": "cur_41"}, "queue_depth": 2})
 			return
 		}
 		c.mu.Lock()
@@ -579,7 +591,7 @@ func TestAgentOpenRefusesWhileAnotherWindowHoldsControl(t *testing.T) {
 	if code != exitConflict {
 		t.Fatalf("held: exit %d (want %d)\n%s%s", code, exitConflict, out, errs)
 	}
-	for _, want := range []string{"another window holds control of agent main", "Remote work started: no.", "Next: ks agent open main --session " + agentSessionShort + " --take-control"} {
+	for _, want := range []string{"another window holds control of agent main", "Remote work started: no.", "Next: ks agent open main --session " + agentSessionShort + " --view (to watch beside it), or --take-control (to steer)"} {
 		if !strings.Contains(errs, want) {
 			t.Errorf("refusal lacks %q:\n%s", want, errs)
 		}
@@ -1703,5 +1715,33 @@ func TestTheWindowNeverReadsAFailedHoldReadAsNoHold(t *testing.T) {
 	}
 	if strings.Contains(joined, "no hold stands") {
 		t.Errorf("an unreadable hold was rendered as no hold:\n%s", joined)
+	}
+}
+
+// C02 OpenView: a second window WATCHES beside the one that holds control. It
+// takes nothing, holds no lease, and says it is watching.
+func TestAgentOpenViewWatchesBesideTheWindowThatHoldsControl(t *testing.T) {
+	c, bin, cfg := agentFixture(t)
+	c.mu.Lock()
+	c.held = true
+	c.mu.Unlock()
+	dir := t.TempDir()
+	out, errs, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "agent", "open", "main", "--session", agentSessionShort, "--view", "--no-follow")
+	if code != 0 {
+		t.Fatalf("view: exit %d\n%s%s", code, out, errs)
+	}
+	if !strings.Contains(out+errs, "watching") {
+		t.Fatalf("a watching window does not say it is watching:\n%s%s", out, errs)
+	}
+	c.mu.Lock()
+	held, views := c.held, c.viewOpens
+	c.mu.Unlock()
+	if !held || views != 1 {
+		t.Fatalf("the watching window moved control (held=%v) or was not opened view-only (%d)", held, views)
+	}
+	// --view and --take-control together is a contradiction, refused before any request
+	_, errs, code = auditExec(t, bin, cfg, dir, fastEnv(cfg), "agent", "open", "main", "--session", agentSessionShort, "--view", "--take-control")
+	if code != exitUsage || !strings.Contains(errs, "one or the other") {
+		t.Fatalf("--view --take-control: exit %d\n%s", code, errs)
 	}
 }
