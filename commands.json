@@ -525,7 +525,7 @@
   {
    "verb": "agent open",
    "aliases": [],
-   "usage": "ks agent open <name> [--session ID] [--take-control] [--no-follow]",
+   "usage": "ks agent open <name> [--session ID] [--take-control] [--view] [--no-follow]",
    "summary": "the agent window: its state, then its events as they happen",
    "status": "planned",
    "surface": "hosted",
@@ -538,6 +538,10 @@
     {
      "flag": "--take-control",
      "summary": "take the control lease from the window that holds it; without it a held agent is refused, never taken"
+    },
+    {
+     "flag": "--view",
+     "summary": "open a watching window: it follows the agent and steers nothing, so it opens beside a window that holds control and never takes it"
     },
     {
      "flag": "--no-follow",
