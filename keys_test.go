@@ -24,6 +24,7 @@ type keysCtl struct {
 	keys     []map[string]any
 	requests []string
 	secrets  []string
+	credit   any // credit_microusd the fake preflight reports; nil is "unavailable"
 }
 
 func (c *keysCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -78,7 +79,7 @@ func (c *keysCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		env(200, map[string]any{"session_id": "session_rec1", "keys": body["keys"], "revision": 4, "applied_at": "x", "expected_seen": body["expected_revision"]})
 	case r.Method == "POST" && r.URL.Path == "/api/v2/preflight":
-		env(200, map[string]any{"account_id": "acct_x", "cohort_state": "active", "keys": []any{}, "credit_microusd": nil, "currency": "USD", "registry_version": "t", "build": "b",
+		env(200, map[string]any{"account_id": "acct_x", "cohort_state": "active", "keys": []any{}, "credit_microusd": c.credit, "currency": "USD", "registry_version": "t", "build": "b",
 			"unavailable_capabilities": []string{"agent.workspace"}, "limits": map[string]any{}, "checks_supported": []string{"pytest"}, "blockers": []string{"no credit on the account"}, "ready": false, "ready_for": map[string]bool{"cruise": false, "agent": false}, "next_actions": map[string]string{"credit": "add credit in the console"}, "observed_at": "x"})
 	default:
 		env(404, nil)
@@ -172,6 +173,37 @@ func TestClientSurfacesCarryNoPrivateMarkers(t *testing.T) {
 	for name, text := range outputs {
 		if m := markers.FindAllString(text, -1); len(m) > 0 {
 			t.Errorf("%s carries %v", name, m)
+		}
+	}
+}
+
+// TestPreflightShowsCreditInDollars: the service reports credit in
+// microdollars, and preflight printed that integer with the currency code
+// after it, so -31673162 microdollars read "credit -31,673,162 USD": a
+// balance of -$31.67 shown a million times too large. Found against
+// production on 2026-09-25.
+func TestPreflightShowsCreditInDollars(t *testing.T) {
+	for _, tc := range []struct {
+		credit    any
+		want, not string
+	}{
+		{-31673162, "credit -$31.673162", "31,673,162"},
+		{2000000, "credit $2.00", "2,000,000"},
+		{nil, "credit unavailable", "$"},
+	} {
+		c := &keysCtl{credit: tc.credit}
+		srv := httptest.NewServer(c)
+		bin, cfg := buildAndAuth(t, srv)
+		out, _, _ := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "preflight")
+		srv.Close()
+		line := ""
+		for _, l := range strings.Split(out, "\n") {
+			if strings.HasPrefix(l, "account ") {
+				line = l
+			}
+		}
+		if !strings.Contains(line, tc.want) || strings.Contains(line, tc.not) {
+			t.Errorf("credit %v: preflight printed %q, want it to contain %q and not %q", tc.credit, line, tc.want, tc.not)
 		}
 	}
 }
