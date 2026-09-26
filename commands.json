@@ -1335,6 +1335,36 @@
      "summary": "the action hash you were shown (all of it, or the 12 characters shown); required without a terminal, never implied by --yes"
     }
    ]
+  },
+  {
+   "verb": "session fork",
+   "aliases": [],
+   "usage": "ks session fork <session> [--plan] [--checkpoint CHECKPOINT] [--children N] [--execute DIGEST] [--plan-id ID]",
+   "summary": "plan a fork of a named saved point, then execute exactly that plan by its digest",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--plan",
+     "summary": "plan only: what the fork would do and cost; creates nothing"
+    },
+    {
+     "flag": "--checkpoint CHECKPOINT",
+     "summary": "the saved point to branch (with --plan); never chosen for you"
+    },
+    {
+     "flag": "--children N",
+     "summary": "how many children (with --plan; 1 to 8, default 1)"
+    },
+    {
+     "flag": "--execute DIGEST",
+     "summary": "execute the plan with this digest"
+    },
+    {
+     "flag": "--plan-id ID",
+     "summary": "the plan the digest belongs to (with --execute)"
+    }
+   ]
   }
  ]
 }
