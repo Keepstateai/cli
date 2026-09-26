@@ -261,7 +261,7 @@
    "summary": "the job (or the newest): state, rung, each attempt, save points, spend, verdict, artifact",
    "status": "available",
    "surface": "hosted",
-   "note": "--watch reads GET /api/jobs/{id}/status, which the deployed control plane does not serve yet; until it does, --watch says so and plain ks cruise status is unaffected.",
+   "note": "--watch reads GET /api/jobs/{id}/status, served by production ctl 4f9b4ad (build 8a22c753).",
    "flags": [
     {
      "flag": "--watch",
@@ -284,7 +284,7 @@
    "summary": "cancel a job",
    "status": "available",
    "surface": "hosted",
-   "note": "Reads the job's review first where the control plane serves it (not yet deployed); against the deployed control plane it says the effect cannot be shown from it and acts as before."
+   "note": "Reads the job's review first (GET /api/jobs/{id}/status, served by production ctl 4f9b4ad) and shows the option's effect before acting; against an older control plane it says so and acts as before."
   },
   {
    "verb": "cruise resume",
@@ -299,7 +299,7 @@
      "summary": "the rungs to continue on, in order"
     }
    ],
-   "note": "Reads the job's review first where the control plane serves it (not yet deployed); against the deployed control plane it says the effect cannot be shown from it and acts as before."
+   "note": "Reads the job's review first (GET /api/jobs/{id}/status, served by production ctl 4f9b4ad) and shows the option's effect before acting; against an older control plane it says so and acts as before."
   },
   {
    "verb": "cruise artifact",
@@ -316,7 +316,7 @@
    ],
    "safety": "Verifies the download's sha256 against the job's artifact_sha before the named file exists; a mismatch is refused and nothing is written.",
    "safetyMeasured": "2026-09-16, cruise_test.go (TestCruiseArtifactVerifiesBeforeWriting) against a control plane serving a tampered artifact.",
-   "note": "Against a control plane that serves the job status (not yet deployed), a verified result is also re-checked against its candidate tree and the badge is shown as served; against the deployed one, only the sha256 check applies and the download is not shown as verified."
+   "note": "Where the job status serves a verified result (production ctl 4f9b4ad does), the bytes are also re-checked against the verified candidate tree and the badge is shown as served; otherwise only the sha256 check applies and the download is not shown as verified."
   },
   {
    "verb": "cruise models",
@@ -1682,16 +1682,16 @@
    "aliases": [],
    "usage": "ks cruise review <job>",
    "summary": "a job in review: why it stopped, every attempt with its exact check result and cost, what remains of the ceiling, and each option with its effect",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
-   "note": "Reads GET /api/jobs/{id}/status, which the deployed control plane does not serve yet; until it does, the verb says so and changes nothing."
+   "note": "Reads GET /api/jobs/{id}/status (served by production ctl 4f9b4ad, build 8a22c753; an unauthenticated request answers 401)."
   },
   {
    "verb": "cruise result",
    "aliases": [],
    "usage": "ks cruise result <job> [--download] [--out FILE]",
    "summary": "an accepted job's result: the badge exactly as served, the provenance chain, and every limitation",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1703,14 +1703,14 @@
      "summary": "where --download writes; default JOB.tar.gz; an existing file is never written over"
     }
    ],
-   "note": "Reads the result from GET /api/jobs/{id}/status, which the deployed control plane does not serve yet; until it does, the verb says so and writes nothing (ks cruise artifact still downloads with its sha256 check)."
+   "note": "Reads GET /api/jobs/{id}/status (served by production ctl 4f9b4ad, build 8a22c753; an unauthenticated request answers 401)."
   },
   {
    "verb": "cruise apply",
    "aliases": [],
    "usage": "ks cruise apply <job> [--dir DIR] [--confirm DIGEST]",
    "summary": "apply an accepted job's result to this project file by file, only onto the base each file was changed from, transactionally",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1722,7 +1722,7 @@
      "summary": "the changeset's digest (the 12 characters shown, or all of it); required without a terminal, never implied by --yes"
     }
    ],
-   "note": "Reads GET /api/jobs/{id}/status and GET /api/jobs/{id}/changeset, which the deployed control plane does not serve yet; until it does, the verb says so and changes nothing."
+   "note": "Reads GET /api/jobs/{id}/status and GET /api/jobs/{id}/changeset (both served by production ctl 4f9b4ad, build 8a22c753; unauthenticated requests answer 401)."
   },
   {
    "verb": "session migrate",
