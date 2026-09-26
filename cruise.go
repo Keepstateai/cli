@@ -1536,48 +1536,6 @@ func eventDetail(e map[string]any) string {
 	return s
 }
 
-func cruiseCancel(inv *Invocation) {
-	c := mustCreds()
-	id := inv.Arg(0)
-	var job map[string]any
-	if err := hostedMutate(c, "POST", "/api/jobs/"+id+"/cancel", map[string]any{}, &job); err != nil {
-		die(err)
-	}
-	emit(job, func() {
-		progress("job %s %s", id, jstr(job, "state"))
-		fmt.Println(id)
-	})
-}
-
-func cruiseResume(inv *Invocation) {
-	c := mustCreds()
-	id := inv.Arg(0)
-	req := map[string]any{}
-	if specs := csvList(inv.Str("ladder")); len(specs) > 0 {
-		ladder, err := parseLadder(specs)
-		if err != nil {
-			die(err)
-		}
-		req["ladder"] = ladder
-		// KS-075: a wider ladder is checked against the live catalog first
-		var la []any
-		for _, r := range ladder {
-			la = append(la, map[string]any{"family": r.Family, "model": r.Model})
-		}
-		if err := checkLadderLive(c, map[string]any{"ladder": la}); err != nil {
-			die(err)
-		}
-	}
-	var job map[string]any
-	if err := hostedMutate(c, "POST", "/api/jobs/"+id+"/resume", req, &job); err != nil {
-		die(err)
-	}
-	emit(job, func() {
-		progress("job %s %s", id, jstr(job, "state"))
-		fmt.Println(id)
-	})
-}
-
 func cruiseArtifact(inv *Invocation) error {
 	c := mustCreds()
 	id := inv.Arg(0)

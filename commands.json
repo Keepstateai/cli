@@ -1673,6 +1673,14 @@
    "status": "planned",
    "surface": "hosted",
    "note": "Gated on the registry's advisers.advice row, which reads unavailable today; the verb refuses with that row's reason. The agent.workspace row decides only for an older registry that has no advisers.advice row."
+  },
+  {
+   "verb": "cruise review",
+   "aliases": [],
+   "usage": "ks cruise review <job>",
+   "summary": "a job in review: why it stopped, every attempt with its exact check result and cost, what remains of the ceiling, and each option with its effect",
+   "status": "available",
+   "surface": "hosted"
   }
  ]
 }

@@ -89,6 +89,9 @@ type jobLiveStatus struct {
 		MaxBackoffS int    `json:"max_backoff_s"`
 		Note        string `json:"note"`
 	} `json:"follow"`
+	// KS-077: present only in review, and only once cancelled
+	Review  *liveReview  `json:"review"`
+	Cleanup *liveCleanup `json:"cleanup"`
 }
 
 type jobEventRow struct {
@@ -163,6 +166,12 @@ func liveStatusLines(s jobLiveStatus) []string {
 	} else {
 		out = append(out, "  savings        not shown: "+sanitize(notRecorded(s.Savings.Reason)))
 	}
+	if s.Cleanup != nil {
+		out = append(out, cleanupLine(s.Cleanup))
+	}
+	if s.Review != nil {
+		out = append(out, "  review         "+remainingText(s.Review)+"; the attempts, check results and options: ks cruise review "+s.JobID)
+	}
 	if len(s.NextActions) == 0 {
 		out = append(out, "  next           nothing to decide")
 	}
@@ -214,7 +223,7 @@ func cruiseWatch(c hostedCreds, id string) {
 	st, err := fetchJobStatus(c, id)
 	if err != nil {
 		var he *hostedErr
-		if errors.As(err, &he) && he.Status == 404 && strings.Contains(string(he.Raw), "404 page not found") {
+		if errors.As(err, &he) && statusUnsupported(err) {
 			fail(&cliError{Code: exitFailed, Kind: "status_unsupported", Message: "this control plane does not serve a job's live status, so there is nothing to watch; nothing was changed", NextAction: "ks cruise status " + id})
 		}
 		die(err)
