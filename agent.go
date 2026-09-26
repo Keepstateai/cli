@@ -857,10 +857,13 @@ func showBacklog(cr hostedCreds, sess inventoryRow, upto int64) {
 // which is the one difference from the wait loop in operations.go.
 func followAgent(cr hostedCreds, win *liveWindow, w *agentWindow) {
 	sess := win.sess
-	// the window reads whole lines in the terminal's ordinary mode, so it
-	// puts the terminal into no mode of its own and has nothing to undo;
-	// the hook stays so a raw-mode input path cannot be added without one.
-	restore := func() {}
+	// the window reads whole lines in the terminal's ordinary mode; its
+	// settings are saved anyway and put back on every way out (KS-033), and
+	// the size of the window holding control is reported on the lease's
+	// control channel at open and on each settled resize
+	restoreTerm := saveTerminal()
+	stopSizes := startSizeReports(cr, win)
+	restore := func() { stopSizes(); restoreTerm() }
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sig)
