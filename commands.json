@@ -1111,6 +1111,62 @@
      "summary": "the session the request belongs to; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     }
    ]
+  },
+  {
+   "verb": "agent queue cancel",
+   "aliases": [],
+   "usage": "ks agent queue cancel <name> [--session ID] [--preview] [--confirm QREV] [--states STATES] [--reason TEXT]",
+   "summary": "cancel an agent's pending instructions in bulk: previewed first, then confirmed by naming the preview's queue revision",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--preview",
+     "summary": "show exactly what would be cancelled, and the queue revision a confirmation must name; changes nothing"
+    },
+    {
+     "flag": "--confirm QREV",
+     "summary": "cancel exactly what the preview at this queue revision showed; if the queue changed since, nothing is cancelled"
+    },
+    {
+     "flag": "--states STATES",
+     "summary": "queued, held, or queued,held (default both)"
+    },
+    {
+     "flag": "--reason TEXT",
+     "summary": "why, recorded with each cancellation"
+    }
+   ]
+  },
+  {
+   "verb": "task replace",
+   "aliases": [],
+   "usage": "ks task replace <instruction> [--session ID] [--text TEXT] [--queue-revision QREV] [--reason TEXT]",
+   "summary": "replace one pending instruction: it is cancelled with its content kept and a new one takes its place, against a queue revision",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--text TEXT",
+     "summary": "the replacement instruction (at most 64 KiB)"
+    },
+    {
+     "flag": "--queue-revision QREV",
+     "summary": "the queue revision of the view you decided from; without it the queue is read now and shown first"
+    },
+    {
+     "flag": "--reason TEXT",
+     "summary": "why, recorded with the replacement"
+    }
+   ]
   }
  ]
 }

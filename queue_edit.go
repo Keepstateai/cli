@@ -227,3 +227,241 @@ func hostedTaskMove(cr hostedCreds, inv *Invocation) {
 		}
 	})
 }
+
+// ---- replacing one pending instruction ------------------------------------------
+
+// taskMaxText is C04's 64 KiB bound on one instruction.
+const taskMaxText = 64 << 10
+
+// readQueueRevision answers the revision an edit is bound to: the one the
+// person gives, or the view read now, which is then displayed first.
+func readQueueRevision(cr hostedCreds, inv *Invocation, agentID string) (rev, bound string) {
+	if r := inv.Str("queue-revision"); r != "" {
+		return r, "the queue revision you gave"
+	}
+	v, err := fetchPending(cr, agentID)
+	if err != nil {
+		die(err)
+	}
+	printPendingTo(os.Stderr, v)
+	return v.QueueRevision, "the queue as read just now"
+}
+
+// queueConflictFrom reads the refreshed positions a queue conflict carries.
+func queueConflictFrom(err error) (queueConflict, bool) {
+	var he *hostedErr
+	if !errors.As(err, &he) || he.Type != "ks_queue_revision_conflict" {
+		return queueConflict{}, false
+	}
+	var e struct {
+		Error queueConflict `json:"error"`
+	}
+	_ = json.Unmarshal(he.Raw, &e)
+	return e.Error, true
+}
+
+func hostedTaskReplace(cr hostedCreds, inv *Invocation) {
+	id := strings.TrimSpace(inv.Arg(0))
+	text := inv.Str("text")
+	if strings.TrimSpace(text) == "" {
+		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--text is the replacement instruction and it is empty; nothing was replaced"})
+	}
+	if len(text) > taskMaxText {
+		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "an instruction is at most 64 KiB; nothing was replaced"})
+	}
+	sess := agentSession(cr, inv)
+	t, err := fetchTask(cr, id)
+	if err != nil {
+		die(err)
+	}
+	a, err := resolveAgent(cr, sess, t.AgentID)
+	if err != nil {
+		die(err)
+	}
+	rev, bound := readQueueRevision(cr, inv, a.ID)
+	path := "/api/v2/tasks/" + url.PathEscape(id) + "/replace"
+	// the submission id is recorded before anything is sent, and a repeat of
+	// this same replacement reuses it: the service then answers the
+	// replacement it already made instead of making a second one
+	sid, err := submissionID(cr, path, text)
+	if err != nil {
+		die(err)
+	}
+	fmt.Fprintf(os.Stderr, "replace %s (%s) in agent %s's queue (session %s), against %s (%s): it is cancelled with its content kept, and the new instruction takes its place\n",
+		id, figure(t.State), a.Name, sess.ShortID, bound, rev)
+	body := map[string]any{"submission_id": sid, "text": text, "expected_queue_revision": rev}
+	if r := strings.TrimSpace(inv.Str("reason")); r != "" {
+		body["reason"] = r
+	}
+	var env struct {
+		Data struct {
+			Superseded    *taskRow      `json:"superseded"`
+			Replacement   *taskRow      `json:"replacement"`
+			Position      int           `json:"position"`
+			QueueRevision string        `json:"queue_revision"`
+			Pending       []pendingItem `json:"pending"`
+			Replayed      bool          `json:"replayed"`
+			Note          string        `json:"note"`
+		} `json:"data"`
+	}
+	if err := hostedMutate(cr, "POST", path, body, &env); err != nil {
+		if q, ok := queueConflictFrom(err); ok {
+			ce := classify(err)
+			ce.Message = "the queue changed since it was read, so nothing was cancelled or submitted and nothing is retried: " + ce.Message
+			ce.Detail = q
+			ce.NextAction = fmt.Sprintf("decide again against the queue as it is: ks task replace %s --text ... --session %s --queue-revision %s", id, sess.ShortID, q.QueueRevision)
+			die(ce)
+		}
+		var he *hostedErr
+		if errors.As(err, &he) && he.Type == "ks_task_not_queued" {
+			ce := classify(err)
+			ce.NextAction = fmt.Sprintf("ks task cancel %s --session %s (an instruction in flight is cancelled, never edited)", id, sess.ShortID)
+			die(ce)
+		}
+		die(err)
+	}
+	d := env.Data
+	emit(d, func() {
+		newID := "(not returned)"
+		if d.Replacement != nil {
+			newID = d.Replacement.ID
+		}
+		if d.Replayed {
+			fmt.Printf("already replaced: %s was replaced by %s earlier; nothing was recorded again\n", id, newID)
+		} else {
+			fmt.Printf("replaced %s with %s at position %d (queue revision now %s); %s is cancelled and its content kept\n", id, newID, d.Position, d.QueueRevision, id)
+		}
+		for _, it := range d.Pending {
+			fmt.Println(pendingLine(it))
+		}
+		if d.Note != "" {
+			fmt.Println("note: " + sanitize(d.Note))
+		}
+	})
+}
+
+// ---- cancelling pending work in bulk, behind a preview -----------------------------
+
+type bulkPreview struct {
+	AgentID       string         `json:"agent_id"`
+	QueueRevision string         `json:"queue_revision"`
+	States        []string       `json:"states"`
+	Affected      []pendingItem  `json:"affected"`
+	ByState       map[string]int `json:"by_state"`
+	Excluded      *pendingItem   `json:"excluded_active,omitempty"`
+	Note          string         `json:"note"`
+}
+
+func (p bulkPreview) detailLines() []string {
+	lines := []string{fmt.Sprintf("would cancel %d pending instruction(s) (%s):", len(p.Affected), strings.Join(p.States, ", "))}
+	for _, it := range p.Affected {
+		lines = append(lines, pendingLine(it))
+	}
+	if p.Excluded != nil {
+		lines = append(lines, "never included, executing now: "+p.Excluded.TaskID+" (to stop it: ks task cancel)")
+	}
+	return append(lines, "queue revision "+p.QueueRevision)
+}
+
+func bulkStatesArg(inv *Invocation) []string {
+	s := strings.TrimSpace(inv.Str("states"))
+	if s == "" {
+		return nil
+	}
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part != "queued" && part != "held" {
+			fail(&cliError{Code: exitUsage, Kind: "usage", Message: fmt.Sprintf("--states is queued, held or queued,held; %q is neither. Nothing was cancelled", part)})
+		}
+		out = append(out, part)
+	}
+	return out
+}
+
+func hostedAgentQueueCancel(cr hostedCreds, inv *Invocation) {
+	preview, confirm := inv.Bool("preview"), strings.TrimSpace(inv.Str("confirm"))
+	if preview == (confirm != "") {
+		fail(&cliError{Code: exitUsage, Kind: "usage",
+			Message:    "a bulk cancellation is previewed first (--preview) and then confirmed by naming that preview's queue revision (--confirm QREV): one of the two. Nothing was cancelled",
+			NextAction: "ks agent queue cancel <name> --preview"})
+	}
+	states := bulkStatesArg(inv)
+	sess := agentSession(cr, inv)
+	a, err := resolveAgent(cr, sess, inv.Arg(0))
+	if err != nil {
+		die(err)
+	}
+	if preview {
+		q := url.Values{}
+		if len(states) > 0 {
+			q.Set("states", strings.Join(states, ","))
+		}
+		p := "/api/v2/agents/" + url.PathEscape(a.ID) + "/cancel-preview"
+		if enc := q.Encode(); enc != "" {
+			p += "?" + enc
+		}
+		var env struct {
+			Data bulkPreview `json:"data"`
+		}
+		if err := hostedCall(cr, "GET", p, nil, &env); err != nil {
+			die(err)
+		}
+		v := env.Data
+		emit(v, func() {
+			for _, l := range v.detailLines() {
+				fmt.Println(l)
+			}
+			fmt.Println("nothing was cancelled: this is a preview")
+			if len(v.Affected) > 0 {
+				st := ""
+				if len(states) > 0 {
+					st = " --states " + strings.Join(states, ",")
+				}
+				fmt.Printf("confirm exactly this: ks agent queue cancel %s --session %s%s --confirm %s\n", a.Name, sess.ShortID, st, v.QueueRevision)
+			}
+		})
+		return
+	}
+	body := map[string]any{"expected_queue_revision": confirm}
+	if len(states) > 0 {
+		body["states"] = states
+	}
+	if r := strings.TrimSpace(inv.Str("reason")); r != "" {
+		body["reason"] = r
+	}
+	fmt.Fprintf(os.Stderr, "cancel the pending instructions of agent %s (session %s) previewed at %s\n", a.Name, sess.ShortID, confirm)
+	var env struct {
+		Data struct {
+			Cancelled     []string       `json:"cancelled"`
+			ByState       map[string]int `json:"by_state"`
+			QueueRevision string         `json:"queue_revision"`
+			Note          string         `json:"note"`
+		} `json:"data"`
+	}
+	if err := hostedMutate(cr, "POST", "/api/v2/agents/"+url.PathEscape(a.ID)+"/cancel-pending", body, &env); err != nil {
+		var he *hostedErr
+		if errors.As(err, &he) && he.Type == "ks_queue_revision_conflict" {
+			var e struct {
+				Error struct {
+					Preview bulkPreview `json:"preview"`
+				} `json:"error"`
+			}
+			_ = json.Unmarshal(he.Raw, &e)
+			ce := classify(err)
+			ce.Message = "the queue changed since the preview, so nothing was cancelled and nothing is retried: " + ce.Message
+			ce.Detail = e.Error.Preview
+			ce.NextAction = fmt.Sprintf("if the preview above is what you mean: ks agent queue cancel %s --session %s --confirm %s", a.Name, sess.ShortID, e.Error.Preview.QueueRevision)
+			die(ce)
+		}
+		die(err)
+	}
+	d := env.Data
+	emit(d, func() {
+		fmt.Printf("cancelled %d pending instruction(s): %s (queue revision now %s); their content is kept, and nothing executing was touched\n",
+			len(d.Cancelled), strings.Join(d.Cancelled, ", "), d.QueueRevision)
+		if d.Note != "" {
+			fmt.Println("note: " + sanitize(d.Note))
+		}
+	})
+}
