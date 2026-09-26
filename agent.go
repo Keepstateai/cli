@@ -81,6 +81,10 @@ type agentWindow struct {
 		Cursor   string `json:"cursor"`
 	} `json:"resume"`
 	QueueDepth int64 `json:"queue_depth"`
+	// KS-032: the machine behind the agent, and the recovery view when the
+	// agent's own last report says it failed
+	Runtime  *openRuntime  `json:"runtime,omitempty"`
+	Recovery *openRecovery `json:"recovery,omitempty"`
 }
 
 type taskRow struct {
@@ -631,10 +635,23 @@ func decideVerbs(sess inventoryRow, ap approvalRow) string {
 }
 
 func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
-	sess := agentSession(cr, inv)
-	a, err := resolveAgent(cr, sess, inv.Arg(0))
-	if err != nil {
-		die(err)
+	var sess inventoryRow
+	var a agentRow
+	var err error
+	bound, _, _ := currentBinding(cr)
+	if inv.Str("session") == "" && bound == nil {
+		// no session named and none bound: the service resolves the name
+		// across what you may see, and chooses nothing (KS-032)
+		sess, a = resolveOpenTarget(cr, inv.Arg(0), inv.Str("project"))
+		showTarget(sess, "the name "+inv.Arg(0))
+	} else {
+		if inv.Str("project") != "" {
+			fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--project narrows a search by name; with --session (or a project binding) the session is already named"})
+		}
+		sess = agentSession(cr, inv)
+		if a, err = resolveAgent(cr, sess, inv.Arg(0)); err != nil {
+			die(err)
+		}
 	}
 	if inv.Bool("view") && inv.Bool("take-control") {
 		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--view watches and --take-control steers; a window is one or the other",
@@ -648,6 +665,49 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 	}
 	if err != nil {
 		die(err)
+	}
+	// OPENING NEVER WAKES A SESSION (KS-032). A session that is not running
+	// is shown with the actions the service names, and only --resume asks
+	// for the resume route.
+	if w.Runtime != nil && !w.Runtime.Running {
+		resumable := false
+		for _, ac := range w.Runtime.Actions {
+			if ac.Action == "resume_session" {
+				resumable = true
+			}
+		}
+		if inv.Bool("resume") && resumable {
+			for _, ac := range w.Runtime.Actions {
+				if ac.Action == "resume_session" && ac.Discloses != "" {
+					progress("%s", sanitize(ac.Discloses))
+				}
+			}
+			r, rerr := postResume(cr, agentSessionID(sess))
+			if rerr != nil {
+				die(rerr)
+			}
+			progress("session %s is resuming because you asked with --resume (state: %s)", sess.ShortID, figure(r["runtime_state"]))
+		} else {
+			if inv.Bool("resume") {
+				fail(&cliError{Code: exitConflict, Kind: "not_resumable", Message: fmt.Sprintf("session %s is %s and cannot be resumed: %s", sess.ShortID, stateLabel("session_runtime", w.Runtime.State), sanitize(w.Runtime.Note))})
+			}
+			emit(map[string]any{"session": sess.ID, "agent": w.Agent, "runtime": w.Runtime, "recovery": w.Recovery, "woken": false}, func() {
+				fmt.Printf("agent %s (%s) in session %s: the session is %s and was NOT woken\n", a.Name, a.ID, sess.ShortID, stateLabel("session_runtime", w.Runtime.State))
+				fmt.Printf("  %s\n", sanitize(w.Runtime.Note))
+				if w.Runtime.LastSavedAt != "" {
+					fmt.Printf("  last saved %s (%s)\n", w.Runtime.LastSavedAt, figure(w.Runtime.CheckpointID))
+				}
+				printOpenActions(w.Runtime.Actions, a.Name, sess)
+			})
+			return
+		}
+	}
+	if w.Recovery != nil {
+		emit(map[string]any{"session": sess.ID, "agent": w.Agent, "runtime": w.Runtime, "recovery": w.Recovery}, func() {
+			fmt.Printf("agent %s (%s) in session %s reads %s: %s\n", a.Name, a.ID, sess.ShortID, stateLabel("agent_activity", w.Recovery.Activity), sanitize(w.Recovery.Note))
+			printOpenActions(w.Recovery.Actions, a.Name, sess)
+		})
+		return
 	}
 	joined := "opened"
 	if w.Reconnected {

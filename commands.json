@@ -533,7 +533,7 @@
   {
    "verb": "agent open",
    "aliases": [],
-   "usage": "ks agent open <name> [--session ID] [--take-control] [--view] [--no-follow]",
+   "usage": "ks agent open <name> [--session ID] [--take-control] [--view] [--no-follow] [--resume] [--project PROJECT]",
    "summary": "the agent window: its state, then its events as they happen",
    "status": "planned",
    "surface": "hosted",
@@ -554,6 +554,14 @@
     {
      "flag": "--no-follow",
      "summary": "print the window's current state and exit, following nothing"
+    },
+    {
+     "flag": "--resume",
+     "summary": "if the session is saved and stopped, resume it (runtime is charged again) and then open; without it a stopped session is never woken"
+    },
+    {
+     "flag": "--project PROJECT",
+     "summary": "narrow a search by name to one project (without --session)"
     }
    ]
   },

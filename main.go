@@ -202,6 +202,8 @@ var registry = []*Command{
 			{Name: "take-control", Kind: flagBool, Summary: "take the control lease from the window that holds it; without it a held agent is refused, never taken"},
 			{Name: "view", Kind: flagBool, Summary: "open a watching window: it follows the agent and steers nothing, so it opens beside a window that holds control and never takes it"},
 			{Name: "no-follow", Kind: flagBool, Summary: "print the window's current state and exit, following nothing"},
+			{Name: "resume", Kind: flagBool, Summary: "if the session is saved and stopped, resume it (runtime is charged again) and then open; without it a stopped session is never woken"},
+			{Name: "project", Kind: flagString, Value: "PROJECT", Summary: "narrow a search by name to one project (without --session)"},
 		},
 		Needs:    "agent.workspace",
 		Effects:  "opens (or rejoins) a window on an agent that already exists and follows its events: it creates no agent, queues nothing by itself, and Ctrl-C detaches the window while the agent keeps working; with --take-control the control lease moves here and the other window keeps watching. Inside the window, \"a <id>\" approves a permission request and \"d <id>\" denies it, and any other line is sent to the agent as an instruction and metered like the session; a window that holds control sends instructions under that control, and a window that has lost it sends nothing at all until it is reopened with --take-control (--no-input reads nothing typed into the window)",
