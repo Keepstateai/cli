@@ -492,7 +492,7 @@
   {
    "verb": "preflight",
    "aliases": [],
-   "usage": "ks preflight [--provider PROVIDER] [--mode MODE]",
+   "usage": "ks preflight [--provider PROVIDER] [--mode MODE] [--check COMMAND] [--ladder FAMILIES]",
    "summary": "what a run needs and what is missing: identity, keys, credit, capabilities, and the local upload preview; starts nothing",
    "status": "available",
    "surface": "hosted",
@@ -504,6 +504,14 @@
     {
      "flag": "--mode MODE",
      "summary": "what you are about to start: cruise (default) or agent"
+    },
+    {
+     "flag": "--check COMMAND",
+     "summary": "the acceptance check a Cruise job would run (default: the one in .keepstate/cruise.json)"
+    },
+    {
+     "flag": "--ladder FAMILIES",
+     "summary": "the model families a Cruise job would climb, comma-separated (default: the draft's ladder)"
     }
    ]
   },

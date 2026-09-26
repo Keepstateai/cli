@@ -1130,6 +1130,12 @@ func cruiseRun(inv *Invocation) error {
 		return err
 	}
 
+	// KS-029: the job-specific preflight, with what only this client
+	// measured, BEFORE anything is uploaded; a blocker stops here
+	if err := cruisePreflight(c, int64(sel.Bytes), int64(sel.Files), command, m); err != nil {
+		return err
+	}
+
 	// POST /api/jobs { manifest, manifest_sha, workspace_b64 }: the
 	// manifest goes over the wire as its canonical bytes, so what the
 	// control plane hashes is what the customer approved.
@@ -1472,5 +1478,57 @@ func cruiseArtifact(inv *Invocation) error {
 		progress("artifact %s: %s bytes, sha256 %s verified", id, commas(n), short(want))
 		fmt.Println(dest)
 	})
+	return nil
+}
+
+// cruisePreflight asks the control plane whether this job could start:
+// the workspace as measured here, the acceptance check and the ladder's
+// families. A blocker refuses the run before any upload; a control plane
+// that serves no preflight (an older one) is said and not guessed about.
+func cruisePreflight(c hostedCreds, bytes, files int64, check string, m map[string]any) error {
+	body := map[string]any{"mode": "cruise", "workspace_bytes": bytes, "workspace_files": files}
+	if check != "" {
+		body["check_command"] = check
+	}
+	var fams []string
+	seen := map[string]bool{}
+	if l, ok := m["ladder"].([]any); ok {
+		for _, r := range l {
+			if rr, ok := r.(map[string]any); ok {
+				if f, _ := rr["family"].(string); f != "" && !seen[f] {
+					seen[f] = true
+					fams = append(fams, f)
+				}
+			}
+		}
+	}
+	if len(fams) > 0 {
+		body["ladder"] = fams
+	}
+	var env struct {
+		Data map[string]any `json:"data"`
+	}
+	if err := hostedCall(c, "POST", "/api/v2/preflight", body, &env); err != nil {
+		var he *hostedErr
+		if errors.As(err, &he) && he.Status == 404 {
+			progress("this control plane serves no job preflight; the job intake checks the job itself")
+			return nil
+		}
+		return err
+	}
+	var blocks []string
+	for _, ck := range preflightChecks(env.Data) {
+		if ck.Status == "block" {
+			line := ck.Check + ": " + sanitize(ck.Detail)
+			if ck.NextAction != "" {
+				line += " (" + sanitize(ck.NextAction) + ")"
+			}
+			blocks = append(blocks, line)
+		}
+	}
+	if len(blocks) > 0 {
+		fail(&cliError{Code: exitConflict, Kind: "preflight_blocked", Message: "preflight found blockers, so nothing was uploaded and no job was created: " + strings.Join(blocks, "; "),
+			NextAction: "ks preflight"})
+	}
 	return nil
 }

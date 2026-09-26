@@ -310,6 +310,7 @@ type fakeCtl struct {
 	posted   []byte // the last POST /api/jobs body
 	job      map[string]any
 	artifact []byte
+	pfBlock  bool // the job preflight answers a blocker (KS-029)
 }
 
 func (f *fakeCtl) seen() []string {
@@ -334,6 +335,15 @@ func (f *fakeCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == "GET" && r.URL.Path == "/api/models":
 		writeJSON(embeddedModels)
+	case r.Method == "POST" && r.URL.Path == "/api/v2/preflight":
+		f.mu.Lock()
+		block := f.pfBlock
+		f.mu.Unlock()
+		checks := []any{map[string]any{"check": "workspace", "status": "pass", "detail": "ok", "category": "setup"}}
+		if block {
+			checks = append(checks, map[string]any{"check": "key_route", "status": "block", "detail": "no enabled key for the ladder's provider: anthropic", "category": "setup", "next_action": "ks key add --provider anthropic"})
+		}
+		writeJSON(map[string]any{"schema_version": 2, "data": map[string]any{"checks": checks, "ready": !block}})
 	case r.Method == "POST" && r.URL.Path == "/api/jobs":
 		b, _ := io.ReadAll(r.Body)
 		f.mu.Lock()
@@ -519,13 +529,31 @@ func TestCruiseInitApproveRun(t *testing.T) {
 		t.Fatalf("approve made requests: %v", f.seen())
 	}
 
+	// KS-029: a preflight blocker stops the run before any upload
+	f.mu.Lock()
+	f.pfBlock = true
+	f.mu.Unlock()
+	_, errs, code = ksIn(t, bin, cfg, repo, "cruise", "run")
+	if code != exitConflict || !strings.Contains(errs, "no enabled key") || !strings.Contains(errs, "nothing was uploaded") {
+		t.Fatalf("blocked run: exit %d\n%s", code, errs)
+	}
+	for _, h := range f.seen() {
+		if h == "POST /api/jobs" {
+			t.Fatal("a preflight blocker still created a job")
+		}
+	}
+	f.mu.Lock()
+	f.pfBlock, f.hits = false, nil
+	f.mu.Unlock()
+
 	// run: one POST, the manifest on the wire hashing to the approved digest
 	out, errs, code = ksIn(t, bin, cfg, repo, "cruise", "run")
 	if code != 0 {
 		t.Fatalf("run exit %d\n%s%s", code, out, errs)
 	}
-	if got := f.seen(); len(got) != 1 || got[0] != "POST /api/jobs" {
-		t.Fatalf("run made %v, want exactly POST /api/jobs", got)
+	// KS-029: the job preflight (an observation) and then exactly one job
+	if got := f.seen(); len(got) != 2 || got[0] != "POST /api/v2/preflight" || got[1] != "POST /api/jobs" {
+		t.Fatalf("run made %v, want the preflight then exactly one POST /api/jobs", got)
 	}
 	if strings.TrimSpace(out) != "job_0123456789ab" || !strings.Contains(errs, "$2.00") {
 		t.Errorf("run output: stdout %q stderr %q", out, errs)
