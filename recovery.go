@@ -438,6 +438,21 @@ func hostedAgentQueueShow(cr hostedCreds, inv *Invocation) {
 	if h != nil {
 		facts["hold"] = *h
 	}
+	// KS-031: an instruction the runner stopped in gets the recovery
+	// screen's facts: its close's outcome, its execution, and continuity
+	var screen *crashFacts
+	if h != nil && runnerStopped(h.BlockingState) {
+		bt, berr := fetchTask(cr, h.BlockingTask)
+		if berr != nil {
+			bt = taskRow{ID: h.BlockingTask, State: h.BlockingState, HeldReason: h.BlockingSummary}
+		}
+		f := readCrashFacts(cr, agentSessionID(sess), a.ID, bt)
+		if strings.TrimSpace(f.Summary) == "" {
+			f.Summary = h.BlockingSummary
+		}
+		screen = &f
+		facts["recovery_screen"] = f
+	}
 	emit(facts, func() {
 		if h == nil {
 			fmt.Printf("the queue of agent %s (%s) in session %s is not held; nothing is waiting on a decision\n", a.Name, a.ID, sess.ShortID)
@@ -445,6 +460,14 @@ func hostedAgentQueueShow(cr hostedCreds, inv *Invocation) {
 			return
 		}
 		fmt.Printf("the queue of agent %s (%s) in session %s is HELD\n", a.Name, a.ID, sess.ShortID)
+		if screen != nil {
+			for _, l := range crashScreenLines(*screen, a.Name, sess.ShortID, true) {
+				if strings.HasPrefix(l, "   decide ") {
+					continue // the choices follow on this screen
+				}
+				fmt.Println(l)
+			}
+		}
 		fmt.Printf("  %-15s %s (%s)\n", blockedWord(*h), h.BlockingTask, figure(h.BlockingState))
 		if strings.TrimSpace(h.BlockingSummary) == "" {
 			fmt.Printf("  %-15s nothing was recorded\n", "it reported")

@@ -474,7 +474,23 @@ func hostedAgentStatus(cr hostedCreds, inv *Invocation) {
 		}
 		waiting, current := queueState(a, tasks)
 		age, stale := observedAge(a.ObservedAt, time.Now())
-		emit(map[string]any{"session": sess.ID, "agent": a, "queue_depth": waiting, "current_task": current, "tasks": len(tasks), "observed_age": age, "stale": stale}, func() {
+		// KS-031: whether the queue is held, read beside the activity, so an
+		// agent reading ready over a queue held behind an unknown outcome is
+		// never shown as simply ready. A hold that cannot be read is said.
+		var hold *queueHold
+		holdProblem := ""
+		if holds, herr := fetchQueueHolds(cr, a.ID); herr != nil {
+			holdProblem = sanitize(errText(herr))
+		} else if h, aerr := activeHold(holds); aerr != nil {
+			holdProblem = sanitize(errText(aerr))
+		} else {
+			hold = h
+		}
+		doc := map[string]any{"session": sess.ID, "agent": a, "queue_depth": waiting, "current_task": current, "tasks": len(tasks), "observed_age": age, "stale": stale, "hold": hold}
+		if holdProblem != "" {
+			doc["hold_unreadable"] = holdProblem
+		}
+		emit(doc, func() {
 			fmt.Printf("agent %s (%s) in session %s\n", a.Name, a.ID, sess.ShortID)
 			// BACKLOG-150: a session that is not running comes FIRST, and
 			// the agent's own word is then its last before the pause
@@ -485,6 +501,17 @@ func hostedAgentStatus(cr hostedCreds, inv *Invocation) {
 				fmt.Printf("  activity       FROZEN at %s (%s): the last word before the session stopped, not current\n", stateLabel("agent_activity", a.Activity), age)
 			} else {
 				fmt.Printf("  activity       %s (%s)\n", stateLabel("agent_activity", a.Activity), age)
+			}
+			if a.Activity == "recovery_required" {
+				fmt.Printf("  RECOVERY       its runner stopped and what it was doing is unknown: this agent is NOT ready; decide: ks agent queue show %s --session %s\n", a.Name, sess.ShortID)
+			}
+			switch {
+			case holdProblem != "":
+				fmt.Printf("  queue hold     could not be READ, so it is not stated; it is not known to be free: %s\n", holdProblem)
+			case hold != nil && runnerStopped(hold.BlockingState):
+				fmt.Printf("  queue hold     HELD behind %s, whose outcome is UNKNOWN (the runner stopped in it): nothing starts until a person decides; ks agent queue show %s --session %s\n", hold.BlockingTask, a.Name, sess.ShortID)
+			case hold != nil:
+				fmt.Printf("  queue hold     HELD behind %s (%s): nothing starts until a person decides; ks agent queue show %s --session %s\n", hold.BlockingTask, figure(hold.BlockingState), a.Name, sess.ShortID)
 			}
 			if stale && a.SessionRuntime == nil {
 				fmt.Printf("  STALE          no observation for more than %s: this is the last known state, not the current one\n", staleAfter)
@@ -1033,6 +1060,11 @@ func followAgent(cr hostedCreds, win *liveWindow, w *agentWindow) {
 				return false
 			}
 			emitLine(e, agentEventLine(e))
+			// KS-031: a runner that stopped mid-instruction gets a screen,
+			// and the window never carries on as if the agent were working
+			for _, l := range recoveryScreenFor(e, win.agent.Name, sess.ShortID) {
+				progress("%s", l)
+			}
 		case "end":
 			progress("the stream ended; the agent keeps working")
 			return true

@@ -703,6 +703,10 @@ type attemptRowClient struct {
 	StartedAt        string   `json:"started_at"`
 	EndedAt          string   `json:"ended_at"`
 	ErrorCode        string   `json:"error_code"`
+	// KS-031: the conversation this execution ran in (what a runner
+	// announced, or else what the dispatch assigned) and its close summary
+	RunnerSessionID string `json:"runner_session_id,omitempty"`
+	Summary         string `json:"summary,omitempty"`
 }
 
 func fetchAttempts(cr hostedCreds, taskID string) ([]attemptRowClient, error) {
