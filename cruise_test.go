@@ -621,10 +621,16 @@ func TestCruiseInitRefusesWithoutACheck(t *testing.T) {
 	if len(f.seen()) != 0 {
 		t.Errorf("init made requests: %v", f.seen())
 	}
-	// a named command is a check
+	// KS-072: the verifier runs pytest, go test or node --test and nothing
+	// else, so a named command outside them is refused here rather than at
+	// intake; a named pytest command over a repository with no tests is
+	// refused as the verifier would refuse it
 	out, errs, code = ksIn(t, bin, cfg, repo, "cruise", "init", "--tests", "make check")
-	if code != 0 || !strings.Contains(out, "make check (named with --tests)") || !strings.Contains(out, "make the check pass: make check") {
-		t.Errorf("--tests: exit %d\n%s%s", code, out, errs)
+	if code != 2 || !strings.Contains(errs, "--check pytest|go|node") {
+		t.Errorf("--tests make check: exit %d\n%s%s", code, out, errs)
+	}
+	if _, errs, code := ksIn(t, bin, cfg, repo, "cruise", "init", "--tests", "python3 -m pytest -q"); code != 2 || !strings.Contains(errs, "no check found") {
+		t.Errorf("--tests pytest, no tests: exit %d\n%s", code, errs)
 	}
 }
 

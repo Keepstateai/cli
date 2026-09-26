@@ -425,13 +425,35 @@ func cruisePreview(inv *Invocation) {
 	if sel == nil {
 		die(err)
 	}
-	// the check the draft names decides which files are its tests
-	isTest := isAnyTestFile
+	// the verifier inputs that would be pinned (KS-072): the draft's pinned
+	// set when there is a draft, else what discovery would pin -- every
+	// input of the one ecosystem with tests, or of all of them when more
+	// than one has tests (init then asks which)
+	shas := map[string]string{}
+	for _, f := range sel.Included {
+		shas[f.Path] = f.SHA256
+	}
+	disc := ks072Discover(shas, nil)
+	pinnedSet := map[string]bool{}
+	for _, e := range disc.WithTests {
+		for _, r := range ks072InputsOf(disc, e) {
+			pinnedSet[r.Path] = true
+		}
+	}
+	isTest := func(rel string) bool { return pinnedSet[rel] }
 	var allowedPaths []any
 	if m, derr := readDraft(); derr == nil {
 		if ver, _ := m["verifier"].(map[string]any); ver != nil {
-			if cmd, _ := ver["command"].(string); cmd != "" {
-				isTest = checksFor(cmd)
+			if pp, ok := ver["prohibited_paths"].([]any); ok {
+				draftSet := map[string]bool{}
+				for _, x := range pp {
+					if r, _ := x.(string); r != "" && !strings.HasSuffix(r, "/") {
+						draftSet[r] = true
+					}
+				}
+				if len(draftSet) > 0 {
+					isTest = func(rel string) bool { return draftSet[rel] }
+				}
 			}
 			allowedPaths, _ = ver["allowed_paths"].([]any)
 		}

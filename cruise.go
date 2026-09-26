@@ -713,31 +713,62 @@ func cruiseInit(inv *Invocation) {
 	}
 	tarSha := hex.EncodeToString(h.Sum(nil))
 
-	// 2. the check; without one there is no job, and init stops
-	//    here, before anything is written
-	ck := detectChecks(root, files)
-	named := strings.TrimSpace(inv.Str("tests"))
-	if named != "" {
-		ck = checks{command: named, kind: "named", isTest: checksFor(named)}
+	// 2. the check (KS-072): discovered the way the verifier discovers it,
+	//    nested tests and every input they read pinned; without one there is
+	//    no job, and with tests of more than one ecosystem nothing is chosen
+	shas := map[string]string{}
+	for _, f := range files {
+		shas[f.rel] = hex.EncodeToString(f.sha[:])
 	}
-	if ck.command == "" {
-		fmt.Fprintln(os.Stderr, "no check found: a goal with no check is not a job.")
-		fmt.Fprintln(os.Stderr, "init looks for pytest (test_*.py), npm test (package.json scripts.test) or go test (go.mod with _test.go files).")
-		fmt.Fprintln(os.Stderr, "Name the command that decides done: ks cruise init --tests CMD. This version does not draft checks.")
+	disc := ks072Discover(shas, nil)
+	named := strings.TrimSpace(inv.Str("tests"))
+	runner := strings.TrimSpace(inv.Str("check"))
+	if named != "" && runner == "" && !ks072LegacyPytest.MatchString(named) {
+		switch {
+		case strings.HasPrefix(named, "go test"):
+			runner = "go"
+		case strings.HasPrefix(named, "npm ") || strings.HasPrefix(named, "node "):
+			runner = "node"
+		default:
+			fmt.Fprintf(os.Stderr, "ks cruise init: the verifier runs pytest, go test or node --test; %q is none of them. Name the runner with --check pytest|go|node.\n", named)
+			os.Exit(2)
+		}
+	}
+	chosen, code, serr := ks072Select(disc, runner, named)
+	if serr != nil {
+		switch code {
+		case "ks_check_ambiguous":
+			fmt.Fprintf(os.Stderr, "ks cruise init: %v. Nothing is chosen for you; nothing was written.\n", serr)
+		case "ks_check_not_found":
+			fmt.Fprintln(os.Stderr, "no check found: a goal with no check is not a job.")
+			fmt.Fprintln(os.Stderr, "init looks for Python (test_*.py, *_test.py), Go (*_test.go) and Node (*.test.js, *.spec.js, test/, __tests__/) tests, nested included.")
+			fmt.Fprintf(os.Stderr, "(%v) Name the check with --check pytest|go|node. Nothing was written.\n", serr)
+		default:
+			fmt.Fprintf(os.Stderr, "ks cruise init: %v\n", serr)
+		}
 		os.Exit(2)
 	}
+	pinned := ks072InputsOf(disc, chosen.Ecosystem)
+	pinnedSet := map[string]bool{}
+	for _, r := range pinned {
+		for _, part := range strings.Split(r.Path, "/") {
+			if strings.HasPrefix(part, ".") {
+				fmt.Fprintf(os.Stderr, "ks cruise init: %s is a verifier input inside a dot directory, which the verifier refuses to pin; move it or exclude it. Nothing was written.\n", r.Path)
+				os.Exit(2)
+			}
+		}
+		pinnedSet[r.Path] = true
+	}
+	command := ks072Command(chosen.Runner)
+	if chosen.Source == "legacy_command" {
+		command = named
+	}
+	ck := checks{command: command, kind: chosen.Runner, isTest: func(rel string) bool { return pinnedSet[rel] }}
 	tests, testCount, err := testsDigest(root, files, ck.isTest)
 	if err != nil {
 		die(err)
 	}
-	// v1 pins root-level test files only: the verifier copies each pinned
-	// test flat into the checked tree, and the worker refuses a nested one.
-	for _, f := range files {
-		if ck.isTest(f.rel) && strings.Contains(f.rel, "/") {
-			fmt.Fprintf(os.Stderr, "ks cruise init: test file %s is nested; this version pins test files at the repository root only.\n", f.rel)
-			os.Exit(2)
-		}
-	}
+	pinnedDigest := ks072InputsDigest(pinned)
 
 	// 3. the goal: named, kept from the previous draft, or the check itself
 	goal := strings.TrimSpace(inv.Str("goal"))
@@ -830,6 +861,9 @@ func cruiseInit(inv *Invocation) {
 			"on_call_boundary": false,
 		},
 	}
+	if chosen.Source == "explicit" {
+		m["verifier"].(map[string]any)["check"] = map[string]any{"runner": chosen.Runner, "paths": []any{}}
+	}
 	if err := writeSelection(root, sel); err != nil {
 		die(err)
 	}
@@ -844,7 +878,8 @@ func cruiseInit(inv *Invocation) {
 
 	// 6. the digest first, on its own line, then the summary
 	if out.json {
-		emit(map[string]any{"manifest_sha": sha, "draft": cruiseDraft, "goal": goal, "check": ck.command, "check_kind": ck.kind,
+		emit(map[string]any{"manifest_sha": sha, "draft": cruiseDraft, "goal": goal, "check": ck.command, "check_kind": ck.kind, "check_source": chosen.Source,
+			"pinned_inputs": pinned, "pinned_inputs_digest": pinnedDigest,
 			"tests_pinned": testCount, "tests_digest": tests, "boundary": boundary, "ladder": ladderWords(ladder), "rungs": len(ladder),
 			"time_s": cruiseTimeS, "spend_microusd": spend, "reserve_microusd": cruiseReserve,
 			"workspace": map[string]any{"files": len(files), "packed_bytes": cw.n, "tree_digest": treeDigest(files), "selection_digest": sel.Digest, "excluded": len(sel.Excluded), "policy_version": sel.PolicyVersion}, "previous_approval_removed": lockRemoved}, nil)
@@ -853,12 +888,9 @@ func cruiseInit(inv *Invocation) {
 	fmt.Println(sha)
 	fmt.Printf("manifest: %s (draft, version 1)\n", cruiseDraft)
 	fmt.Printf("goal: %s\n", goal)
-	how := "detected; override with --tests"
-	if ck.kind == "named" {
-		how = "named with --tests"
-	}
-	fmt.Printf("check: %s (%s)\n", ck.command, how)
-	fmt.Printf("tests pinned: %d files, tests_digest %s\n", testCount, short(tests))
+	how := map[string]string{"discovered": "discovered; choose another with --check", "explicit": "chosen with --check", "legacy_command": "named with --tests"}[chosen.Source]
+	fmt.Printf("check: %s (%s, %s)\n", ck.command, chosen.Runner, how)
+	fmt.Printf("pinned: %d verifier inputs (tests, their config, lockfiles and fixtures, nested included), tests_digest %s, inputs digest %s\n", testCount, short(tests), short(pinnedDigest))
 	fmt.Printf("boundary: %s\n", boundary)
 	src := "from --ladder"
 	if fromTable {
@@ -1074,7 +1106,19 @@ func cruiseRun(inv *Invocation) error {
 	// the pinned tests, recomputed
 	ver, _ := m["verifier"].(map[string]any)
 	command, _ := ver["command"].(string)
-	tests, _, err := testsDigest(root, files, checksFor(command))
+	pinnedRels := map[string]bool{}
+	if pp, ok := ver["prohibited_paths"].([]any); ok {
+		for _, x := range pp {
+			if r, _ := x.(string); r != "" && !strings.HasSuffix(r, "/") {
+				pinnedRels[r] = true
+			}
+		}
+	}
+	isPinned := checksFor(command)
+	if len(pinnedRels) > 0 {
+		isPinned = func(rel string) bool { return pinnedRels[rel] }
+	}
+	tests, _, err := testsDigest(root, files, isPinned)
 	if err != nil {
 		return err
 	}

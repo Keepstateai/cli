@@ -187,7 +187,7 @@
   {
    "verb": "cruise init",
    "aliases": [],
-   "usage": "ks cruise init [--allow PATH...] [--goal TEXT] [--tests CMD] [--paths GLOB...] [--ladder family:model,...] [--spend USD]",
+   "usage": "ks cruise init [--allow PATH...] [--goal TEXT] [--tests CMD] [--check RUNNER] [--paths GLOB...] [--ladder family:model,...] [--spend USD]",
    "summary": "draft the acceptance manifest from the repository into .keepstate/cruise.json",
    "status": "available",
    "surface": "client",
@@ -203,6 +203,10 @@
     {
      "flag": "--tests CMD",
      "summary": "the command that decides done, when init should not detect it (pytest, npm test, go test)"
+    },
+    {
+     "flag": "--check RUNNER",
+     "summary": "the check to pin and run: pytest, go or node; required when tests of more than one ecosystem are found"
     },
     {
      "flag": "--paths GLOB...",
