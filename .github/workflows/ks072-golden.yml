@@ -1,7 +1,9 @@
 name: ks072-golden
 # Drift guard for what this client vendors from the service: the KS-072
-# golden layouts (testdata/ks072) and the KS-074 manifest-canonical vectors
-# (testdata/vectors), each with a SOURCE.json of its origin and sha256.
+# golden layouts (testdata/ks072), the KS-074 manifest-canonical vectors
+# (testdata/vectors) and the KS-091 C12 fixture builders and F11 matrix
+# (internal/c12, testdata/c12), each with a SOURCE.json of its origin and
+# sha256.
 #
 # Always: the vendored files must hash to what testdata/ks072/SOURCE.json
 # records (no secret needed), and the port must reproduce the golden.
@@ -32,7 +34,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Vendored files against SOURCE.json, the port against the golden, the canonical form against the vectors
-        run: go test -count=1 -run 'TestKS072|TestKS074' ./...
+        run: go test -count=1 -run 'TestKS072|TestKS074|TestC12' ./...
       - name: Server comparison NOT CONFIGURED
         if: ${{ env.KS_SERVER_REPO == '' || env.TOKEN_SET != 'true' }}
         run: |
@@ -48,4 +50,4 @@ jobs:
             docs/upgrade/vectors
       - name: Vendored files against the service's current ones
         if: ${{ env.KS_SERVER_REPO != '' && env.TOKEN_SET == 'true' }}
-        run: KS_SERVER_CHECKOUT="$GITHUB_WORKSPACE/server" go test -count=1 -run 'TestKS072VendoredGolden|TestKS074VendoredVectors' -v ./...
+        run: KS_SERVER_CHECKOUT="$GITHUB_WORKSPACE/server" go test -count=1 -run 'TestKS072VendoredGolden|TestKS074VendoredVectors|TestC12VendoredFixtures' -v ./...

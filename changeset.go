@@ -376,12 +376,25 @@ func applyChangeset(root, resultID string, cs *changeset) error {
 			}
 		}
 		target := filepath.Join(root, filepath.FromSlash(c.Path))
+		// the path is read again at the moment it is replaced: a file that
+		// appeared or changed since the preview is never overwritten (F04
+		// pre-existing-target-race); the paths already replaced are in the
+		// journal for --recover
+		if have, err := localState(target); err != nil || !sameState(have, c.Before) {
+			return fmt.Errorf("%q changed after the preview (it is %s now); it was not touched", c.Path, stateWord(have))
+		}
 		switch c.Op {
 		case "add", "modify":
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return err
 			}
-			if err := os.Rename(staged[i], target); err != nil {
+			if c.Op == "add" {
+				// a link fails if anything is at the target: an add never replaces
+				if err := os.Link(staged[i], target); err != nil {
+					return fmt.Errorf("%q appeared after the preview; it was not touched: %v", c.Path, err)
+				}
+				_ = os.Remove(staged[i])
+			} else if err := os.Rename(staged[i], target); err != nil {
 				return err
 			}
 			if err := os.Chmod(target, parseMode(c.After.Mode, 0o644)); err != nil {
@@ -515,6 +528,7 @@ func refuseIfInterrupted(root string) {
 // sha256; confirmCmd is what a non-interactive caller repeats with --confirm.
 func confirmAndApply(root, label, fullSHA string, cs *changeset, inv *Invocation, confirmCmd string) {
 	refusals, conflicts := planApply(root, cs)
+	refusals = append(refusals, collisionRefusals(root, cs)...)
 	if len(refusals) > 0 {
 		fail(integrity("changeset_refused", "the whole changeset is refused and nothing was changed: "+strings.Join(refusals, "; ")))
 	}
@@ -544,6 +558,12 @@ func confirmAndApply(root, label, fullSHA string, cs *changeset, inv *Invocation
 			fail(&cliError{Code: exitUsage, Kind: "confirmation_declined", Message: "not confirmed; nothing was changed"})
 		}
 	}
+	// the files are read again after the confirmation: anything that
+	// changed while a person was deciding refuses the apply, unchanged
+	if r2, c2 := planApply(root, cs); len(r2)+len(c2) > 0 {
+		fail(&cliError{Code: exitConflict, Kind: "apply_conflict",
+			Message: "the files here changed after the preview, so nothing was changed: " + strings.Join(append(r2, c2...), "; ")})
+	}
 	if err := applyChangeset(root, label, cs); err != nil {
 		fail(&cliError{Code: exitFailed, Kind: "apply_interrupted", WorkStarted: workYes,
 			Message: "the apply stopped part-way (" + sanitize(err.Error()) + "); every file it touched is backed up and journalled", NextAction: "ks result apply --recover"})
@@ -552,4 +572,54 @@ func confirmAndApply(root, label, fullSHA string, cs *changeset, inv *Invocation
 		fmt.Printf("applied %d change(s) from %s and verified each against its recorded after-state; the previous files are backed up in %s\n", len(cs.Changes), label, filepath.Join(applyDir(root), "backup"))
 		fmt.Println("nothing was committed, pushed or run")
 	})
+}
+
+// collisionRefusals asks THIS filesystem whether two of the changeset's
+// paths are the same file here (a case-insensitive or normalizing
+// filesystem folds README.md and readme.md, or an NFC and an NFD name,
+// together): each path is created exclusively in a scratch directory under
+// the project's .keepstate, and a create that finds an earlier one names
+// both (F04 case-collision and unicode-normalization-pair). The scratch
+// directory is removed afterwards.
+func collisionRefusals(root string, cs *changeset) []string {
+	base := filepath.Join(root, ".keepstate")
+	_, statErr := os.Stat(base)
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		return []string{"the filesystem's name folding could not be checked: " + sanitize(err.Error())}
+	}
+	probe, err := os.MkdirTemp(base, "collision-probe-")
+	if err != nil {
+		return []string{"the filesystem's name folding could not be checked: " + sanitize(err.Error())}
+	}
+	defer func() {
+		os.RemoveAll(probe)
+		if statErr != nil {
+			os.Remove(base) // only if this created it and it is empty
+		}
+	}()
+	var out []string
+	made := map[string]string{} // probe file -> change path
+	for _, c := range cs.Changes {
+		p := filepath.Join(probe, filepath.FromSlash(c.Path))
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			out = append(out, fmt.Sprintf("%s cannot sit where the changeset puts it: %s", visible(c.Path), sanitize(err.Error())))
+			continue
+		}
+		f, err := os.OpenFile(p, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err != nil {
+			other := "an earlier path"
+			if ni, serr := os.Stat(p); serr == nil {
+				for mp, name := range made {
+					if mi, merr := os.Stat(mp); merr == nil && os.SameFile(ni, mi) {
+						other = visible(name)
+					}
+				}
+			}
+			out = append(out, fmt.Sprintf("%s and %s are the same file on this filesystem (it folds case or Unicode normalization); applying both would lose one", other, visible(c.Path)))
+			continue
+		}
+		f.Close()
+		made[p] = c.Path
+	}
+	return out
 }

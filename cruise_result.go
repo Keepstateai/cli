@@ -174,6 +174,8 @@ func tarTreeDigest(data []byte) (string, error) {
 		sum       [32]byte
 	}
 	var files []entry
+	seen := map[string]bool{}
+	var total int64
 	for {
 		h, err := tr.Next()
 		if err == io.EOF {
@@ -182,13 +184,28 @@ func tarTreeDigest(data []byte) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("the artifact could not be read: %v", err)
 		}
-		name := strings.TrimPrefix(path.Clean(h.Name), "./")
+		clean, nerr := safeEntryName(h.Name)
+		if nerr == nil {
+			nerr = archiveNameProblem(h.Name, clean, h.Typeflag == tar.TypeDir)
+		}
+		if nerr != nil {
+			return "", nerr
+		}
+		name := clean
 		switch h.Typeflag {
 		case tar.TypeDir:
 			continue
 		case tar.TypeReg:
 		default:
-			return "", fmt.Errorf("the artifact holds %q, which is not a plain file, so its tree cannot be digested as the verifier did", name)
+			return "", fmt.Errorf("the artifact holds %q, which is not a plain file, so its tree cannot be digested as the verifier did", sanitize(name))
+		}
+		if seen[name] {
+			return "", fmt.Errorf("the artifact holds %q twice", sanitize(name))
+		}
+		seen[name] = true
+		total += h.Size
+		if h.Size < 0 || total > 1<<30 {
+			return "", fmt.Errorf("the artifact expands past 1 GiB")
 		}
 		hs := sha256.New()
 		if _, err := io.Copy(hs, tr); err != nil {

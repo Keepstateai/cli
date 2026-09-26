@@ -1,0 +1,24 @@
+{
+ "what": "the KS-091 C12 fixture builders (F03 hostile workspace, F04 archive/result attacks) and the F11 terminal matrix, vendored unchanged from the service repository; the client builds the same bytes for the same seed",
+ "server_commit": "2be5e2dd17124101a72ad02c75f889ac92b42db6",
+ "version": "c12-fixtures/1",
+ "seed": 91,
+ "files": {
+  "internal/c12/c12.go": {
+   "from": "fixtures/c12/c12.go",
+   "sha256": "c3afd429383dd764cb722d6a4df30352e86bb69ecf17b8897b751aa16fc76d17"
+  },
+  "internal/c12/f03_workspace.go": {
+   "from": "fixtures/c12/f03_workspace.go",
+   "sha256": "bed029c8f19b5c7bef9b5975e817ed3b38aa6b96f21b0210b1122bb4b4b0735f"
+  },
+  "internal/c12/f04_archives.go": {
+   "from": "fixtures/c12/f04_archives.go",
+   "sha256": "e3abb42f19f729f214f9cd909e84f79199cea27d89e756889fe87a9b4f928541"
+  },
+  "testdata/c12/f11-terminal-matrix.json": {
+   "from": "fixtures/c12/f11-terminal-matrix.json",
+   "sha256": "b444e810d3b2ac54e79beceb507204c7fce1f344d70dc2c0d1e33bcbeb91619d"
+  }
+ }
+}

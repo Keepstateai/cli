@@ -621,6 +621,35 @@ func safeEntryName(raw string) (string, error) {
 	return clean, nil
 }
 
+// archiveNameProblem is the rest of the C09 name rules (KS-091 F04): a
+// name must already be clean (no "./", no doubled or trailing separators),
+// carry no control character (it could forge terminal output), stay within
+// 1024 bytes, and never write under .git or .keepstate (a planted
+// .git/config runs code the next time git is used in that directory).
+func archiveNameProblem(raw, clean string, dir bool) error {
+	r := raw
+	if dir {
+		r = strings.TrimSuffix(r, "/")
+	}
+	for _, c := range raw {
+		if c < 0x20 || c == 0x7f {
+			return fmt.Errorf("entry %q has a control character in its name", sanitize(raw))
+		}
+	}
+	if r != clean {
+		return fmt.Errorf("entry %q is not a clean relative path (it would be written as %q)", sanitize(raw), sanitize(clean))
+	}
+	if len(raw) > 1024 {
+		return fmt.Errorf("an entry name is longer than 1024 bytes")
+	}
+	for _, part := range strings.Split(clean, "/") {
+		if part == ".git" || part == ".keepstate" {
+			return fmt.Errorf("entry %q is under %s, which a result never writes", sanitize(raw), part)
+		}
+	}
+	return nil
+}
+
 // archiveKind reads the leading bytes: gzip (a tar inside), zip, or tar.
 func archiveKind(p string) (string, error) {
 	f, err := os.Open(p)
@@ -655,6 +684,9 @@ func walkArchive(p string, visit func(e archiveEntry, rd io.Reader) error) error
 	accept := func(raw string, dir bool, mode os.FileMode, size int64, rd io.Reader) error {
 		name, err := safeEntryName(raw)
 		if err != nil {
+			return err
+		}
+		if err := archiveNameProblem(raw, name, dir); err != nil {
 			return err
 		}
 		if isDir, ok := seen[name]; ok && !(isDir && dir) {
@@ -801,6 +833,7 @@ func extractArchive(archive, dir string) (int, error) {
 		return 0, err
 	}
 	files := 0
+	written := map[string]string{} // target -> entry name, to name a collision
 	err := walkArchive(archive, func(e archiveEntry, rd io.Reader) error {
 		target := filepath.Join(dir, filepath.FromSlash(e.name))
 		if e.dir {
@@ -815,8 +848,20 @@ func extractArchive(archive, dir string) (int, error) {
 		}
 		f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, mode)
 		if err != nil {
+			if errors.Is(err, os.ErrExist) {
+				// a different name landed on a file already written: this
+				// filesystem folds case or Unicode normalization
+				if ni, serr := os.Stat(target); serr == nil {
+					for t, name := range written {
+						if ti, terr := os.Stat(t); terr == nil && os.SameFile(ni, ti) {
+							return fmt.Errorf("entries %q and %q are the same file on this filesystem (it folds case or Unicode normalization)", sanitize(name), sanitize(e.name))
+						}
+					}
+				}
+			}
 			return err
 		}
+		written[target] = e.name
 		if _, err := io.Copy(f, rd); err != nil {
 			f.Close()
 			return err
