@@ -692,6 +692,9 @@ type checkpointRowClient struct {
 	Scope             string   `json:"scope"`
 	Reason            string   `json:"reason"`
 	CreatedAt         string   `json:"created_at"`
+	// KS-053: the lineage and the engine's chunk counts (never estimated)
+	Parent string         `json:"parent_checkpoint_id,omitempty"`
+	Chunks map[string]int `json:"chunks,omitempty"`
 }
 
 func fetchCheckpoints(cr hostedCreds, sessionID string) ([]checkpointRowClient, error) {
@@ -736,11 +739,28 @@ func hostedSessionCheckpoints(cr hostedCreds, inv *Invocation) {
 		fmt.Printf("%-26s %-11s %-19s %-26s %s\n", "SAVED POINT", "STATE", "BOUNDARY", "ATTEMPT'S INSTRUCTION", "TAKEN")
 		for _, c := range rows {
 			fmt.Println(checkpointLine(c))
+			if c.State != "valid" {
+				// a failed save stays visible, with why, and is never offered
+				why := c.Reason
+				if why == "" {
+					why = "the service recorded no reason"
+				}
+				fmt.Printf("    not restorable: %s\n", sanitize(why))
+			}
+			if c.Parent != "" || len(c.Chunks) > 0 {
+				var parts []string
+				for _, k := range []string{"memory", "disk", "device"} {
+					if n, ok := c.Chunks[k]; ok {
+						parts = append(parts, fmt.Sprintf("%s %d", k, n))
+					}
+				}
+				fmt.Printf("    follows %s; chunks %s\n", notRecorded(c.Parent), notRecorded(strings.Join(parts, ", ")))
+			}
 		}
 		fmt.Printf("\nA saved point is a WHOLE-SESSION saved point. Restoring one returns EVERY agent and\n")
 		fmt.Printf("EVERY instruction in this session to that moment; it is not a file-level or a\n")
 		fmt.Printf("single-instruction rollback.\n")
-		fmt.Printf("%d saved point(s). Name one: ks task resume <instruction> --session %s --checkpoint <saved point>\n",
+		fmt.Printf("%d saved point(s). Name a valid one: ks task resume <instruction> --session %s --checkpoint <saved point>\n",
 			len(rows), r.ShortID)
 	})
 }

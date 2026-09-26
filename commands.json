@@ -1557,6 +1557,28 @@
      "summary": "trust the proposal with this digest (the 12 characters shown, or all of it); never implied by --yes"
     }
    ]
+  },
+  {
+   "verb": "session checkpoint-policy",
+   "aliases": [],
+   "usage": "ks session checkpoint-policy <session> [--on] [--off] [--interval MINUTES]",
+   "summary": "a session's automatic-save policy and where it stands; --on/--off changes it against the session's revision",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--on",
+     "summary": "turn automatic saves on"
+    },
+    {
+     "flag": "--off",
+     "summary": "turn automatic saves off"
+    },
+    {
+     "flag": "--interval MINUTES",
+     "summary": "how often, with --on (5 to 120; default the service's 5)"
+    }
+   ]
   }
  ]
 }

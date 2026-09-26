@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"sort"
 	"strings"
 )
@@ -157,5 +158,66 @@ func hostedSessionFork(cr hostedCreds, inv *Invocation) {
 		if d.Note != "" {
 			fmt.Println("note: " + sanitize(d.Note))
 		}
+	})
+}
+
+// ---- the automatic-save policy (KS-053) -------------------------------------------
+
+func hostedCheckpointPolicy(cr hostedCreds, inv *Invocation) {
+	sess := sessionRecordOf(cr, inv)
+	on, off := inv.Bool("on"), inv.Bool("off")
+	if on && off {
+		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--on or --off, not both; nothing changed"})
+	}
+	if inv.Set("interval") && !on {
+		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--interval goes with --on; nothing changed"})
+	}
+	if inv.Set("interval") && (inv.Int("interval") < 5 || inv.Int("interval") > 120) {
+		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--interval is 5 to 120 minutes; nothing changed"})
+	}
+	path := "/api/v2/sessions/" + url.PathEscape(sess.RecordID) + "/checkpoint-policy"
+	type policy struct {
+		Enabled         bool   `json:"enabled"`
+		IntervalMinutes int    `json:"interval_minutes"`
+		State           string `json:"state"`
+		PendingSince    string `json:"pending_since"`
+		DeferredReason  string `json:"deferred_reason"`
+		LastAttemptAt   string `json:"last_attempt_at"`
+		Certification   string `json:"certification"`
+		StorageEffect   string `json:"storage_effect"`
+		Revision        int64  `json:"session_revision"`
+	}
+	var env struct {
+		Data policy `json:"data"`
+	}
+	if err := hostedCall(cr, "GET", path, nil, &env); err != nil {
+		die(err)
+	}
+	p := env.Data
+	if on || off {
+		body := map[string]any{"enabled": on, "expected_revision": p.Revision}
+		if inv.Set("interval") {
+			body["interval_minutes"] = inv.Int("interval")
+		}
+		fmt.Fprintf(os.Stderr, "turn automatic saves %s for session %s (against revision %d); nothing is saved or erased by this\n", map[bool]string{true: "ON", false: "OFF"}[on], sess.ShortID, p.Revision)
+		if err := hostedMutate(cr, "PUT", path, body, &env); err != nil {
+			die(err)
+		}
+		p = env.Data
+	}
+	emit(p, func() {
+		if !p.Enabled {
+			fmt.Printf("automatic saves for session %s: OFF (state %s)\n", sess.ShortID, figure(p.State))
+		} else {
+			fmt.Printf("automatic saves for session %s: every %d min (state %s)\n", sess.ShortID, p.IntervalMinutes, figure(p.State))
+		}
+		if p.PendingSince != "" {
+			fmt.Printf("  a save is pending since %s: %s\n", p.PendingSince, sanitize(p.DeferredReason))
+		}
+		if p.LastAttemptAt != "" {
+			fmt.Printf("  last attempt %s\n", p.LastAttemptAt)
+		}
+		fmt.Printf("  %s\n", sanitize(p.Certification))
+		fmt.Printf("  storage: %s\n", sanitize(p.StorageEffect))
 	})
 }
