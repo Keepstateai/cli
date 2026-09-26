@@ -1365,6 +1365,28 @@
      "summary": "the plan the digest belongs to (with --execute)"
     }
    ]
+  },
+  {
+   "verb": "session restore",
+   "aliases": [],
+   "usage": "ks session restore <session> [--checkpoint CHECKPOINT] [--reason TEXT] [--accept-affected DIGEST]",
+   "summary": "restore a session from a named saved point, and say exactly what continues from it",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--checkpoint CHECKPOINT",
+     "summary": "the saved point; never chosen for you"
+    },
+    {
+     "flag": "--reason TEXT",
+     "summary": "why, recorded with the restore (required)"
+    },
+    {
+     "flag": "--accept-affected DIGEST",
+     "summary": "consent to the exact list of work the service said the restore affects"
+    }
+   ]
   }
  ]
 }

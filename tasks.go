@@ -967,10 +967,12 @@ func hostedTaskResume(cr hostedCreds, inv *Invocation) {
 			fmt.Printf("                 queue is a separate decision — ks agent queue resume %s --session %s --finding \"...\"\n",
 				a.Name, sess.ShortID)
 		}
+		continuationLines(res)
 		if res.Note != "" {
 			fmt.Printf("  note           %s\n", res.Note)
 		}
 	})
+	continuationUnknown(res, sess.ShortID)
 }
 
 // restoreAnswer is what the restore route reports: the phases it completed,
@@ -989,6 +991,33 @@ type restoreAnswer struct {
 	HoldID         string   `json:"hold_id"`
 	Scope          string   `json:"scope"`
 	Note           string   `json:"note"`
+	// Continuation is what continues from the saved point, as the engine
+	// established it (KS-052): exact_runtime, none or unknown, with the
+	// service's note. Printed exactly as given; unknown is never success.
+	Continuation     string `json:"continuation"`
+	ContinuationNote string `json:"continuation_note"`
+}
+
+// continuationLines prints the continuation exactly as the service gave it.
+func continuationLines(res restoreAnswer) {
+	c := res.Continuation
+	if c == "" {
+		c = "not stated by the service"
+	}
+	fmt.Printf("  continuation   %s\n", sanitize(c))
+	if res.ContinuationNote != "" {
+		fmt.Printf("                 %s\n", sanitize(res.ContinuationNote))
+	}
+}
+
+// continuationUnknown refuses to call a restore whose outcome the service
+// could not establish a success.
+func continuationUnknown(res restoreAnswer, sessShort string) {
+	if res.Continuation == "unknown" {
+		fail(&cliError{Code: exitTemporary, Kind: "continuation_unknown", WorkStarted: workUnknown,
+			Message:    "the restore's outcome is UNKNOWN: " + sanitize(res.ContinuationNote),
+			NextAction: "ks session show " + sessShort + " (the queue is held and the intent is on the record; do not rerun blindly)"})
+	}
 }
 
 func errText(err error) string {
