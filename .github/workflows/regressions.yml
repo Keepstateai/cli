@@ -1,0 +1,26 @@
+name: regressions
+# KS-092: the parser, state and alias regressions, and the mutation check
+# that proves the guards still guard: each v0.1.8 defect (budget, help,
+# quote) and the unknown-state default is reintroduced into a copy of the
+# source, and the guard tests must FAIL on it. A guard that stops failing
+# on its defect fails this job.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  regressions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: vet
+        run: go vet ./...
+      - name: tests
+        run: go test -count=1 ./...
+      - name: mutation check (QA-092-1)
+        run: KS_MUTATION=1 go test -count=1 -run 'TestKS092MutationsAreCaughtByTheirGuards' -v .
