@@ -262,6 +262,14 @@ func hostedMutate(cr hostedCreds, method, path string, body any, out any) error 
 // origin has done the work; only a KS-typed refusal (error.type ks_…) is
 // taken as a pre-admission contract for those.
 func definiteRefusal(resp *http.Response, raw []byte) bool {
+	if resp.StatusCode == http.StatusServiceUnavailable {
+		// KS-090: a rollout pause and read-only recovery are answered by
+		// the service's guard before any handler runs: nothing was done
+		var e struct {
+			Error struct{ Type string } `json:"error"`
+		}
+		return json.Unmarshal(raw, &e) == nil && (e.Error.Type == "ks_rollout_paused" || e.Error.Type == "ks_read_only_recovery")
+	}
 	if resp.StatusCode/100 != 4 {
 		return false
 	}

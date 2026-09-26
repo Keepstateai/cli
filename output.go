@@ -178,6 +178,21 @@ func classify(err error) *cliError {
 			NextAction: "ks update (this client speaks protocol " + clientProtocolText + ")"}
 	}
 	if errors.As(err, &he) {
+		// KS-090: the service's rollout and recovery refusals, by name
+		switch he.Type {
+		case "ks_rollout_paused":
+			return &cliError{Code: exitTemporary, Kind: he.Type, HTTPStatus: he.Status, WorkStarted: workNo,
+				Message:    "the service has paused new actions of this kind: " + sanitize(he.Message) + " [ks_rollout_paused]",
+				NextAction: "retry later; status, cancellation and results still work"}
+		case "ks_read_only_recovery":
+			return &cliError{Code: exitTemporary, Kind: he.Type, HTTPStatus: he.Status, WorkStarted: workNo,
+				Message:    "the service is in read-only recovery: " + sanitize(he.Message) + " [ks_read_only_recovery]",
+				NextAction: "retry after the service's repair; reading (status, lists, results) still works"}
+		case "ks_legacy_retired":
+			return &cliError{Code: exitFailed, Kind: he.Type, HTTPStatus: he.Status, WorkStarted: workNo,
+				Message:    sanitize(he.Message) + " [ks_legacy_retired]",
+				NextAction: "start an agent session instead: ks run --agent (existing sessions keep their status, saves and results)"}
+		}
 		c := &cliError{Kind: he.Type, Message: sanitize(he.Message), HTTPStatus: he.Status, WorkStarted: workNo}
 		if c.Kind == "" {
 			c.Kind = "http_" + fmt.Sprint(he.Status)

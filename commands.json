@@ -1723,6 +1723,21 @@
     }
    ],
    "note": "Reads GET /api/jobs/{id}/status and GET /api/jobs/{id}/changeset, which the deployed control plane does not serve yet; until it does, the verb says so and changes nothing."
+  },
+  {
+   "verb": "session migrate",
+   "aliases": [],
+   "usage": "ks session migrate <session> [--confirm DIGEST]",
+   "summary": "turn a legacy session into an agent session through a preview you review: runner, keys, saved points, what each legacy command does afterwards, what is preserved, the rollback point",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--confirm DIGEST",
+     "summary": "the preview's digest (the 12 characters shown, or all of it); required without a terminal, never implied by --yes"
+    }
+   ],
+   "note": "Reads GET /api/v2/sessions/{id}/migration and sends POST /api/v2/sessions/{id}/migrate, which the deployed control plane does not serve yet; gated on the registry's session.migration row, else agent.workspace."
   }
  ]
 }

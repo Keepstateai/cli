@@ -121,6 +121,13 @@ var registry = []*Command{
 		Effects:  "reads the idle policy and state; nothing changes. An idle agent session is saved and paused, never killed",
 		Examples: []string{"ks session idle 3f2a1c"},
 		Nothing:  "Nothing was read.", Run: hosted(hostedSessionIdle)},
+	{Path: []string{"session", "migrate"}, Summary: "turn a legacy session into an agent session through a preview you review: runner, keys, saved points, what each legacy command does afterwards, what is preserved, the rollback point", Surface: "hosted",
+		Args:  []Arg{{Name: "session", Required: true}},
+		Flags: []Flag{{Name: "confirm", Kind: flagString, Value: "DIGEST", Summary: "the preview's digest (the 12 characters shown, or all of it); required without a terminal, never implied by --yes"}},
+		Needs: "session.migration", Fallback: "agent.workspace",
+		Effects:  "reads the preview and shows it; a preview with blockers is refused with them named (a running legacy guest must be saved and stopped first). Once confirmed by the digest, applies exactly that conversion (a primary agent, the agent mode, pinned to the rollback saved point) or nothing, then reads the record back. Afterwards the legacy exec and attach are refused, and kill, wake and fork point to the workspace verbs",
+		Examples: []string{"ks session migrate session_0123abcd", "ks session migrate session_0123abcd --confirm 3f2a1c9b8d7e"},
+		Nothing:  "Nothing was migrated.", Run: hosted(hostedSessionMigrate)},
 	{Path: []string{"session", "delete"}, Summary: "delete a session record through a plan; the runtime's stop and the content's standing are reported apart", Surface: "hosted",
 		Args: []Arg{{Name: "session", Required: true}},
 		Flags: []Flag{
