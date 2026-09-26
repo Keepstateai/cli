@@ -131,14 +131,22 @@ func fetchSessionRecords(cr hostedCreds) (map[string]sessionRecordFacts, error) 
 }
 
 // withParkReasons fills each inventory row's park_reason from its record
-// when the inventory did not carry one. A failed read of the records is
-// returned as a sentence to show, never as "not parked".
+// when the inventory did not carry one. A control plane from c0a64d1 on
+// carries park_reason on the inventory row itself, so no second read is
+// made when any row carries it. The field is omitted when empty, so an
+// inventory with no reason on any row cannot say which kind of control
+// plane sent it: the records are then read only when a row that names a
+// record is not running, which is the only row a park reason can explain.
+// A failed read of the records is returned as a sentence to show, never
+// as "not parked".
 func withParkReasons(cr hostedCreds, rows []inventoryRow) ([]inventoryRow, string) {
 	need := false
 	for _, r := range rows {
-		if r.RecordID != "" && r.ParkReason == "" {
+		if r.ParkReason != "" {
+			return rows, "" // the inventory carries the field
+		}
+		if r.RecordID != "" && r.RuntimeState != "running" {
 			need = true
-			break
 		}
 	}
 	if !need {

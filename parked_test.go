@@ -29,6 +29,7 @@ type parkCtl struct {
 	reason      string // the record's park_reason
 	recordState string // the record's runtime_state
 	recordsFail bool   // the record list answers 503
+	inventoryPR bool   // the fleet inventory row carries park_reason (c0a64d1 on)
 }
 
 func (c *parkCtl) runtime() any {
@@ -75,10 +76,11 @@ func (c *parkCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// the fleet's own word is "stopping"; the record's facts are the
 		// agent's last word (working) and its task's (running): all frozen
 		env(200, map[string]any{"items": []map[string]any{{
-			"id": "agentsession0000000000000000aaaa", "short_id": agentSessionShort, "name": "checkout", "runtime_state": "stopping",
+			"id": "agentsession0000000000000000aaaa", "short_id": agentSessionShort, "name": "checkout", "runtime_state": c.fleetState(),
 			"record_id": agentSessionRecord, "agent_activity": "working", "task_state": "running",
 			"key_alias": "prod", "observed_at": "2026-09-26T12:00:00Z", "last_activity_at": "2026-09-26T11:00:00Z",
 			"created_at": "2026-09-26T09:00:00Z", "image": "base", "budget_tokens": 500000, "execution_epoch": 1,
+			"park_reason": map[bool]string{true: c.reason, false: ""}[c.inventoryPR],
 		}}, "next_cursor": ""})
 	case r.URL.Path == "/api/v2/sessions":
 		if c.recordsFail {
@@ -116,6 +118,15 @@ func (c *parkCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		fault(404, "ks_not_found", "not served by this fake")
 	}
+}
+
+// fleetState is the fleet's own word: running for a running record,
+// stopping for a parked one.
+func (c *parkCtl) fleetState() string {
+	if c.recordState == "running" {
+		return "running"
+	}
+	return "stopping"
 }
 
 func parkFixture(t *testing.T, c *parkCtl) (string, string) {
@@ -267,5 +278,34 @@ func TestWindowEventLineForFundsPark(t *testing.T) {
 	e.Payload = json.RawMessage(`{"type":"session.parked","reason":"","runtime_state":"parked"}`)
 	if l := agentEventLine(e); strings.Contains(l, "out of credit") {
 		t.Errorf("an ordinary park event reads out of credit: %q", l)
+	}
+}
+
+// From c0a64d1 the inventory row carries park_reason: the list reads it
+// there and makes no second read of the records. A list of running
+// sessions makes none either.
+func TestInventoryParkReasonNeedsNoSecondRead(t *testing.T) {
+	for name, c := range map[string]*parkCtl{
+		"carried": {reason: "funds_interlock", recordState: "stopping", inventoryPR: true, recordsFail: true},
+		"running": {recordState: "running", recordsFail: true},
+	} {
+		bin, cfg := parkFixture(t, c)
+		out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "session", "list")
+		if code != 0 {
+			t.Fatalf("%s: exit %d\n%s%s", name, code, out, errs)
+		}
+		if name == "carried" && !strings.Contains(out, fundsPausedLine) {
+			t.Errorf("%s: the carried reason is not shown:\n%s", name, out)
+		}
+		if strings.Contains(out, "could not be read") {
+			t.Errorf("%s: the records were read:\n%s", name, out)
+		}
+		c.mu.Lock()
+		for _, r := range c.requests {
+			if strings.HasPrefix(r, "GET /api/v2/sessions?") && !strings.Contains(r, "source=fleet") {
+				t.Errorf("%s: a second read of the records: %s", name, r)
+			}
+		}
+		c.mu.Unlock()
 	}
 }
