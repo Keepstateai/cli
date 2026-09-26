@@ -249,9 +249,11 @@ func TestAutomationFixtureParsesOnlyJSON(t *testing.T) {
 	if initData["manifest_sha"] == nil {
 		t.Fatalf("init json: %v", initData)
 	}
+	// KS-074: approve binds the selection, the check inputs and the route
+	// keys into the draft before digesting it, so its digest is its own
 	stdout, _, _ = auditExec(t, bin, cfg, repo, nil, "cruise", "approve", "--json")
-	if parseEnvelope(t, stdout)["data"].(map[string]any)["manifest_sha"] != initData["manifest_sha"] {
-		t.Fatal("approve json digest differs")
+	if sha, _ := parseEnvelope(t, stdout)["data"].(map[string]any)["manifest_sha"].(string); len(sha) != 64 || sha == initData["manifest_sha"] {
+		t.Fatalf("approve json digest: %v", sha)
 	}
 	stdout, _, code = auditExec(t, bin, cfg, repo, nil, "cruise", "run", "--json")
 	if code != 0 {

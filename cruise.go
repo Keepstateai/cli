@@ -1037,6 +1037,38 @@ func cruiseApprove(inv *Invocation) {
 		die(fmt.Errorf("the workspace changed since init (tree digest %s, draft says %s); run ks cruise init again",
 			short(treeDigest(files)), short(want)))
 	}
+	// KS-074: the binding, inside the bytes about to be approved
+	ver, _ := m["verifier"].(map[string]any)
+	runner := checkRunnerOf(ver)
+	inputs, _, ierr := bindingInputs(files, runner)
+	if ierr != nil {
+		die(fmt.Errorf("%v; run ks cruise init again", ierr))
+	}
+	named, kerr := parseKeyFlags(inv.List("key"))
+	if kerr != nil {
+		die(&cliError{Code: exitUsage, Kind: "usage", Message: kerr.Error()})
+	}
+	c := mustCreds()
+	keys, err := fetchKeys(c)
+	if err != nil {
+		die(err)
+	}
+	routes, rerr := chooseRoutes(keys, bindingProviders(m), named)
+	if rerr != nil {
+		die(&cliError{Code: exitUsage, Kind: "route_unbound", Message: "the approval binds one provider key per provider the ladder uses: " + rerr.Error() + ". Nothing was approved"})
+	}
+	ws, _ := m["workspace"].(map[string]any)
+	if ws == nil || ws["sha256"] == nil {
+		die(fmt.Errorf("the draft names no workspace digest, and an approval binds the exact upload; run ks cruise init again"))
+	}
+	m["binding_version"] = cruiseBindingVersion
+	ws["selection_digest"] = sel.Digest
+	ver["inputs_digest"] = inputs
+	ver["check"] = map[string]any{"runner": runner, "paths": []any{}}
+	m["routes"] = routes
+	if err := writeDraft(root, m); err != nil {
+		die(err)
+	}
 	sha, err := manifestSHA(m)
 	if err != nil {
 		die(err)
@@ -1049,6 +1081,7 @@ func cruiseApprove(inv *Invocation) {
 	emit(map[string]any{"manifest_sha": sha, "lock": cruiseLock, "version": m["version"], "approved_at": lk.ApprovedAt}, func() {
 		fmt.Println(sha)
 		fmt.Printf("approved: %s locks manifest version %v at %s\n", cruiseLock, m["version"], lk.ApprovedAt)
+		fmt.Printf("bound: upload selection %s, check %s over inputs %s, keys %s\n", short(sel.Digest), runner, short(inputs), routesWords(routes))
 		fmt.Println("next: ks cruise run")
 	})
 }
@@ -1154,6 +1187,29 @@ func cruiseRun(inv *Invocation) error {
 	case lk.SelectionDigest != sel.Digest:
 		return fmt.Errorf("the upload selection changed since approve (selection digest %s, approved %s under %s); review it (ks cruise preview), then ks cruise init and approve again", short(sel.Digest), short(lk.SelectionDigest), lk.PolicyVersion)
 	}
+	bound := m["binding_version"] != nil
+	if bound {
+		// KS-074: everything the approval bound, recomputed; a change sends
+		// nothing at all
+		if want, _ := m["workspace"].(map[string]any)["selection_digest"].(string); want != sel.Digest {
+			return fmt.Errorf("the upload selection changed since approve (%s, approved %s); nothing was sent", short(sel.Digest), short(want))
+		}
+		inputs, _, ierr := bindingInputs(files, checkRunnerOf(ver))
+		if ierr != nil {
+			return fmt.Errorf("%v; nothing was sent", ierr)
+		}
+		if want, _ := ver["inputs_digest"].(string); want != inputs {
+			return fmt.Errorf("the check's inputs changed since approve (inputs digest %s, approved %s): a changed conftest, lockfile, fixture or test is a new check; nothing was sent (ks cruise init, then approve)", short(inputs), short(want))
+		}
+		keys, kerr := fetchKeys(c)
+		if kerr != nil {
+			return fmt.Errorf("the provider keys could not be read to check the approved routes (%v); nothing was sent", kerr)
+		}
+		routes, _ := m["routes"].([]any)
+		if ch := routeChanges(keys, routes); len(ch) > 0 {
+			return fmt.Errorf("a key the approval binds changed: %s; nothing was sent (approve again to bind the key now in place)", strings.Join(ch, "; "))
+		}
+	}
 	tarSha := hex.EncodeToString(h.Sum(nil))
 	ws, _ := m["workspace"].(map[string]any)
 	if ws == nil {
@@ -1165,6 +1221,8 @@ func cruiseRun(inv *Invocation) error {
 		if have != tarSha {
 			return fmt.Errorf("the packed workspace (%s) is not the one approved (%s); run ks cruise init and approve again", short(tarSha), short(have))
 		}
+	} else if bound {
+		return fmt.Errorf("the approved manifest names no workspace digest; a bound approval is sent exactly as approved, so nothing was sent")
 	} else {
 		// the draft was approved without a workspace digest (a hand-written
 		// draft): fill it now; the digest sent is of the filled manifest
@@ -1177,6 +1235,10 @@ func cruiseRun(inv *Invocation) error {
 	manifestBytes, err := canonicalJSON(m)
 	if err != nil {
 		return err
+	}
+	// the bytes sent ARE the approved bytes: their digest is the lock's
+	if sum := sha256.Sum256(manifestBytes); bound && hex.EncodeToString(sum[:]) != lk.SHA256 {
+		return fmt.Errorf("the manifest bytes are not the approved ones (%s, approved %s); nothing was sent", short(hex.EncodeToString(sum[:])), short(lk.SHA256))
 	}
 
 	// KS-029: the job-specific preflight, with what only this client
@@ -1580,4 +1642,13 @@ func cruisePreflight(c hostedCreds, bytes, files int64, check string, m map[stri
 			NextAction: "ks preflight"})
 	}
 	return nil
+}
+
+func routesWords(routes []any) string {
+	var out []string
+	for _, x := range routes {
+		r, _ := x.(map[string]any)
+		out = append(out, fmt.Sprintf("%v=%v", r["provider"], r["key_id"]))
+	}
+	return strings.Join(out, ", ")
 }

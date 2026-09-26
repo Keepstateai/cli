@@ -226,11 +226,17 @@
   {
    "verb": "cruise approve",
    "aliases": [],
-   "usage": "ks cruise approve",
-   "summary": "lock the draft: its digest and the time into .keepstate/cruise.lock",
+   "usage": "ks cruise approve [--key PROVIDER=KEY]",
+   "summary": "lock the draft, binding the upload selection, the check's inputs and one provider key per ladder provider into the digest",
    "status": "available",
-   "surface": "client",
-   "note": "makes no request; refused when the workspace changed since init"
+   "surface": "hosted",
+   "note": "makes no request; refused when the workspace changed since init",
+   "flags": [
+    {
+     "flag": "--key PROVIDER=KEY",
+     "summary": "the key to bind for a provider with several enabled keys (repeatable)"
+    }
+   ]
   },
   {
    "verb": "cruise run",

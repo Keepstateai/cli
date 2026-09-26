@@ -310,7 +310,9 @@ type fakeCtl struct {
 	posted   []byte // the last POST /api/jobs body
 	job      map[string]any
 	artifact []byte
-	pfBlock  bool // the job preflight answers a blocker (KS-029)
+	pfBlock  bool   // the job preflight answers a blocker (KS-029)
+	keyAt    string // the anthropic key's created_at (KS-074: a rotation changes it)
+	keyOff   bool   // the anthropic key is disabled
 }
 
 func (f *fakeCtl) seen() []string {
@@ -335,6 +337,15 @@ func (f *fakeCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == "GET" && r.URL.Path == "/api/models":
 		writeJSON(embeddedModels)
+	case r.Method == "GET" && r.URL.Path == "/api/v2/keys":
+		f.mu.Lock()
+		at, off := f.keyAt, f.keyOff
+		f.mu.Unlock()
+		if at == "" {
+			at = "2026-09-01T00:00:00Z"
+		}
+		writeJSON(map[string]any{"schema_version": 2, "data": map[string]any{"items": []any{
+			map[string]any{"id": "vlt_anthropic1", "provider": "anthropic", "alias": "dev", "last4": "abcd", "enabled": !off, "revision": 1, "created_at": at}}}})
 	case r.Method == "POST" && r.URL.Path == "/api/v2/preflight":
 		f.mu.Lock()
 		block := f.pfBlock
@@ -514,9 +525,18 @@ func TestCruiseInitApproveRun(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("approve exit %d\n%s%s", code, out, errs)
 	}
-	if first := strings.SplitN(out, "\n", 2)[0]; first != initSHA {
-		t.Fatalf("approve printed %s, init printed %s", first, initSHA)
+	// KS-074: approve writes the binding into the draft before digesting
+	// it, so the approved digest is the bound draft's, not init's
+	approvedSHA := strings.SplitN(out, "\n", 2)[0]
+	if approvedSHA == initSHA || len(approvedSHA) != 64 {
+		t.Fatalf("approve printed %s (init printed %s)", approvedSHA, initSHA)
 	}
+	if m, err := readDraftAt(repo); err != nil || m["binding_version"] == nil || m["routes"] == nil {
+		t.Fatalf("the draft carries no binding: %v", err)
+	} else if sha, _ := manifestSHA(m); sha != approvedSHA {
+		t.Fatalf("the approved digest %s is not the bound draft's %s", approvedSHA, sha)
+	}
+	initSHA = approvedSHA
 	lkRaw, err := os.ReadFile(filepath.Join(repo, cruiseLock))
 	if err != nil {
 		t.Fatal(err)
@@ -525,9 +545,13 @@ func TestCruiseInitApproveRun(t *testing.T) {
 	if err := json.Unmarshal(lkRaw, &lk); err != nil || lk.SHA256 != initSHA || lk.ApprovedAt == "" {
 		t.Fatalf("lock %s: %v", lkRaw, err)
 	}
-	if len(f.seen()) != 0 {
-		t.Fatalf("approve made requests: %v", f.seen())
+	// KS-074: approve reads the provider keys it binds, and nothing else
+	if got := f.seen(); len(got) != 1 || got[0] != "GET /api/v2/keys" {
+		t.Fatalf("approve made requests: %v", got)
 	}
+	f.mu.Lock()
+	f.hits = nil
+	f.mu.Unlock()
 
 	// KS-029: a preflight blocker stops the run before any upload
 	f.mu.Lock()
@@ -552,8 +576,8 @@ func TestCruiseInitApproveRun(t *testing.T) {
 		t.Fatalf("run exit %d\n%s%s", code, out, errs)
 	}
 	// KS-029: the job preflight (an observation) and then exactly one job
-	if got := f.seen(); len(got) != 2 || got[0] != "POST /api/v2/preflight" || got[1] != "POST /api/jobs" {
-		t.Fatalf("run made %v, want the preflight then exactly one POST /api/jobs", got)
+	if got := f.seen(); len(got) != 3 || got[0] != "GET /api/v2/keys" || got[1] != "POST /api/v2/preflight" || got[2] != "POST /api/jobs" {
+		t.Fatalf("run made %v, want the route-key read, the preflight, then exactly one POST /api/jobs", got)
 	}
 	if strings.TrimSpace(out) != "job_0123456789ab" || !strings.Contains(errs, "$2.00") {
 		t.Errorf("run output: stdout %q stderr %q", out, errs)
@@ -645,6 +669,9 @@ func TestCruiseRunRefusals(t *testing.T) {
 	if _, _, code := ksIn(t, bin, cfg, repo, "cruise", "approve"); code != 0 {
 		t.Fatal("approve")
 	}
+	f.mu.Lock()
+	f.hits = nil // approve reads the provider keys it binds (KS-074); the runs below must send nothing
+	f.mu.Unlock()
 	fp := filepath.Join(repo, "test_inventory.py")
 	orig, _ := os.ReadFile(fp)
 	if err := os.WriteFile(fp, append(orig, []byte("\ndef test_forged():\n    assert True\n")...), 0o644); err != nil {
