@@ -177,16 +177,15 @@ func agentSessionID(r inventoryRow) string {
 	return r.ID
 }
 
-// agentSession answers the one session --session names, through the same
-// resolution the session verbs use: a full id, or a prefix unique among
-// the account's sessions.
+// agentSession answers the one session a command means, in the KS-022
+// order (binding.go): --session through the same resolution the session
+// verbs use (a full id, or a prefix unique among the account's sessions);
+// else this project's binding; else a choice at a terminal; else an error.
+// A target that --session did not name is shown before anything acts.
 func agentSession(cr hostedCreds, inv *Invocation) inventoryRow {
-	if inv.Str("session") == "" {
-		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--session names the session the agent lives in", NextAction: "ks session list"})
-	}
-	r, err := resolveSession(cr, inv.Str("session"))
-	if err != nil {
-		die(err)
+	r, how, explicit := targetSession(cr, inv.Str("session"))
+	if !explicit {
+		showTarget(r, how)
 	}
 	return r
 }

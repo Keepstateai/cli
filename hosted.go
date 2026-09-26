@@ -172,6 +172,7 @@ func hostedCall(cr hostedCreds, method, path string, body any, out any) error {
 // supplied one is sent exactly. Zero and negative never get this far: the
 // parser refuses them.
 func hostedRun(cr hostedCreds, inv *Invocation) {
+	warnDuplicateWork(cr)
 	if inv.Bool("agent") {
 		if inv.Set("image") {
 			fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--image is for a plain session; an agent session runs the agent image", NextAction: "ks run --agent"})

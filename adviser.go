@@ -188,13 +188,7 @@ func confirmGrant(target adviserEnd, given string) {
 	}
 	// a terminal is a character device that is not /dev/null: a closed or
 	// redirected stdin must never read as a person who could answer
-	tty := false
-	if fi, err := os.Stdin.Stat(); err == nil && fi.Mode()&os.ModeCharDevice != 0 {
-		tty = true
-		if dn, derr := os.Stat(os.DevNull); derr == nil && os.SameFile(fi, dn) {
-			tty = false
-		}
-	}
+	tty := stdinIsTerminal()
 	if out.noInput || !tty {
 		msg := "a connection is confirmed by naming its adviser, and no confirmation was given; --yes does not confirm a connection"
 		if out.noInput {

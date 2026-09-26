@@ -518,7 +518,7 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session the agents live in; a short id is accepted when it is unique among yours"
+     "summary": "the session the agents live in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     }
    ]
   },
@@ -533,7 +533,7 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     },
     {
      "flag": "--take-control",
@@ -560,7 +560,7 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     }
    ]
   },
@@ -575,7 +575,7 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     }
    ]
   },
@@ -590,7 +590,7 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     }
    ]
   },
@@ -605,7 +605,7 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     },
     {
      "flag": "--finding TEXT",
@@ -624,7 +624,7 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     },
     {
      "flag": "--finding TEXT",
@@ -643,7 +643,7 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session the instruction belongs to; a short id is accepted when it is unique among yours"
+     "summary": "the session the instruction belongs to; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     },
     {
      "flag": "--checkpoint ID",
@@ -670,7 +670,7 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session the request belongs to; a short id is accepted when it is unique among yours"
+     "summary": "the session the request belongs to; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     }
    ]
   },
@@ -685,7 +685,7 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session the request belongs to; a short id is accepted when it is unique among yours"
+     "summary": "the session the request belongs to; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     }
    ]
   },
@@ -700,7 +700,7 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     }
    ]
   },
@@ -715,7 +715,7 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     }
    ]
   },
@@ -732,7 +732,7 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session whose instructions to read; a short id is accepted when it is unique among yours"
+     "summary": "the session whose instructions to read; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     },
     {
      "flag": "--agent NAME",
@@ -775,7 +775,7 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session the instruction belongs to; a short id is accepted when it is unique among yours"
+     "summary": "the session the instruction belongs to; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     },
     {
      "flag": "--reason TEXT",
@@ -794,7 +794,7 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session the instruction belongs to; a short id is accepted when it is unique among yours"
+     "summary": "the session the instruction belongs to; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     },
     {
      "flag": "--finding TEXT",
@@ -812,7 +812,7 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session of the agent that will ask; a short id is accepted when it is unique among yours"
+     "summary": "the session of the agent that will ask; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     },
     {
      "flag": "--agent NAME",
@@ -850,7 +850,7 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     },
     {
      "flag": "--agent NAME",
@@ -865,6 +865,50 @@
    "summary": "withdraw a connection: every future consultation over it stops at once",
    "status": "planned",
    "surface": "hosted"
+  },
+  {
+   "verb": "session use",
+   "aliases": [],
+   "usage": "ks session use [session] [--clear] [--trust-repo] [--confirm SESSION]",
+   "summary": "bind this project to a session, so commands without --session mean it: per account, project root and control plane",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--clear",
+     "summary": "remove this project's binding"
+    },
+    {
+     "flag": "--trust-repo",
+     "summary": "adopt the session this repository's .keepstate/session.json names, once you confirm it with --confirm"
+    },
+    {
+     "flag": "--confirm SESSION",
+     "summary": "the id of the session the repository names; required with --trust-repo, never implied by --yes"
+    }
+   ]
+  },
+  {
+   "verb": "session rename",
+   "aliases": [],
+   "usage": "ks session rename <session> <new-name>",
+   "summary": "rename a session by id; its id and everything in it are unchanged",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "agent rename",
+   "aliases": [],
+   "usage": "ks agent rename <name> <new-name> [--session ID]",
+   "summary": "rename an agent by id; its tasks, approvals and adviser connections keep resolving",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    }
+   ]
   }
  ]
 }
