@@ -313,6 +313,18 @@ func (c *agentCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			out[k] = v
 		}
 		env(201, out)
+	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/v2/tasks/") && !strings.Contains(strings.TrimPrefix(r.URL.Path, "/api/v2/tasks/"), "/"):
+		id := strings.TrimPrefix(r.URL.Path, "/api/v2/tasks/")
+		for _, t := range agentTaskRows {
+			if t["id"] == id {
+				env(200, t)
+				return
+			}
+		}
+		fault(404, "ks_not_found", "no such task")
+	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/cancel") && strings.HasPrefix(r.URL.Path, "/api/v2/tasks/"):
+		id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/v2/tasks/"), "/cancel")
+		env(200, map[string]any{"task": map[string]any{"id": id, "state": "cancelling"}, "requested": true})
 	case r.Method == "GET" && r.URL.Path == "/api/v2/tasks":
 		var items []map[string]any
 		for _, t := range agentTaskRows {
@@ -718,46 +730,43 @@ func (l *lockedBuf) String() string {
 
 // Ctrl-C closes the window and nothing else: exit 0, a line that says the
 // agent keeps working, and not one request that could stop it.
-func TestAgentOpenDetachesOnInterruptAndCancelsNothing(t *testing.T) {
+// QA-035-3 in the window: Ctrl-C interrupts the instruction in flight -- the
+// cancel route, shown, never text to the agent -- and the window stays; q
+// leaves it, and leaving sends nothing at all.
+func TestAgentWindowCtrlCInterruptsAndQLeaves(t *testing.T) {
 	c, bin, cfg := agentFixture(t)
 	c.mu.Lock()
 	c.endless = true
 	c.mu.Unlock()
-	cmd := exec.Command(bin, "agent", "open", "main", "--session", agentSessionShort)
-	cmd.Env = append(os.Environ(), fastEnv(cfg)...)
-	var so, se lockedBuf
-	cmd.Stdout, cmd.Stderr = &so, &se
-	if err := cmd.Start(); err != nil {
+	w := openWindow(t, bin, cfg, "agent", "open", "main", "--session", agentSessionShort)
+	waitUntil(t, "an event", func() bool { return strings.Contains(w.so.String(), "42") })
+	if err := w.cmd.Process.Signal(os.Interrupt); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(15 * time.Second)
-	for !strings.Contains(so.String(), "42") {
-		if time.Now().After(deadline) {
-			_ = cmd.Process.Kill()
-			t.Fatalf("the window printed no event in time:\n%s%s", so.String(), se.String())
-		}
-		time.Sleep(20 * time.Millisecond)
+	waitUntil(t, "the interrupt line", func() bool { return strings.Contains(w.so.String(), "Ctrl-C: interrupt requested for tsk_1") })
+	if !strings.Contains(w.so.String(), "not claimed stopped") || !strings.Contains(w.so.String(), "the window stays open") {
+		t.Errorf("the interrupt did not say what it did:\n%s", w.text())
 	}
-	if err := cmd.Process.Signal(os.Interrupt); err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("detaching exited %v\n%s%s", err, so.String(), se.String())
-		}
-	case <-time.After(15 * time.Second):
-		_ = cmd.Process.Kill()
-		t.Fatal("the window did not detach on the interrupt")
-	}
-	if !strings.Contains(se.String(), "[detached; the agent keeps working]") {
-		t.Errorf("detach line missing:\n%s", se.String())
-	}
+	cancels, texts := 0, 0
 	for _, r := range c.seen() {
-		if strings.HasPrefix(r, "DELETE ") || strings.Contains(r, "cancel") || strings.Contains(r, "/close") {
-			t.Errorf("detaching sent %q", r)
+		if strings.HasSuffix(r, "/api/v2/tasks/tsk_1/cancel") {
+			cancels++
+		}
+		if strings.HasPrefix(r, "POST ") && strings.HasSuffix(r, "/tasks") {
+			texts++
+		}
+	}
+	if cancels != 1 || texts != 0 {
+		t.Fatalf("Ctrl-C sent %d cancel(s) and %d instruction(s): %v", cancels, texts, c.seen())
+	}
+	before := len(c.seen())
+	w.detach(t)
+	if !strings.Contains(w.se.String(), "[left the window; the agent keeps working]") {
+		t.Errorf("leave line missing:\n%s", w.se.String())
+	}
+	for _, r := range c.seen()[before:] {
+		if strings.HasPrefix(r, "DELETE ") || strings.Contains(r, "cancel") || strings.Contains(r, "/close") || strings.HasPrefix(r, "POST ") {
+			t.Errorf("leaving sent %q", r)
 		}
 	}
 }
@@ -1297,7 +1306,8 @@ func waitUntil(t *testing.T, what string, ok func() bool) {
 // success: detaching is what was asked for.
 func (w *windowProc) detach(t *testing.T) {
 	t.Helper()
-	if err := w.cmd.Process.Signal(os.Interrupt); err != nil {
+	// leaving is its own key (C11); Ctrl-C interrupts instead (KS-035)
+	if _, err := io.WriteString(w.in, "q\n"); err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)

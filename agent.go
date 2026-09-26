@@ -922,14 +922,23 @@ func followAgent(cr hostedCreds, win *liveWindow, w *agentWindow) {
 	restoreTerm := saveTerminal()
 	stopSizes := startSizeReports(cr, win)
 	restore := func() { stopSizes(); restoreTerm() }
+	// Ctrl-C (C11, QA-035-3) INTERRUPTS the current work: the same control
+	// request as ks task cancel on the instruction in flight, never text sent
+	// to the agent, and what it did is shown. Leaving the window is its own
+	// key (q). A terminating signal (SIGTERM, a closed terminal) leaves.
 	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer signal.Stop(sig)
 	go func() {
-		<-sig
-		restore()
-		fmt.Fprintln(os.Stderr, "[detached; the agent keeps working]")
-		os.Exit(exitOK)
+		for s := range sig {
+			if s == os.Interrupt {
+				win.interrupt(cr)
+				continue
+			}
+			restore()
+			fmt.Fprintln(os.Stderr, "[left the window; the agent keeps working]")
+			os.Exit(exitOK)
+		}
 	}()
 	go win.renew(cr)
 	go win.readInput(cr, restore)
@@ -940,9 +949,9 @@ func followAgent(cr hostedCreds, win *liveWindow, w *agentWindow) {
 				Epoch any `json:"epoch"`
 			}
 			_ = json.Unmarshal(data, &hello)
-			progress("following from event %d (epoch %v); Ctrl-C detaches and the agent keeps working", w.Resume.AfterSeq, figure(hello.Epoch))
+			progress("following from event %d (epoch %v); Ctrl-C interrupts the instruction in flight, q leaves the window and the agent keeps working", w.Resume.AfterSeq, figure(hello.Epoch))
 			progress("%s", win.legend())
-			progress("Ctrl-C leaves this window (the agent keeps working) · interrupt one instruction: ks task cancel <task> · stop the agent: ks agent stop %s · save and pause the session: ks agent pause %s", win.agent.Name, win.agent.Name)
+			progress("Ctrl-C interrupts the instruction in flight · q leaves this window (the agent keeps working) · stop the agent: ks agent stop %s · save and pause the session: ks agent pause %s", win.agent.Name, win.agent.Name)
 		case "event":
 			var e journalEvent
 			if json.Unmarshal(data, &e) != nil {
@@ -1668,7 +1677,7 @@ func (win *liveWindow) legend() string {
 	if _, held := win.hold(); !held {
 		return "type \"a <id>\" to approve a request or \"d <id>\" to deny it; this window is watching, so it queues no instruction (" + win.takeControlLine() + ")"
 	}
-	return "type \"a <id>\" to approve a request, \"d <id>\" to deny it, anything else to send it to the agent as an instruction; \"q\" or Ctrl-C detaches"
+	return "type \"a <id>\" to approve a request, \"d <id>\" to deny it, anything else to send it to the agent as an instruction; Ctrl-C interrupts the instruction in flight; \"q\" leaves the window"
 }
 
 // refuse prints one refusal inside a window that stays open. A window is
@@ -1700,7 +1709,7 @@ func (win *liveWindow) readInput(cr hostedCreds, restore func()) {
 		switch word, arg, ok := readWindowLine(line); {
 		case ok && word == "detach":
 			restore()
-			fmt.Fprintln(os.Stderr, "[detached; the agent keeps working]")
+			fmt.Fprintln(os.Stderr, "[left the window; the agent keeps working]")
 			os.Exit(exitOK)
 		case ok:
 			win.decide(cr, word, arg)
@@ -1708,6 +1717,78 @@ func (win *liveWindow) readInput(cr hostedCreds, restore func()) {
 			win.submit(cr, line)
 		}
 	}
+}
+
+// interrupt is Ctrl-C in a window: a stop request for the instruction in
+// flight, through the cancel route, and a line saying what it did. A window
+// that is only watching steers nothing, and interrupts nothing.
+func (win *liveWindow) interrupt(cr hostedCreds) {
+	say := func(kind, human string, extra map[string]any) {
+		data := map[string]any{"type": kind}
+		for k, v := range extra {
+			data[k] = v
+		}
+		emitLine(data, "Ctrl-C: "+human)
+	}
+	if _, held := win.hold(); !held {
+		say("interrupt_refused", "this window is watching, so it interrupts nothing; leave with q", nil)
+		return
+	}
+	agents, err := fetchAgents(cr, agentSessionID(win.sess))
+	if err != nil {
+		say("interrupt_failed", "the agent could not be read, so nothing was interrupted: "+errText(err), nil)
+		return
+	}
+	var active string
+	for _, a := range agents {
+		if a.ID == win.agent.ID {
+			active = a.ActiveTaskID
+		}
+	}
+	if active == "" {
+		say("interrupt_nothing", "nothing is running, so nothing was interrupted; leave with q", nil)
+		return
+	}
+	t, err := fetchTask(cr, active)
+	if err != nil {
+		say("interrupt_failed", "instruction "+active+" could not be read, so nothing was interrupted: "+errText(err), nil)
+		return
+	}
+	rec, err := fetchSessionRecord(cr, agentSessionID(win.sess))
+	if err != nil {
+		say("interrupt_failed", "the session could not be read, so nothing was interrupted: "+errText(err), nil)
+		return
+	}
+	body := map[string]any{"expected_revision": t.Revision, "epoch": rec.ExecutionEpoch, "reason": "interrupted from the agent window (Ctrl-C)"}
+	var env struct {
+		Data struct {
+			Task *taskRow `json:"task"`
+		} `json:"data"`
+	}
+	resp, rb, err := doBounded(cr, "POST", "/api/v2/tasks/"+url.PathEscape(t.ID)+"/cancel", map[string]string{"Idempotency-Key": newIdempotencyKey()}, mustJSON(body))
+	switch {
+	case err != nil:
+		say("interrupt_unknown", "the interrupt of "+t.ID+" was sent and no answer came back ("+errText(err)+"); whether it arrived is unknown -- ks task show "+t.ID, nil)
+		return
+	case resp.StatusCode/100 != 2:
+		say("interrupt_refused", "the interrupt of "+t.ID+" was refused: "+errText(hostedError("POST", "cancel", resp, rb)), nil)
+		return
+	}
+	_ = json.Unmarshal(rb, &env)
+	state := "cancelling"
+	if env.Data.Task != nil && env.Data.Task.State != "" {
+		state = env.Data.Task.State
+	}
+	human := fmt.Sprintf("interrupt requested for %s; it reads %s", t.ID, stateLabel("task_state", state))
+	if state == "cancelling" {
+		human += " (asked to stop at a safe boundary; not claimed stopped)"
+	}
+	say("interrupted", human+"; the window stays open (q leaves)", map[string]any{"task_id": t.ID, "state": state})
+}
+
+func mustJSON(v any) []byte {
+	b, _ := json.Marshal(v)
+	return b
 }
 
 // readWindowLine reads one typed line as a window command. "a" and "d"

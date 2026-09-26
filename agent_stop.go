@@ -1,8 +1,8 @@
 // agent_stop.go: stopping an agent (KS-035), which is none of the three
 // other things it is easily confused with:
 //
-//	Leave window     Ctrl-C in ks agent open: the window closes, its control
-//	                 is released, and the agent keeps working
+//	Leave window     q in ks agent open: the window closes, its control is
+//	                 released, and the agent keeps working
 //	Interrupt        ks task cancel <task>: one instruction is asked to stop
 //	Agent stop       ks agent stop <name> (this file): the instruction in
 //	                 flight is asked to stop at a safe boundary and the
@@ -15,11 +15,13 @@
 // separate action; it never assumes it. Stop is confirmed by naming the
 // agent (typed, or --confirm); --yes does not confirm it.
 //
-// Ctrl-C, by context (QA-035-3): in an agent window it LEAVES the window and
-// the agent keeps working; while a command waits (a pause, an operation, an
-// instruction's acceptance) it stops the local waiting only and the remote
-// work goes on; while following logs it stops following. It never stops,
-// interrupts or parks anything remote.
+// Ctrl-C, by context (QA-035-3): in an agent window that holds control it
+// INTERRUPTS the instruction in flight -- the same request as ks task cancel,
+// never text sent to the agent -- says what it did, and the window stays
+// open (a watching window interrupts nothing and says so); text being typed
+// is discarded by the terminal and never sent. While a command waits (a
+// pause, an operation, ks agent status --watch) it stops the local waiting
+// only; while following logs it stops following. Leaving a window is q.
 package main
 
 import (
