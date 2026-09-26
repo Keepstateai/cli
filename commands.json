@@ -909,6 +909,66 @@
      "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     }
    ]
+  },
+  {
+   "verb": "result list",
+   "aliases": [],
+   "usage": "ks result list [--task ID] [--session ID] [--agent NAME]",
+   "summary": "the results of one task, or of a session's tasks: name, size, sha256, task, verification",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--task ID",
+     "summary": "one instruction's results"
+    },
+    {
+     "flag": "--session ID",
+     "summary": "every task of this session's agents; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--agent NAME",
+     "summary": "only this agent's tasks (with --session)"
+    }
+   ]
+  },
+  {
+   "verb": "result show",
+   "aliases": [],
+   "usage": "ks result show <result>",
+   "summary": "one result: size, sha256, task and attempt, the producer's checks, the task's verification, provenance",
+   "status": "planned",
+   "surface": "hosted"
+  },
+  {
+   "verb": "result download",
+   "aliases": [],
+   "usage": "ks result download <result> [--out FILE] [--force] [--extract DIR] [--task ID] [--grant-ttl DURATION]",
+   "summary": "download a result, verify its size and sha256, and place it without replacing anything",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--out FILE",
+     "summary": "where to place it; default the result's own file name in this directory"
+    },
+    {
+     "flag": "--force",
+     "summary": "replace an existing file at the target (atomically, and only with verified bytes)"
+    },
+    {
+     "flag": "--extract DIR",
+     "summary": "unpack a tar, tar.gz or zip result into this NEW directory after every entry passes the C09 checks"
+    },
+    {
+     "flag": "--task ID",
+     "summary": "refuse unless the result belongs to this task"
+    },
+    {
+     "flag": "--grant-ttl DURATION",
+     "summary": "how long the download grant lives (1s to 1h; default the service's 10m)"
+    }
+   ]
   }
  ]
 }
