@@ -1093,10 +1093,32 @@ func transcriptLine(t transcriptEntry) string {
 	default:
 		mark = figure(t.Kind)
 	}
+	if t.Kind == "tool_finished" {
+		if hint := consultRefusalHint(t.Text); hint != "" {
+			body += " -- " + hint
+		}
+	}
 	if t.Clipped {
 		body += " […clipped by the service]"
 	}
 	return fmt.Sprintf("%-6s %s", mark, body)
+}
+
+// consultRefusalHint reads a consultation refusal the service gave the
+// agent's consult tool (KS-063; the codes are the fleet door's) and says
+// what it means for a person watching. Nothing was asked in any of them.
+func consultRefusalHint(text string) string {
+	switch {
+	case strings.Contains(text, "ks_adviser_parked"):
+		return "the adviser is parked and a question never wakes it: a person resumes it (ks agent resume <adviser> --session <its session>), then it may be asked"
+	case strings.Contains(text, "ks_consult_recipients_cap"):
+		return "the consultation cap was reached (advisers per instruction, or consultations open at once); nothing was asked"
+	case strings.Contains(text, "ks_deadline_too_long"):
+		return "the requested answer deadline is longer than a consultation may wait; nothing was asked"
+	case strings.Contains(text, "ks_consult_budget"):
+		return "the adviser's session has too little of its token budget left for this connection's per-consultation limit; nothing was asked"
+	}
+	return ""
 }
 
 func orUnnamedTool(n string) string {

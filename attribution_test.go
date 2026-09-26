@@ -40,3 +40,23 @@ func TestTranscriptEntriesRenderByAttribution(t *testing.T) {
 		}
 	}
 }
+
+// KS-063: a consultation the service refused the agent's consult tool is
+// explained in the window; nothing was asked in any case.
+func TestConsultRefusalsReadPlainly(t *testing.T) {
+	for code, want := range map[string]string{
+		"ks_adviser_parked":         "never wakes it",
+		"ks_consult_recipients_cap": "consultation cap",
+		"ks_deadline_too_long":      "deadline",
+		"ks_consult_budget":         "token budget",
+	} {
+		line := transcriptLine(transcriptEntry{Kind: "tool_finished", ToolName: "mcp__ks__consult", Failed: true,
+			Text: "the consultation was refused, so nothing was asked of reviewer/main: " + code + ": ..."})
+		if !strings.Contains(line, "FAILED") || !strings.Contains(line, want) {
+			t.Errorf("%s: %q", code, line)
+		}
+	}
+	if l := transcriptLine(transcriptEntry{Kind: "assistant_text", Text: "hi"}); !strings.HasPrefix(l, "agent") {
+		t.Errorf("assistant line: %q", l)
+	}
+}
