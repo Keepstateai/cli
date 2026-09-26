@@ -42,6 +42,10 @@ func (c *viewCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"runner":       map[string]any{"label": "Claude Code 2.1.251 (reported)", "certification": "not certified", "reported": true},
 			"conversation": req("GET", "/api/v2/sessions/{id}/events", "/api/v2/sessions/session_1/events"),
 			"footer":       map[string]any{"queued": 2, "held": nil, "pending_approvals": 0, "advisers": nil},
+			"status":       map[string]any{"label": "Working", "observed_at": "x", "age_seconds": 42, "stale": true, "stale_after_seconds": 15},
+			"current_task": map[string]any{"id": "tsk_1", "label": "Working"},
+			"last_task":    map[string]any{"id": "tsk_0", "label": "Finished"},
+			"usage":        map[string]any{"model_microusd": nil, "model_standing": "unavailable"},
 			"palette": []any{
 				map[string]any{"label": "Other agents", "effect": "list the agents you may open and the advisers connected to this one; open reuses the chosen agent", "requests": []any{req("GET", "/api/v2/agent-targets", "/api/v2/agent-targets?name=main")}},
 				map[string]any{"label": "Pending work", "effect": "queued and held instructions in order", "requests": []any{req("GET", "/api/v2/agents/{id}/pending", "/api/v2/agents/agent_1/pending")}},
@@ -94,7 +98,7 @@ func TestTheLiveViewFitsAndPerformsWhatTheServiceNames(t *testing.T) {
 			t.Errorf("wider than 80: %q", l)
 		}
 	}
-	for _, want := range []string{"checkout/main · project payments · view_only", "queued 2 · held unknown · approvals 0 · advisers unknown", "  1 Other agents", "  2 Pending work", "  4 Save and pause !", "no default"} {
+	for _, want := range []string{"checkout/main · project payments · view_only", "queued 2 · held unknown · approvals 0 · advisers unknown", "model spend unavailable", "Working (42s ago) STALE", "task tsk_1 Working · last tsk_0 Finished", "  1 Other agents", "  2 Pending work", "  4 Save and pause !", "no default"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("view lacks %q:\n%s", want, out)
 		}

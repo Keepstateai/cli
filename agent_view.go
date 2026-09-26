@@ -74,6 +74,27 @@ type liveViewDoc struct {
 		Advisers         *int `json:"advisers"`
 	} `json:"footer"`
 	Palette []viewPaletteItem `json:"palette"`
+	// KS-037: the status as the service labels it, with its age; the task in
+	// flight and the last one; model spend (null: unavailable); one action
+	Status *struct {
+		Label       string `json:"label"`
+		ObservedAt  string `json:"observed_at"`
+		AgeSeconds  *int64 `json:"age_seconds"`
+		Stale       bool   `json:"stale"`
+		StaleAfterS int    `json:"stale_after_seconds"`
+	} `json:"status"`
+	CurrentTask *viewTaskRow `json:"current_task"`
+	LastTask    *viewTaskRow `json:"last_task"`
+	Usage       *struct {
+		ModelSpend *int64 `json:"model_microusd"`
+		Standing   string `json:"model_standing"`
+	} `json:"usage"`
+	NextAction *openAction `json:"next_action"`
+}
+
+type viewTaskRow struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
 }
 
 // fit80 cuts one line to the 80-column window.
@@ -102,10 +123,10 @@ func viewLines(v liveViewDoc) []string {
 	}
 	lines := []string{
 		fmt.Sprintf("%s/%s%s · %s", h.SessionName, h.AgentName, proj, h.Controller),
-		fmt.Sprintf("runtime %s · %s (observed %s)", stateLabel("session_runtime", h.RuntimeState), stateLabel("agent_activity", h.Activity), figure(h.ObservedAt)),
+		statusLine(v),
 		fmt.Sprintf("keys %s · last save %s", figure(strings.Join(h.KeyRoutes, ",")), figure(h.LastSavedAt)),
 		fmt.Sprintf("runner %s (%s)", figure(v.Runner.Label), figure(v.Runner.Certification)),
-		"conversation: " + v.Conversation.Method + " " + v.Conversation.Path,
+		taskLine(v),
 		"",
 		"KS menu (no default):",
 	}
@@ -116,9 +137,16 @@ func viewLines(v liveViewDoc) []string {
 		}
 		lines = append(lines, fmt.Sprintf(" %2d %s%s — %s", i+1, it.Label, mark, it.Effect))
 	}
+	spend := "model spend unavailable"
+	if v.Usage != nil && v.Usage.ModelSpend != nil {
+		spend = "model spend " + money(v.Usage.ModelSpend, "USD", v.Usage.Standing)
+	}
 	lines = append(lines, "",
 		fmt.Sprintf("queued %s · held %s · approvals %s · advisers %s",
-			viewCount(v.Footer.Queued), viewCount(v.Footer.Held), viewCount(v.Footer.PendingApprovals), viewCount(v.Footer.Advisers)))
+			viewCount(v.Footer.Queued), viewCount(v.Footer.Held), viewCount(v.Footer.PendingApprovals), viewCount(v.Footer.Advisers)), spend)
+	if v.NextAction != nil && v.NextAction.Label != "" {
+		lines = append(lines, "next: "+v.NextAction.Label+" — "+v.NextAction.Request)
+	}
 	if len(lines) > 24 {
 		lines = append(lines[:23], fmt.Sprintf("(%d more lines; --json shows everything)", len(lines)-23))
 	}
@@ -238,4 +266,33 @@ func performMenuItem(cr hostedCreds, sess inventoryRow, a agentRow, it viewPalet
 			fail(&cliError{Code: exitFailed, Kind: "menu_request_unknown", Message: fmt.Sprintf("the service names %s %s for %q, which this client does not know how to make; nothing was sent (ks update)", rq.Method, rq.Pattern, it.Label)})
 		}
 	}
+}
+
+// statusLine is the header's status: the service's label and its age, and a
+// stale notice past the threshold; the runtime beside it.
+func statusLine(v liveViewDoc) string {
+	rt := "runtime " + stateLabel("session_runtime", v.Header.RuntimeState)
+	if v.Status == nil {
+		return rt + " · " + stateLabel("agent_activity", v.Header.Activity) + " (observed " + figure(v.Header.ObservedAt) + ")"
+	}
+	age := "age unknown"
+	if v.Status.AgeSeconds != nil {
+		age = fmt.Sprintf("%ds ago", *v.Status.AgeSeconds)
+	}
+	s := fmt.Sprintf("%s · %s (%s)", rt, figure(v.Status.Label), age)
+	if v.Status.Stale {
+		s += fmt.Sprintf(" STALE: last known, older than %ds", v.Status.StaleAfterS)
+	}
+	return s
+}
+
+func taskLine(v liveViewDoc) string {
+	cur, last := "none", "none"
+	if v.CurrentTask != nil {
+		cur = v.CurrentTask.ID + " " + v.CurrentTask.Label
+	}
+	if v.LastTask != nil {
+		last = v.LastTask.ID + " " + v.LastTask.Label
+	}
+	return "task " + cur + " · last " + last
 }
