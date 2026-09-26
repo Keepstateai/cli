@@ -135,6 +135,10 @@ type hostedErr struct {
 	Type     string
 	Message  string
 	Mutation bool
+	// Raw is the refusal's body, kept for the few refusals that carry facts
+	// beyond the message (a decision that lost says what was decided, and by
+	// whom). Never printed as is.
+	Raw []byte
 }
 
 func (e *hostedErr) Error() string {

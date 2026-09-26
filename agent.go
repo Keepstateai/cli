@@ -137,6 +137,49 @@ type approvalRow struct {
 	State           string          `json:"state"`
 	Revision        int64           `json:"revision"`
 	ExactActionHash string          `json:"exact_action_hash"`
+	// What a person deciding needs on the approval itself (KS-047), as the
+	// service states it: the instruction that was running when it was asked,
+	// what the exact action touches, and what deciding costs.
+	RequestedForTask string   `json:"requested_for_task,omitempty"`
+	Affects          []string `json:"affects,omitempty"`
+	CostImplication  string   `json:"cost_implication,omitempty"`
+	ActionableUntil  string   `json:"actionable_until,omitempty"`
+	DecidedBy        string   `json:"decided_by,omitempty"`
+	DecidedAt        string   `json:"decided_at,omitempty"`
+}
+
+// UnmarshalJSON reads the approval as the control plane's route table
+// serves it (action_kind, human_scope, arguments, decision) as well as the
+// shorter names this client used first (kind, summary, arguments_json,
+// state). Where both are present the service's own field wins; neither is
+// ever invented.
+func (a *approvalRow) UnmarshalJSON(b []byte) error {
+	type plain approvalRow
+	var p plain
+	if err := json.Unmarshal(b, &p); err != nil {
+		return err
+	}
+	var svc struct {
+		ActionKind string          `json:"action_kind"`
+		HumanScope string          `json:"human_scope"`
+		Arguments  json.RawMessage `json:"arguments"`
+		Decision   string          `json:"decision"`
+	}
+	_ = json.Unmarshal(b, &svc)
+	if svc.ActionKind != "" {
+		p.Kind = svc.ActionKind
+	}
+	if svc.HumanScope != "" {
+		p.Summary = svc.HumanScope
+	}
+	if len(svc.Arguments) > 0 && string(svc.Arguments) != "null" {
+		p.ArgumentsJSON = svc.Arguments
+	}
+	if svc.Decision != "" {
+		p.State = svc.Decision
+	}
+	*a = approvalRow(p)
+	return nil
 }
 
 // journalEvent is one row of the session's journal, as the stream serves it.
@@ -1101,7 +1144,9 @@ func decidable(sess inventoryRow, ap approvalRow) error {
 	}
 	if state := strings.ToLower(ap.State); state != "" && state != "pending" {
 		return &cliError{Code: exitConflict, Kind: "approval_not_pending",
-			Message:    fmt.Sprintf("permission request %s is already %s, so nothing was decided; read the agent's current requests again before deciding", ap.ID, state),
+			Message: fmt.Sprintf("permission request %s is already %s%s, so nothing was decided; read the agent's current requests again before deciding",
+				ap.ID, state, decidedByAt(ap.DecidedBy, ap.DecidedAt)),
+			Detail:     resolvedDecision{Decision: state, DecidedBy: ap.DecidedBy, DecidedAt: ap.DecidedAt, Revision: ap.Revision},
 			NextAction: fmt.Sprintf("ks agent open <name> --session %s --no-follow", sess.ShortID)}
 	}
 	return nil
@@ -1240,12 +1285,56 @@ func decisionRefusal(cr hostedCreds, sess inventoryRow, ap approvalRow, decision
 				ap.ID, word),
 			NextAction: reread}
 	case "ks_approval_not_pending":
-		return &cliError{Code: exitConflict, Kind: "approval_not_pending",
-			Message: fmt.Sprintf("permission request %s was already decided elsewhere, so nothing was %s here; read the agent's current requests again before deciding.",
-				ap.ID, word),
+		// the service answers a lost race with what now stands; that is
+		// what the person needs, so it is printed, not a guess about it
+		var body struct {
+			Error struct {
+				Resolved resolvedDecision `json:"resolved"`
+			} `json:"error"`
+		}
+		_ = json.Unmarshal(he.Raw, &body)
+		r := body.Error.Resolved
+		what := "was already decided elsewhere"
+		if r.Decision != "" {
+			what = "was already " + r.Decision + decidedByAt(r.DecidedBy, r.DecidedAt)
+		}
+		ce := &cliError{Code: exitConflict, Kind: "approval_not_pending",
+			Message: fmt.Sprintf("permission request %s %s, so nothing was %s here and your decision was not recorded; read the agent's current requests again before deciding.",
+				ap.ID, what, word),
 			NextAction: reread}
+		if r.Decision != "" {
+			ce.Detail = r
+		}
+		return ce
 	}
 	return err
+}
+
+// resolvedDecision is what stands on an approval somebody already decided.
+type resolvedDecision struct {
+	Decision  string `json:"decision"`
+	DecidedBy string `json:"decided_by"`
+	DecidedAt string `json:"decided_at"`
+	Revision  int64  `json:"revision"`
+}
+
+func (r resolvedDecision) detailLines() []string {
+	return []string{
+		"recorded decision  " + figure(r.Decision),
+		"decided by         " + figure(r.DecidedBy),
+		"decided at         " + figure(r.DecidedAt),
+	}
+}
+
+func decidedByAt(by, at string) string {
+	s := ""
+	if by != "" {
+		s += " by " + by
+	}
+	if at != "" {
+		s += " at " + at
+	}
+	return s
 }
 
 func decisionLine(ap approvalRow, decision string) string {

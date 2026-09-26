@@ -115,18 +115,18 @@ func hostedError(method, path string, resp *http.Response, raw []byte) error {
 	}
 	if json.Unmarshal(raw, &e) == nil {
 		if e.Message != "" {
-			return &hostedErr{Status: resp.StatusCode, Message: e.Message, Mutation: mut}
+			return &hostedErr{Status: resp.StatusCode, Message: e.Message, Mutation: mut, Raw: raw}
 		}
 		var typed struct{ Type, Message string }
 		if len(e.Error) > 0 && json.Unmarshal(e.Error, &typed) == nil && typed.Message != "" {
-			return &hostedErr{Status: resp.StatusCode, Type: typed.Type, Message: typed.Message, Mutation: mut}
+			return &hostedErr{Status: resp.StatusCode, Type: typed.Type, Message: typed.Message, Mutation: mut, Raw: raw}
 		}
 		var s string
 		if len(e.Error) > 0 && json.Unmarshal(e.Error, &s) == nil && s != "" {
-			return &hostedErr{Status: resp.StatusCode, Message: s, Mutation: mut}
+			return &hostedErr{Status: resp.StatusCode, Message: s, Mutation: mut, Raw: raw}
 		}
 	}
-	return &hostedErr{Status: resp.StatusCode, Message: fmt.Sprintf("%s %s: %s: %s", method, path, resp.Status, strings.TrimSpace(string(raw))), Mutation: mut}
+	return &hostedErr{Status: resp.StatusCode, Message: fmt.Sprintf("%s %s: %s: %s", method, path, resp.Status, strings.TrimSpace(string(raw))), Mutation: mut, Raw: raw}
 }
 
 // hostedCall makes an authenticated broker request. path is like

@@ -661,7 +661,9 @@
   },
   {
    "verb": "agent approve",
-   "aliases": [],
+   "aliases": [
+    "approval approve"
+   ],
    "usage": "ks agent approve <request> [--session ID]",
    "summary": "approve one permission request an agent is waiting on, by its id",
    "status": "planned",
@@ -676,7 +678,9 @@
   },
   {
    "verb": "agent deny",
-   "aliases": [],
+   "aliases": [
+    "approval deny"
+   ],
    "usage": "ks agent deny <request> [--session ID]",
    "summary": "deny one permission request an agent is waiting on, by its id",
    "status": "planned",
@@ -1069,6 +1073,38 @@
     {
      "flag": "--queue-revision QREV",
      "summary": "the queue revision of the view you decided from (ks agent queue list prints it); without it the queue is read now and shown first"
+    }
+   ]
+  },
+  {
+   "verb": "approval list",
+   "aliases": [],
+   "usage": "ks approval list [--session ID] [--all]",
+   "summary": "a session's permission requests with the instruction each was asked for, what it touches and what deciding costs",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the request belongs to; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--all",
+     "summary": "every request, decided ones too, with who decided and when"
+    }
+   ]
+  },
+  {
+   "verb": "approval show",
+   "aliases": [],
+   "usage": "ks approval show <request> [--session ID]",
+   "summary": "one permission request in full: the action, its instruction, what it touches, the cost, expiry and decision",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the request belongs to; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     }
    ]
   }
