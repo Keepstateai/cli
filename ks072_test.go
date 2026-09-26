@@ -3,7 +3,7 @@
 //
 // testdata/ks072/layouts.json is judge/tests/test_checks.py LAYOUTS and
 // testdata/ks072/discovery.json is judge/tests/golden/ks072_discovery.json,
-// both copied unchanged from the service repository at f2ba152 (the KS-072
+// both copied unchanged from the service repository (testdata/ks072/SOURCE.json records the commit and sha256; the KS-072
 // merge). Regenerate both together, never one alone.
 package main
 

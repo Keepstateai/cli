@@ -1,0 +1,43 @@
+name: ks072-golden
+# KS-072 drift guard: the client's Cruise test discovery is a port of the
+# service's, held to the service's golden layouts (testdata/ks072). This job
+# fails when the service's current golden no longer has the sha256 recorded
+# in testdata/ks072/SOURCE.json, so a change on the service side is caught
+# here instead of remembered.
+#
+# It needs read access to the service repository: the repository variable
+# KS_SERVER_REPO (owner/name) and the secret KS_SERVER_READ_TOKEN. Without
+# them the job fails and says so: an unchecked golden is not a checked one.
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  golden:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require the service checkout configuration
+        env:
+          REPO: ${{ vars.KS_SERVER_REPO }}
+          TOKEN_SET: ${{ secrets.KS_SERVER_READ_TOKEN != '' }}
+        run: |
+          if [ -z "$REPO" ] || [ "$TOKEN_SET" != "true" ]; then
+            echo "::error::ks072-golden: KS_SERVER_REPO (variable) and KS_SERVER_READ_TOKEN (secret) are not configured, so the vendored golden cannot be compared with the service's; configure them once"
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.KS_SERVER_REPO }}
+          token: ${{ secrets.KS_SERVER_READ_TOKEN }}
+          path: server
+          sparse-checkout: judge/tests/golden
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Compare the vendored golden with the service's
+        run: KS_SERVER_CHECKOUT="$GITHUB_WORKSPACE/server" go test -count=1 -run 'TestKS072' ./...
