@@ -1,0 +1,28 @@
+=== RUN   TestAgentWindowCtrlCInterruptsAndQLeaves
+--- PASS: TestAgentWindowCtrlCInterruptsAndQLeaves (0.55s)
+=== RUN   TestCruiseCancelReportsCleanupApartFromAccounting
+--- PASS: TestCruiseCancelReportsCleanupApartFromAccounting (0.54s)
+=== RUN   TestBulkCancellationIsPreviewedAndConfirmedByRevision
+--- PASS: TestBulkCancellationIsPreviewedAndConfirmedByRevision (0.59s)
+=== RUN   TestCancelledSuccessorsStayCancelledWhenTheQueueContinues
+--- PASS: TestCancelledSuccessorsStayCancelledWhenTheQueueContinues (0.54s)
+=== RUN   TestTaskCancelUsesTheRouteTheRegistryPublishes
+--- PASS: TestTaskCancelUsesTheRouteTheRegistryPublishes (0.52s)
+=== RUN   TestTaskCancelIsBoundToRevisionAndGenerationAndSentOnce
+--- PASS: TestTaskCancelIsBoundToRevisionAndGenerationAndSentOnce (0.55s)
+=== RUN   TestTaskCancelWordsCancellingAsARequestAndNeverClaimsAnUndo
+--- PASS: TestTaskCancelWordsCancellingAsARequestAndNeverClaimsAnUndo (0.54s)
+=== RUN   TestTaskCancelDoesNotClaimACancellationItLost
+--- PASS: TestTaskCancelDoesNotClaimACancellationItLost (0.54s)
+=== RUN   TestTaskCancelLeavesTheHeldQueueHeldAndSaysSo
+--- PASS: TestTaskCancelLeavesTheHeldQueueHeldAndSaysSo (0.54s)
+=== RUN   TestTaskCancelRefusesWithoutAnInstructionAndSendsNothing
+--- PASS: TestTaskCancelRefusesWithoutAnInstructionAndSendsNothing (0.53s)
+=== RUN   TestTaskCancelPrintsTheRecoveryActionsForAnUnconfirmedStop
+--- PASS: TestTaskCancelPrintsTheRecoveryActionsForAnUnconfirmedStop (0.57s)
+=== RUN   TestTaskCancelOffersNothingInsideTheInterruptWait
+--- PASS: TestTaskCancelOffersNothingInsideTheInterruptWait (0.54s)
+=== RUN   TestTaskShowCarriesTheCancelRecoveryAndReconcileWaitsOutTheInterrupt
+--- PASS: TestTaskShowCarriesTheCancelRecoveryAndReconcileWaitsOutTheInterrupt (0.55s)
+PASS
+ok  	github.com/esrygrtc/cli	8.331s
