@@ -884,6 +884,7 @@ func followAgent(cr hostedCreds, win *liveWindow, w *agentWindow) {
 			_ = json.Unmarshal(data, &hello)
 			progress("following from event %d (epoch %v); Ctrl-C detaches and the agent keeps working", w.Resume.AfterSeq, figure(hello.Epoch))
 			progress("%s", win.legend())
+			progress("Ctrl-C leaves this window (the agent keeps working) · interrupt one instruction: ks task cancel <task> · stop the agent: ks agent stop %s · save and pause the session: ks agent pause %s", win.agent.Name, win.agent.Name)
 		case "event":
 			var e journalEvent
 			if json.Unmarshal(data, &e) != nil {

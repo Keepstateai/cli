@@ -261,6 +261,17 @@ var registry = []*Command{
 		Effects:  "restores the session's last save on the fleet and its agents carry on: session time is metered again; while a previous save is still completing nothing is resumed, and this waits for that save to finish within the bound (--wait-timeout) and then resumes",
 		Examples: []string{"ks agent resume main --session 3f2a1c"},
 		Nothing:  "Nothing was resumed.", Run: hosted(hostedAgentResume)},
+	{Path: []string{"agent", "stop"}, Summary: "stop an agent: its instruction in flight is asked to stop and its queue is held; the session keeps running", Surface: "hosted",
+		Args: []Arg{{Name: "name", Required: true}},
+		Flags: []Flag{
+			{Name: "session", Kind: flagString, Value: "ID", Summary: "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"},
+			{Name: "confirm", Kind: flagString, Value: "NAME", Summary: "confirm by naming the agent (required without a terminal; never implied by --yes)"},
+			{Name: "reason", Kind: flagString, Value: "TEXT", Summary: "why, recorded with the stop"},
+		},
+		Needs:    "agent.workspace",
+		Effects:  "asks the instruction in flight to stop at a safe boundary (never claimed stopped) and holds the agent's queue so nothing further starts until a person releases it. The session is preserved and keeps running, so runtime and storage may still be charged; Save and pause (ks agent pause) is offered as a separate action and never assumed. Not leaving a window (Ctrl-C), not interrupting one instruction (ks task cancel), not parking",
+		Examples: []string{"ks agent stop main --session 3f2a1c", "ks agent stop main --session 3f2a1c --confirm main --reason \"wrong approach\""},
+		Nothing:  "Nothing was stopped.", Run: hosted(hostedAgentStop)},
 	{Path: []string{"agent", "view"}, Summary: "the live window's model: header, runner, footer counts and the KS menu, as the service gives them, within 80x24", Surface: "hosted",
 		Args: []Arg{{Name: "name", Required: true}},
 		Flags: []Flag{
