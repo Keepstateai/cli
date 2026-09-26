@@ -801,6 +801,70 @@
      "summary": "what you established about the attempt; required, and recorded with the decision"
     }
    ]
+  },
+  {
+   "verb": "adviser connect",
+   "aliases": [],
+   "usage": "ks adviser connect <adviser> [--session ID] [--agent NAME] [--confirm SESSION/AGENT] [--expires DURATION] [--max-consultations N] [--max-tokens N] [--max-output-tokens N]",
+   "summary": "let an agent consult another agent of yours, after you have seen both ends and confirmed the adviser by name",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session of the agent that will ask; a short id is accepted when it is unique among yours"
+    },
+    {
+     "flag": "--agent NAME",
+     "summary": "the agent that will ask (default main)"
+    },
+    {
+     "flag": "--confirm SESSION/AGENT",
+     "summary": "confirm the adviser without a prompt; it must name the adviser shown, as session/agent or by its id"
+    },
+    {
+     "flag": "--expires DURATION",
+     "summary": "how long the connection lasts (default 24h, at most 720h)"
+    },
+    {
+     "flag": "--max-consultations N",
+     "summary": "how many consultations the connection carries (default 50)"
+    },
+    {
+     "flag": "--max-tokens N",
+     "summary": "input plus output tokens admitted per consultation (default 16384)"
+    },
+    {
+     "flag": "--max-output-tokens N",
+     "summary": "output tokens admitted per consultation (default 4096)"
+    }
+   ]
+  },
+  {
+   "verb": "adviser list",
+   "aliases": [],
+   "usage": "ks adviser list [--session ID] [--agent NAME]",
+   "summary": "an agent's adviser connections, live, revoked and expired, in both directions",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+    },
+    {
+     "flag": "--agent NAME",
+     "summary": "the agent (default main)"
+    }
+   ]
+  },
+  {
+   "verb": "adviser disconnect",
+   "aliases": [],
+   "usage": "ks adviser disconnect <grant>",
+   "summary": "withdraw a connection: every future consultation over it stops at once",
+   "status": "planned",
+   "surface": "hosted"
   }
  ]
 }
