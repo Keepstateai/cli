@@ -261,7 +261,7 @@
    "summary": "the job (or the newest): state, rung, each attempt, save points, spend, verdict, artifact",
    "status": "available",
    "surface": "hosted",
-   "note": "absent values read \"unavailable\", never zero",
+   "note": "--watch reads GET /api/jobs/{id}/status, which the deployed control plane does not serve yet; until it does, --watch says so and plain ks cruise status is unaffected.",
    "flags": [
     {
      "flag": "--watch",
@@ -283,7 +283,8 @@
    "usage": "ks cruise cancel <job>",
    "summary": "cancel a job",
    "status": "available",
-   "surface": "hosted"
+   "surface": "hosted",
+   "note": "Reads the job's review first where the control plane serves it (not yet deployed); against the deployed control plane it says the effect cannot be shown from it and acts as before."
   },
   {
    "verb": "cruise resume",
@@ -297,7 +298,8 @@
      "flag": "--ladder family:model,...",
      "summary": "the rungs to continue on, in order"
     }
-   ]
+   ],
+   "note": "Reads the job's review first where the control plane serves it (not yet deployed); against the deployed control plane it says the effect cannot be shown from it and acts as before."
   },
   {
    "verb": "cruise artifact",
@@ -1679,8 +1681,9 @@
    "aliases": [],
    "usage": "ks cruise review <job>",
    "summary": "a job in review: why it stopped, every attempt with its exact check result and cost, what remains of the ceiling, and each option with its effect",
-   "status": "available",
-   "surface": "hosted"
+   "status": "planned",
+   "surface": "hosted",
+   "note": "Reads GET /api/jobs/{id}/status, which the deployed control plane does not serve yet; until it does, the verb says so and changes nothing."
   }
  ]
 }
