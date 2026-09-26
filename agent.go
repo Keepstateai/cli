@@ -1023,7 +1023,19 @@ func followAgent(cr hostedCreds, win *liveWindow, w *agentWindow) {
 	// control channel at open and on each settled resize
 	restoreTerm := saveTerminal()
 	stopSizes := startSizeReports(cr, win)
-	restore := func() { stopSizes(); restoreTerm() }
+	// ask the terminal to mark pastes, so a multi-line paste is one
+	// instruction; turned off again on every way out
+	paste := !out.noInput && stdoutIsTerminal()
+	if paste {
+		fmt.Print("\x1b[?2004h")
+	}
+	restore := func() {
+		stopSizes()
+		if paste {
+			fmt.Print("\x1b[?2004l")
+		}
+		restoreTerm()
+	}
 	// Ctrl-C (C11, QA-035-3) INTERRUPTS the current work: the same control
 	// request as ks task cancel on the instruction in flight, never text sent
 	// to the agent, and what it did is shown. Leaving the window is its own
@@ -1841,8 +1853,32 @@ func (win *liveWindow) readInput(cr hostedCreds, restore func()) {
 	}
 	sc := bufio.NewScanner(os.Stdin)
 	sc.Buffer(make([]byte, 0, 8<<10), 1<<20)
+	var paste *pasteBuffer
 	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
+		raw := sc.Text()
+		// KS-094: a bracketed paste (the terminal marks it) is ONE
+		// instruction, however many lines it has, and it is always text:
+		// a pasted "q" or "a <id>" line never becomes a window command
+		if text, done, ok := paste.feed(raw); ok {
+			if done {
+				paste = nil
+				if strings.TrimSpace(text) != "" {
+					win.submit(cr, text)
+				}
+			}
+			continue
+		}
+		if p, text, done := startPaste(raw); p != nil || done {
+			if done {
+				if strings.TrimSpace(text) != "" {
+					win.submit(cr, text)
+				}
+				continue
+			}
+			paste = p
+			continue
+		}
+		line := strings.TrimSpace(raw)
 		if line == "" {
 			continue
 		}
@@ -2453,4 +2489,44 @@ func postResume(cr hostedCreds, id string) (map[string]any, error) {
 		env.Data = map[string]any{}
 	}
 	return env.Data, nil
+}
+
+// ---------------------------------------------------------------------
+// bracketed paste (KS-094 QA-094-1)
+// ---------------------------------------------------------------------
+
+const (
+	pasteStart = "\x1b[200~"
+	pasteEnd   = "\x1b[201~"
+)
+
+// pasteBuffer holds the lines of a paste that has started and not ended.
+type pasteBuffer struct{ lines []string }
+
+// startPaste recognises a line that opens a bracketed paste. It answers the
+// buffer to keep filling, or, when the paste also ends on this line, the
+// whole pasted text and done.
+func startPaste(raw string) (*pasteBuffer, string, bool) {
+	i := strings.Index(raw, pasteStart)
+	if i < 0 {
+		return nil, "", false
+	}
+	rest := raw[i+len(pasteStart):]
+	if j := strings.Index(rest, pasteEnd); j >= 0 {
+		return nil, rest[:j], true
+	}
+	return &pasteBuffer{lines: []string{rest}}, "", false
+}
+
+// feed adds one line to a paste in progress; ok is false when no paste is.
+func (p *pasteBuffer) feed(raw string) (text string, done, ok bool) {
+	if p == nil {
+		return "", false, false
+	}
+	if j := strings.Index(raw, pasteEnd); j >= 0 {
+		p.lines = append(p.lines, raw[:j])
+		return strings.Join(p.lines, "\n"), true, true
+	}
+	p.lines = append(p.lines, raw)
+	return "", false, true
 }

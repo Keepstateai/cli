@@ -21,7 +21,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"unicode/utf8"
 )
 
 type viewRequestRow struct {
@@ -102,12 +101,7 @@ type viewTaskRow struct {
 
 // fit80 cuts one line to the 80-column window.
 func fit80(s string) string {
-	s = sanitize(s)
-	if utf8.RuneCountInString(s) <= 80 {
-		return s
-	}
-	r := []rune(s)
-	return string(r[:79]) + "…"
+	return fitWidth(sanitize(s), 80)
 }
 
 func viewCount(n *int) string {
@@ -190,6 +184,13 @@ func hostedAgentView(cr hostedCreds, inv *Invocation) {
 		die(err)
 	}
 	if !inv.Set("choose") {
+		// F11: below the window's 80x24 the lines would wrap into each
+		// other; that is said, once, instead of overlapping controls
+		if !out.json && stdoutIsTerminal() {
+			if cols, rows := termSize(); cols < 80 || rows < 24 {
+				fmt.Fprintf(os.Stderr, "this terminal is %dx%d; this view is laid out for at least 80x24, so lines wrap below that size (widen the terminal, or use --json)\n", cols, rows)
+			}
+		}
 		emit(v, func() {
 			for _, l := range viewLines(v) {
 				fmt.Println(l)
