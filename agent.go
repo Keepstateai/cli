@@ -1920,7 +1920,7 @@ func hostedAgentPause(cr hostedCreds, inv *Invocation) {
 		Data sessionPause `json:"data"`
 	}
 	if err := hostedMutate(cr, "POST", "/api/v2/sessions/"+url.PathEscape(id)+"/pause", map[string]any{}, &env); err != nil {
-		die(err)
+		die(saveFailure(err, a.Name, sess))
 	}
 	p := env.Data
 	state := strings.ToLower(p.RuntimeState)
@@ -1960,6 +1960,55 @@ func hostedAgentPause(cr hostedCreds, inv *Invocation) {
 			NextAction:  fmt.Sprintf("ks agent pause %s --session %s --wait-timeout 5m (the same request, waiting longer)", a.Name, sess.ShortID)})
 	}
 	report(final, waited)
+}
+
+// saveFailed is what the service read back after a save that did not
+// complete (KS-051): no new saved point, the previous one as it was, and the
+// runtime state it observed (or unavailable).
+type saveFailed struct {
+	RuntimeState       string `json:"runtime_state"`
+	CheckpointRecorded bool   `json:"checkpoint_recorded"`
+	PreviousCheckpoint string `json:"previous_checkpoint_id"`
+}
+
+func (f saveFailed) detailLines() []string {
+	prev := f.PreviousCheckpoint
+	if prev == "" {
+		prev = "none (there was no earlier saved point)"
+	} else {
+		prev += " (untouched)"
+	}
+	return []string{
+		"new saved point    none recorded",
+		"previous          " + prev,
+		"session reads     " + figure(f.RuntimeState),
+	}
+}
+
+// saveFailure states a failed save as the service stated it. It is not an
+// unknown outcome: the service established that nothing was saved, and it
+// read back whether the session still runs.
+func saveFailure(err error, agent string, sess inventoryRow) error {
+	var he *hostedErr
+	if !errors.As(err, &he) || (he.Type != "ks_save_failed" && he.Type != "ks_fleet_unavailable") {
+		return err
+	}
+	var body struct {
+		Error saveFailed `json:"error"`
+	}
+	_ = json.Unmarshal(he.Raw, &body)
+	ce := classify(err)
+	ce.Code, ce.WorkStarted, ce.Detail = exitFailed, workNo, body.Error
+	if he.Type == "ks_fleet_unavailable" {
+		ce.Code = exitTemporary
+	}
+	ce.Message = "the session was NOT saved and nothing new was recorded: " + sanitize(he.Message)
+	if body.Error.RuntimeState == "running" {
+		ce.NextAction = fmt.Sprintf("the session is still running and its agents carry on; try again: ks agent pause %s --session %s", agent, sess.ShortID)
+	} else {
+		ce.NextAction = "ks session show " + sess.ShortID
+	}
+	return ce
 }
 
 func noteSuffix(note string) string {
