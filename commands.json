@@ -1031,6 +1031,46 @@
      "summary": "write the bytes to this NEW file instead of printing them"
     }
    ]
+  },
+  {
+   "verb": "agent queue list",
+   "aliases": [],
+   "usage": "ks agent queue list <name> [--session ID]",
+   "summary": "an agent's pending work in dispatch order, the instruction executing now apart, and the queue revision a move names",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    }
+   ]
+  },
+  {
+   "verb": "task move",
+   "aliases": [],
+   "usage": "ks task move <instruction> [--session ID] [--before TASK] [--after TASK] [--queue-revision QREV]",
+   "summary": "move one queued instruction before or after another pending one of the same agent, against a queue revision",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--before TASK",
+     "summary": "place it just before this pending instruction"
+    },
+    {
+     "flag": "--after TASK",
+     "summary": "place it just after this pending instruction"
+    },
+    {
+     "flag": "--queue-revision QREV",
+     "summary": "the queue revision of the view you decided from (ks agent queue list prints it); without it the queue is read now and shown first"
+    }
+   ]
   }
  ]
 }
