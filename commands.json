@@ -1503,6 +1503,40 @@
      "summary": "put every path an interrupted apply touched back as it was"
     }
    ]
+  },
+  {
+   "verb": "session idle",
+   "aliases": [],
+   "usage": "ks session idle <session>",
+   "summary": "a session's idle policy and where it stands: counting, warned with the park time and countdown, deferred with the reason",
+   "status": "planned",
+   "surface": "hosted"
+  },
+  {
+   "verb": "project configure",
+   "aliases": [],
+   "usage": "ks project configure [--project ID] [--session ID] [--file PATH] [--confirm DIGEST]",
+   "summary": "propose .keepstate/project.json as the project's defaults, see the exact changes, and trust that digest only if you confirm it",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--project ID",
+     "summary": "the project (default: the project of --session or of this project's binding)"
+    },
+    {
+     "flag": "--session ID",
+     "summary": "a session of the project; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--file PATH",
+     "summary": "the defaults file (default .keepstate/project.json at the project root)"
+    },
+    {
+     "flag": "--confirm DIGEST",
+     "summary": "trust the proposal with this digest (the 12 characters shown, or all of it); never implied by --yes"
+    }
+   ]
   }
  ]
 }
