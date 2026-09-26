@@ -1229,6 +1229,96 @@
    "summary": "a session's model use, runtime and storage, apart, with units, source and whether each figure is actual, estimated or unavailable",
    "status": "available",
    "surface": "hosted"
+  },
+  {
+   "verb": "check define",
+   "aliases": [],
+   "usage": "ks check define [--session ID] [--agent NAME] [--input PATH] [--artifact PATH] [--workdir PATH] [--kind KIND] [--timeout SECONDS] [--max-output BYTES] <name> [--] <argv...>",
+   "summary": "store a check: an argument vector with no shell, the files it depends on, its artifacts and bounds; runs nothing",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--agent NAME",
+     "summary": "the agent the check belongs to (default main)"
+    },
+    {
+     "flag": "--input PATH",
+     "summary": "a workspace file the check's behaviour depends on (repeatable; at least one); a change to any of them needs your trust again"
+    },
+    {
+     "flag": "--artifact PATH",
+     "summary": "a workspace file the check produces, whose digest is recorded (repeatable)"
+    },
+    {
+     "flag": "--workdir PATH",
+     "summary": "the workspace directory it runs in (default the workspace root)"
+    },
+    {
+     "flag": "--kind KIND",
+     "summary": "check or setup (default check)"
+    },
+    {
+     "flag": "--timeout SECONDS",
+     "summary": "the deadline, after which its process group is killed (default 600, at most 3600)"
+    },
+    {
+     "flag": "--max-output BYTES",
+     "summary": "the output kept (default 256 KiB, at most 1 MiB)"
+    }
+   ]
+  },
+  {
+   "verb": "check list",
+   "aliases": [],
+   "usage": "ks check list [--session ID] [--agent NAME]",
+   "summary": "an agent's checks: the exact action, the definition hash and the input sets you trusted",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--agent NAME",
+     "summary": "the agent the check belongs to (default main)"
+    }
+   ]
+  },
+  {
+   "verb": "check run",
+   "aliases": [],
+   "usage": "ks check run <check>",
+   "summary": "request a run of a check; it executes only over inputs you trusted",
+   "status": "planned",
+   "surface": "hosted"
+  },
+  {
+   "verb": "check show",
+   "aliases": [],
+   "usage": "ks check show <run>",
+   "summary": "one run: state, inputs seen, exit status, output, artifacts' digests, the action to trust",
+   "status": "planned",
+   "surface": "hosted"
+  },
+  {
+   "verb": "check trust",
+   "aliases": [],
+   "usage": "ks check trust <run> [--confirm HASH]",
+   "summary": "trust the exact action a run stopped at: this definition over the inputs it saw",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--confirm HASH",
+     "summary": "the action hash you were shown (all of it, or the 12 characters shown); required without a terminal, never implied by --yes"
+    }
+   ]
   }
  ]
 }
