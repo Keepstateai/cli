@@ -969,6 +969,68 @@
      "summary": "how long the download grant lives (1s to 1h; default the service's 10m)"
     }
    ]
+  },
+  {
+   "verb": "agent logs",
+   "aliases": [],
+   "usage": "ks agent logs [--session ID] [--follow] [--cursor CURSOR] [--limit N]",
+   "summary": "the session's setup log and its agent's log from a cursor, safe to print; --follow polls until the service says it ends",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--follow",
+     "summary": "keep reading new lines from the cursor until the service says following ends (a session that pauses ends it) or Ctrl-C"
+    },
+    {
+     "flag": "--cursor CURSOR",
+     "summary": "start after this cursor (from a previous page)"
+    },
+    {
+     "flag": "--limit N",
+     "summary": "at most N lines per page"
+    }
+   ]
+  },
+  {
+   "verb": "file list",
+   "aliases": [],
+   "usage": "ks file list [path] [--session ID]",
+   "summary": "one directory of a session's workspace: type, mode, size, name; secret files marked redacted",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session whose workspace to read; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    }
+   ]
+  },
+  {
+   "verb": "file show",
+   "aliases": [],
+   "usage": "ks file show <path> [--session ID] [--max-bytes N] [--out FILE]",
+   "summary": "one workspace file, at most 1 MiB, printed as safe text or written to a new file",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session whose workspace to read; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--max-bytes N",
+     "summary": "read at most N bytes (default and maximum 1 MiB)"
+    },
+    {
+     "flag": "--out FILE",
+     "summary": "write the bytes to this NEW file instead of printing them"
+    }
+   ]
   }
  ]
 }
