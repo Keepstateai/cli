@@ -1418,6 +1418,10 @@ func cruiseStatus(inv *Invocation) {
 	} else {
 		job = fetchJob(c, id)
 	}
+	if inv.Bool("watch") {
+		cruiseWatch(c, jstr(job, "id"))
+		return
+	}
 	emit(job, func() { printJob(job) })
 }
 

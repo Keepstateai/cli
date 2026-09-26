@@ -257,11 +257,17 @@
   {
    "verb": "cruise status",
    "aliases": [],
-   "usage": "ks cruise status [job]",
+   "usage": "ks cruise status [job] [--watch]",
    "summary": "the job (or the newest): state, rung, each attempt, save points, spend, verdict, artifact",
    "status": "available",
    "surface": "hosted",
-   "note": "absent values read \"unavailable\", never zero"
+   "note": "absent values read \"unavailable\", never zero",
+   "flags": [
+    {
+     "flag": "--watch",
+     "summary": "follow the job live: its plain state, the attempt in flight, a pending verifier result, the last save point, spend kept apart (unavailable is never $0) and the next actions, re-read as events arrive at the pace the service names; Ctrl-C ends only the watch"
+    }
+   ]
   },
   {
    "verb": "cruise logs",
