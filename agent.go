@@ -926,6 +926,20 @@ type transcriptEntry struct {
 	ToolUseID string `json:"tool_use_id"`
 	Failed    bool   `json:"failed"`
 	Clipped   bool   `json:"clipped"`
+	// KS-049: who the control plane attributes the entry to. An entry the
+	// service attributes to nobody is shown as unattributed, never as the
+	// person's.
+	AuthorType     string `json:"author_type"`
+	AuthorID       string `json:"author_id"`
+	ConsultationID string `json:"consultation_id"`
+}
+
+// attribution renders the service's author of an entry, or says there is none.
+func attribution(t transcriptEntry) (string, bool) {
+	if t.AuthorType == "" || t.AuthorID == "" {
+		return "unattributed: the service recorded no author", false
+	}
+	return t.AuthorType + " " + t.AuthorID, true
 }
 
 // transcriptOf answers the conversation entry in a journal row, or nil.
@@ -951,6 +965,23 @@ func transcriptLine(t transcriptEntry) string {
 		mark = "agent"
 	case "instruction":
 		mark = "asked"
+		who, _ := attribution(t)
+		body = fmt.Sprintf("[%s, task %s] %s", who, notRecorded(t.TaskID), body)
+	case "consultation":
+		// another agent's question to this one: never an instruction
+		mark = "asked?"
+		who, ok := attribution(t)
+		if ok {
+			who = "question from " + who
+		}
+		body = fmt.Sprintf("[%s, consultation %s] %s", who, notRecorded(t.ConsultationID), body)
+	case "advice":
+		mark = "advice"
+		who, ok := attribution(t)
+		if ok {
+			who = "from " + who
+		}
+		body = fmt.Sprintf("[%s, consultation %s] %s", who, notRecorded(t.ConsultationID), body)
 	case "tool_started":
 		mark = "tool"
 		body = orUnnamedTool(t.ToolName) + " started"
