@@ -107,6 +107,12 @@ type holdChoice struct {
 	StateAfter  string `json:"state_after"`
 	Cost        string `json:"cost"`
 	Unavailable string `json:"unavailable_reason"`
+	// Via names the route that performs an option the hold's own decision
+	// route does not (a retry is a whole-session restore from a named save
+	// point); CheckpointID is that save point. Both are the service's, and
+	// present only on an available option taken elsewhere (KS-046).
+	Via          string `json:"via,omitempty"`
+	CheckpointID string `json:"checkpoint_id,omitempty"`
 }
 
 // the decisions this client may send, and the one word that separates a
@@ -305,8 +311,14 @@ func blockedWord(h queueHold) string {
 
 // verbFor is the command that records one decision, from where the reader is
 // standing.
-func verbFor(decision, agent string, sess inventoryRow) string {
-	switch decision {
+func verbFor(c holdChoice, blocking, agent string, sess inventoryRow) string {
+	switch c.Decision {
+	case decisionRetry:
+		// offered only with the save point the service named; never one this
+		// client picked
+		if c.Available && c.CheckpointID != "" && blocking != "" {
+			return fmt.Sprintf("ks task resume %s --session %s --checkpoint %s --finding \"...\"", blocking, sess.ShortID, c.CheckpointID)
+		}
 	case decisionResume:
 		return fmt.Sprintf("ks agent queue resume %s --session %s --finding \"...\"", agent, sess.ShortID)
 	case decisionKeep:
@@ -333,6 +345,8 @@ type nextAction struct {
 	Leaves     string `json:"leaves,omitempty"`
 	Costs      string `json:"costs,omitempty"`
 	NotOffered string `json:"not_offered_because,omitempty"`
+	Checkpoint string `json:"checkpoint_id,omitempty"`
+	Via        string `json:"via,omitempty"`
 }
 
 // actionFrom binds one option the service stated to the command that records
@@ -343,6 +357,7 @@ func actionFrom(c holdChoice, command string) nextAction {
 		Does: c.Effect, Leaves: c.StateAfter, Costs: c.Cost, NotOffered: c.Unavailable}
 	if c.Available {
 		a.Command = command
+		a.Checkpoint, a.Via = c.CheckpointID, c.Via
 	}
 	return a
 }
@@ -367,6 +382,8 @@ func (a nextAction) lines() []string {
 	if !a.Available {
 		add("why not", a.NotOffered)
 	}
+	add("from", a.Checkpoint)
+	add("via", a.Via)
 	add("does", a.Does)
 	add("leaves", a.Leaves)
 	add("costs", a.Costs)
@@ -446,7 +463,7 @@ func hostedAgentQueueShow(cr hostedCreds, inv *Invocation) {
 		}
 		fmt.Println("your choices")
 		for _, c := range h.Choices {
-			for _, line := range actionFrom(c, verbFor(c.Decision, a.Name, sess)).lines() {
+			for _, line := range actionFrom(c, verbFor(c, h.BlockingTask, a.Name, sess)).lines() {
 				fmt.Println(line)
 			}
 		}
@@ -857,6 +874,8 @@ func whyNoNewAttempt(h *queueHold) (reason string, offered bool) {
 	switch {
 	case c == nil:
 		return retryMissingHere, false
+	case c.Available && c.CheckpointID != "":
+		return fmt.Sprintf("the service offers a new attempt from saved point %s, through %s; name it with --checkpoint %s", c.CheckpointID, figure(c.Via), c.CheckpointID), true
 	case c.Available:
 		return retryOfferedNotHere, true
 	case strings.TrimSpace(c.Unavailable) != "":
@@ -880,7 +899,7 @@ const (
 	retryMissingHere = "this service records no attempt under an instruction, and no boundary for one to resume from, so a new attempt could neither be created nor say where it would start"
 	// and the other direction: a service that has since grown the records,
 	// read by a client that has not grown the command
-	retryOfferedNotHere = "this service now offers a new attempt from a recorded boundary and this version of the client cannot ask for one: it would have to name the boundary and bind the request to it, and it can do neither. Update the client, or continue the rest of the queue instead"
+	retryOfferedNotHere = "this service says a new attempt is available but names no saved point for it, and this client never chooses one: read the session's saved points (ks session checkpoints) and name one with --checkpoint, or continue the rest of the queue instead"
 	savedSessionNote    = "a boundary this instruction could resume from: saving a session stores the whole machine at that moment — it names no instruction and marks no place in the queue — so restoring one would rewind work nobody named, and it is not such a boundary"
 )
 
@@ -923,7 +942,7 @@ func statementFor(sess inventoryRow, agentName string, t taskRow, h *queueHold) 
 			}
 		}
 		for _, c := range h.Choices {
-			b.NextActions = append(b.NextActions, actionFrom(c, verbFor(c.Decision, agentName, sess)))
+			b.NextActions = append(b.NextActions, actionFrom(c, verbFor(c, h.BlockingTask, agentName, sess)))
 		}
 	}
 	reason, offered := whyNoNewAttempt(h)

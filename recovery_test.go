@@ -176,6 +176,8 @@ func (c *recoveryCtl) holdDoc() map[string]any {
 			// this client, which still cannot ask for one
 			retry["available"] = true
 			retry["state_after"] = "a new attempt is recorded under the task; the earlier attempt keeps its outcome and its cost"
+			retry["checkpoint_id"] = "ckpt_after_fail"
+			retry["via"] = "POST /api/v2/sessions/session_rec/restore with checkpoint_id=ckpt_after_fail (a whole-session restore)"
 			delete(retry, "unavailable_reason")
 		}
 		doc["choices"] = []map[string]any{
@@ -1375,5 +1377,42 @@ func TestTheRecoverySurfacesStateNoCostTheServiceDidNotState(t *testing.T) {
 	// the option the service DOES cost still shows that cost
 	if !strings.Contains(view, "nothing runs, so nothing is metered") {
 		t.Errorf("a stated cost was dropped:\n%s", view)
+	}
+}
+
+// KS-046: where the service OFFERS retry-from-safe-point it names the save
+// point and the restore route; the view shows both with the one command that
+// takes it, and ks task resume without --checkpoint names that save point
+// and still chooses nothing. Where it does not offer it, no command is shown
+// for it at all.
+func TestTheRetryIsOfferedOnlyWithTheServicesSavePointAndRoute(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	dir := t.TempDir()
+	out, _, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "agent", "queue", "show", "main", "--session", agentSessionShort)
+	if code != 0 || strings.Contains(out, "ks task resume") {
+		t.Fatalf("an unavailable retry printed a command: %d\n%s", code, out)
+	}
+	c.set(func(c *recoveryCtl) { c.retryOffered = true })
+	out, errs, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "agent", "queue", "show", "main", "--session", agentSessionShort)
+	if code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	for _, want := range []string{
+		"ks task resume " + recoveryBlocking + " --session " + agentSessionShort + " --checkpoint ckpt_after_fail",
+		"from      ckpt_after_fail",
+		"via       POST /api/v2/sessions/session_rec/restore with checkpoint_id=ckpt_after_fail",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the offered retry lacks %q:\n%s", want, out)
+		}
+	}
+	_, errs, code = auditExec(t, bin, cfg, dir, fastEnv(cfg), "task", "resume", recoveryBlocking, "--session", agentSessionShort)
+	if code != exitUsage || !strings.Contains(errs, "offers this retry from saved point ckpt_after_fail") || !strings.Contains(errs, "--checkpoint ckpt_after_fail") {
+		t.Fatalf("resume without a checkpoint: %d\n%s", code, errs)
+	}
+	for _, req := range c.seen() {
+		if strings.HasPrefix(req, "POST ") {
+			t.Fatalf("naming the offer sent a mutation: %v", c.seen())
+		}
 	}
 }

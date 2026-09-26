@@ -1018,8 +1018,19 @@ func refuseWithoutABoundary(cr hostedCreds, sess inventoryRow, agentName string,
 	}
 	det := boundaryChoices{Task: t.ID, Agent: agentName, Session: sess.ShortID,
 		Checkpoints: valid, Unreadable: errText(cerr)}
-	fail(&cliError{Code: exitUsage, Kind: "boundary_required", Detail: det, Message: msg,
-		NextAction: fmt.Sprintf("ks session checkpoints %s", sess.ShortID)})
+	next := fmt.Sprintf("ks session checkpoints %s", sess.ShortID)
+	// where the hold on this queue OFFERS the retry, the service has named
+	// the save point it would resume from: say so, and still choose nothing
+	if holds, herr := fetchQueueHolds(cr, t.AgentID); herr == nil {
+		if h, aerr := activeHold(holds); aerr == nil && h != nil && h.BlockingTask == t.ID {
+			if c := retryChoice(h); c != nil && c.Available && c.CheckpointID != "" {
+				det.Offered, det.Via = c.CheckpointID, c.Via
+				msg += fmt.Sprintf(" The service offers this retry from saved point %s, through %s.", c.CheckpointID, figure(c.Via))
+				next = fmt.Sprintf("ks task resume %s --session %s --checkpoint %s --finding \"...\"", t.ID, sess.ShortID, c.CheckpointID)
+			}
+		}
+	}
+	fail(&cliError{Code: exitUsage, Kind: "boundary_required", Detail: det, Message: msg, NextAction: next})
 }
 
 // boundaryChoices is the refusal's facts as FIELDS: which instruction, and
@@ -1030,6 +1041,10 @@ type boundaryChoices struct {
 	Session     string                `json:"session"`
 	Checkpoints []checkpointRowClient `json:"checkpoints"`
 	Unreadable  string                `json:"unreadable,omitempty"`
+	// Offered is the save point the service's hold names for this retry,
+	// with the route it goes through; empty where it names none.
+	Offered string `json:"offered_checkpoint_id,omitempty"`
+	Via     string `json:"offered_via,omitempty"`
 }
 
 func (b boundaryChoices) detailLines() []string {
@@ -1040,6 +1055,9 @@ func (b boundaryChoices) detailLines() []string {
 	if b.Unreadable != "" {
 		lines = append(lines, "saved points       could not be READ, so none are listed; that is not the same as none existing: "+b.Unreadable)
 		return lines
+	}
+	if b.Offered != "" {
+		lines = append(lines, fmt.Sprintf("offered by service %s, through %s", b.Offered, b.Via))
 	}
 	if len(b.Checkpoints) == 0 {
 		lines = append(lines, "saved points       none restorable")
