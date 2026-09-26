@@ -65,7 +65,11 @@ type Command struct {
 	Effects  string   // what the command changes or bills; "nothing" for a read
 	Examples []string // safe examples, each a full command line
 	Needs    string   // a capability id the control plane must report available before this runs
-	Group    bool     // a head with subcommands and no handler of its own
+	// Fallback is the capability a control plane that predates Needs (an
+	// older protocol, whose registry has no such row) is judged by instead.
+	// A registry that lists Needs is always judged by Needs.
+	Fallback string
+	Group    bool // a head with subcommands and no handler of its own
 	Run      func(inv *Invocation)
 }
 

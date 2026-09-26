@@ -105,6 +105,16 @@ func cachedCapabilities() *capabilitySet {
 	return &set
 }
 
+// gate answers the row a command is judged by: its own capability when the
+// registry lists it, else -- only for a registry that predates that row --
+// the fallback it names.
+func (s *capabilitySet) gate(c *Command) (*capabilityRow, string) {
+	if row := s.find(c.Needs); row != nil || c.Fallback == "" {
+		return row, c.Needs
+	}
+	return s.find(c.Fallback), c.Fallback
+}
+
 func (s *capabilitySet) find(id string) *capabilityRow {
 	for i := range s.Capabilities {
 		if s.Capabilities[i].ID == id {
@@ -129,7 +139,8 @@ func requireCapability(cr hostedCreds, c *Command) {
 		}
 		fail(&cliError{Code: exitTemporary, Kind: "capability_unreadable", Message: fmt.Sprintf("ks %s needs %s, and the capability registry could not be read: %v", c.Name(), c.Needs, sanitize(err.Error()))})
 	}
-	row := set.find(c.Needs)
+	row, needs := set.gate(c)
+	c = &Command{Path: c.Path, Needs: needs}
 	switch {
 	case row == nil:
 		fail(&cliError{Code: exitFailed, Kind: "capability_unsupported", Message: fmt.Sprintf("ks %s needs %s, which this control plane (registry %s, build %s) does not list; the command is disabled here", c.Name(), c.Needs, set.RegistryVersion, set.Build)})
@@ -163,14 +174,14 @@ func capabilitySummary(set *capabilitySet) (line string, disabled []string) {
 		if c.Needs == "" {
 			continue
 		}
-		row := set.find(c.Needs)
+		row, needs := set.gate(c)
 		switch {
 		case row == nil:
-			disabled = append(disabled, fmt.Sprintf("ks %s: disabled, %s is not listed by this control plane", c.Name(), c.Needs))
+			disabled = append(disabled, fmt.Sprintf("ks %s: disabled, %s is not listed by this control plane", c.Name(), needs))
 		case row.Availability != "available":
-			disabled = append(disabled, fmt.Sprintf("ks %s: disabled, %s is %s (%s)", c.Name(), c.Needs, row.Availability, row.why()))
+			disabled = append(disabled, fmt.Sprintf("ks %s: disabled, %s is %s (%s)", c.Name(), needs, row.Availability, row.why()))
 		case row.SinceProtocol > clientProtocol:
-			disabled = append(disabled, fmt.Sprintf("ks %s: disabled, %s needs protocol %d and this client speaks %d (ks update)", c.Name(), c.Needs, row.SinceProtocol, clientProtocol))
+			disabled = append(disabled, fmt.Sprintf("ks %s: disabled, %s needs protocol %d and this client speaks %d (ks update)", c.Name(), needs, row.SinceProtocol, clientProtocol))
 		}
 	}
 	return line, disabled
