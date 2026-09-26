@@ -568,7 +568,7 @@
   {
    "verb": "agent status",
    "aliases": [],
-   "usage": "ks agent status <name> [--session ID]",
+   "usage": "ks agent status <name> [--session ID] [--watch]",
    "summary": "one agent's activity, queue depth and current task",
    "status": "planned",
    "surface": "hosted",
@@ -577,6 +577,10 @@
     {
      "flag": "--session ID",
      "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--watch",
+     "summary": "read it again every 2 seconds until Ctrl-C, which stops watching and changes nothing"
     }
    ]
   },

@@ -338,8 +338,11 @@ var registry = []*Command{
 		Examples: []string{"ks agent rename main lead --session 3f2a1c", "ks agent rename agent_0123abcd reviewer --session 3f2a1c --json"},
 		Nothing:  "Nothing was renamed.", Run: hosted(hostedAgentRename)},
 	{Path: []string{"agent", "status"}, Summary: "one agent's activity, queue depth and current task", Surface: "hosted",
-		Args:     []Arg{{Name: "name", Required: true}},
-		Flags:    []Flag{{Name: "session", Kind: flagString, Value: "ID", Summary: "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"}},
+		Args: []Arg{{Name: "name", Required: true}},
+		Flags: []Flag{
+			{Name: "session", Kind: flagString, Value: "ID", Summary: "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"},
+			{Name: "watch", Kind: flagBool, Summary: "read it again every 2 seconds until Ctrl-C, which stops watching and changes nothing"},
+		},
 		Needs:    "agent.workspace",
 		Effects:  "reads the agent and its queue; nothing changes, and no control is taken",
 		Examples: []string{"ks agent status main --session 3f2a1c", "ks agent status main --session 3f2a1c --json"},

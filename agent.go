@@ -420,24 +420,70 @@ func hostedAgentStatus(cr hostedCreds, inv *Invocation) {
 	if err != nil {
 		die(err)
 	}
-	tasks, err := fetchTasks(cr, a.ID)
-	if err != nil {
-		die(err)
-	}
-	waiting, current := queueState(a, tasks)
-	emit(map[string]any{"session": sess.ID, "agent": a, "queue_depth": waiting, "current_task": current, "tasks": len(tasks)}, func() {
-		fmt.Printf("agent %s (%s) in session %s\n", a.Name, a.ID, sess.ShortID)
-		fmt.Printf("  activity       %s\n", figure(a.Activity))
-		fmt.Printf("  role           %s\n", agentRole(a))
-		fmt.Printf("  queue          %d waiting\n", waiting)
-		if current != nil {
-			fmt.Printf("  current task   %s (%s) at queue position %d\n", current.ID, figure(current.State), current.QueueSeq)
-		} else {
-			fmt.Printf("  current task   none\n")
+	show := func(a agentRow) {
+		tasks, err := fetchTasks(cr, a.ID)
+		if err != nil {
+			die(err)
 		}
-		fmt.Printf("  revision       %d (queue %d)\n", a.Revision, a.QueueRevision)
-		fmt.Printf("  observed       %s\n", figure(a.ObservedAt))
-	})
+		waiting, current := queueState(a, tasks)
+		age, stale := observedAge(a.ObservedAt, time.Now())
+		emit(map[string]any{"session": sess.ID, "agent": a, "queue_depth": waiting, "current_task": current, "tasks": len(tasks), "observed_age": age, "stale": stale}, func() {
+			fmt.Printf("agent %s (%s) in session %s\n", a.Name, a.ID, sess.ShortID)
+			fmt.Printf("  activity       %s (%s)\n", stateLabel("agent_activity", a.Activity), age)
+			if stale {
+				fmt.Printf("  STALE          no observation for more than %s: this is the last known state, not the current one\n", staleAfter)
+			}
+			fmt.Printf("  role           %s\n", agentRole(a))
+			fmt.Printf("  queue          %d waiting\n", waiting)
+			if current != nil {
+				fmt.Printf("  current task   %s (%s) at queue position %d\n", current.ID, stateLabel("task_state", current.State), current.QueueSeq)
+			} else {
+				fmt.Printf("  current task   none\n")
+			}
+			fmt.Printf("  revision       %d (queue %d)\n", a.Revision, a.QueueRevision)
+			fmt.Printf("  observed       %s\n", figure(a.ObservedAt))
+		})
+	}
+	show(a)
+	if !inv.Bool("watch") {
+		return
+	}
+	// --watch: read again every 2 s; Ctrl-C stops watching and nothing
+	// remote changes (VER-037-2)
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(stop)
+	cadence := pollCadence(boundedWait())
+	for {
+		select {
+		case <-stop:
+			fmt.Fprintln(os.Stderr, "stopped watching; nothing on the agent changed")
+			return
+		case <-time.After(cadence):
+		}
+		now, err := resolveAgent(cr, sess, a.ID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "the agent could not be read (%s); the last state above is kept\n", errText(err))
+			continue
+		}
+		show(now)
+	}
+}
+
+// staleAfter is C04's stale threshold for a live status.
+const staleAfter = 15 * time.Second
+
+// observedAge says how old an observation is, and whether it is stale.
+func observedAge(observed string, now time.Time) (string, bool) {
+	t, err := time.Parse(time.RFC3339Nano, observed)
+	if err != nil {
+		return "observed at an unknown time", true
+	}
+	age := now.Sub(t).Round(time.Second)
+	if age < 0 {
+		age = 0
+	}
+	return "observed " + age.String() + " ago", age > staleAfter
 }
 
 // ---------------------------------------------------------------------
@@ -723,8 +769,12 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 	}
 	// the header is a fact about the window, not a result: stderr, so a
 	// piped stdout carries the agent's events and nothing else
-	progress("agent %s (%s) in session %s · %s · %s · %s · %d queued",
-		a.Name, a.ID, sess.ShortID, figure(w.Agent.Activity), joined, controlLine(w), w.QueueDepth)
+	age, stale := observedAge(w.Agent.ObservedAt, time.Now())
+	progress("agent %s (%s) in session %s · %s (%s) · %s · %s · %d queued",
+		a.Name, a.ID, sess.ShortID, stateLabel("agent_activity", w.Agent.Activity), age, joined, controlLine(w), w.QueueDepth)
+	if stale {
+		progress("STALE: no observation of this agent for more than %s; the status above is the last known one", staleAfter)
+	}
 
 	// WHETHER THE QUEUE IS MOVING. A window showing "3 queued" beside an
 	// agent that cannot start any of them is telling a person the number
