@@ -19,6 +19,7 @@ type forkCtl struct {
 	stale        bool
 	forks        []map[string]any
 	continuation string
+	stack        string
 }
 
 func (c *forkCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -57,8 +58,12 @@ func (c *forkCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"agents": []any{map[string]any{"agent_id": "agent_c1", "held_templates": []string{"tsk_x", "tsk_y"}, "hold_id": "hold_c1"}}}}})
 	case r.URL.Path == "/api/v2/sessions/session_1/restore":
 		note := map[string]string{"exact_runtime": "the engine loaded the whole machine from the saved point", "unknown": "whether the engine replaced the guest is unknown, so no continuation is claimed", "none": "the guest was not replaced"}[c.continuation]
-		env(200, map[string]any{"session_id": "session_1", "checkpoint_id": "ck_1", "scope": "whole_session", "phases": []any{map[string]any{"phase": "restore", "done": c.continuation == "exact_runtime"}},
-			"superseded_attempts": []string{}, "continuation": c.continuation, "continuation_note": note})
+		detail := ""
+		if c.stack == "incompatible" {
+			detail = "the engine refused: this saved point was taken on a different pinned stack (ks_stack_incompatible: runner 2.1.240 != 2.1.251; image claude-75 != claude-81)"
+		}
+		env(200, map[string]any{"session_id": "session_1", "checkpoint_id": "ck_1", "scope": "whole_session", "phases": []any{map[string]any{"phase": "restore", "done": c.continuation == "exact_runtime", "detail": detail}},
+			"superseded_attempts": []string{}, "continuation": c.continuation, "continuation_note": note, "stack_compatibility": c.stack})
 	default:
 		w.WriteHeader(404)
 		fmt.Fprint(w, `{"schema_version":2,"error":{"code":"ks_not_found","type":"ks_not_found","message":"no route"}}`)

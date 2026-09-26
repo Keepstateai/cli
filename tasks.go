@@ -1016,10 +1016,27 @@ type restoreAnswer struct {
 	// service's note. Printed exactly as given; unknown is never success.
 	Continuation     string `json:"continuation"`
 	ContinuationNote string `json:"continuation_note"`
+	// StackCompatibility is the engine's verdict on the saved point's pinned
+	// stack (KS-052): verified, unknown or incompatible. Only verified
+	// supports exact continuation; unknown is NOT established.
+	StackCompatibility string `json:"stack_compatibility"`
 }
 
 // continuationLines prints the continuation exactly as the service gave it.
 func continuationLines(res restoreAnswer) {
+	switch res.StackCompatibility {
+	case "verified":
+		fmt.Printf("  stack          verified: the saved point was taken on the engine's pinned stack\n")
+	case "incompatible":
+		fmt.Printf("  stack          INCOMPATIBLE: the saved point was taken on a different pinned stack; nothing was restored\n")
+		for _, p := range res.Phases {
+			if !p.Done && strings.Contains(p.Detail, "stack") {
+				fmt.Printf("                 %s\n", sanitize(p.Detail))
+			}
+		}
+	default:
+		fmt.Printf("  stack          NOT established: the engine did not verify the saved point's pinned stack (%s), so exact continuation on the same stack is not claimed\n", figure(res.StackCompatibility))
+	}
 	c := res.Continuation
 	if c == "" {
 		c = "not stated by the service"
@@ -1033,6 +1050,17 @@ func continuationLines(res restoreAnswer) {
 // continuationUnknown refuses to call a restore whose outcome the service
 // could not establish a success.
 func continuationUnknown(res restoreAnswer, sessShort string) {
+	if res.StackCompatibility == "incompatible" {
+		detail := ""
+		for _, p := range res.Phases {
+			if !p.Done && p.Detail != "" {
+				detail = p.Detail
+			}
+		}
+		fail(&cliError{Code: exitConflict, Kind: "ks_stack_incompatible", WorkStarted: workNo,
+			Message:    "the saved point was taken on a different pinned stack and was NOT restored: " + sanitize(detail),
+			NextAction: "retry the instruction from its own record (ks task resume ... --checkpoint <a saved point on this stack>)"})
+	}
 	if res.Continuation == "unknown" {
 		fail(&cliError{Code: exitTemporary, Kind: "continuation_unknown", WorkStarted: workUnknown,
 			Message:    "the restore's outcome is UNKNOWN: " + sanitize(res.ContinuationNote),
