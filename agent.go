@@ -319,17 +319,33 @@ func pickAgent(sess inventoryRow, agents []agentRow, arg string) (agentRow, erro
 		NextAction: "ks agent list --session " + sess.ShortID}
 }
 
+// fetchTasks reads an agent's whole queue and history, following the
+// service's cursor page after page (KS-050): a list that stopped at the
+// first page would silently leave work out.
 func fetchTasks(cr hostedCreds, agentID string) ([]taskRow, error) {
-	var env struct {
-		Data struct {
-			Items []taskRow `json:"items"`
-		} `json:"data"`
+	var all []taskRow
+	cursor := ""
+	for page := 0; page < 1000; page++ {
+		var env struct {
+			Data struct {
+				Items      []taskRow `json:"items"`
+				NextCursor string    `json:"next_cursor"`
+			} `json:"data"`
+		}
+		q := url.Values{"agent_id": {agentID}}
+		if cursor != "" {
+			q.Set("cursor", cursor)
+		}
+		if err := hostedCall(cr, "GET", "/api/v2/tasks?"+q.Encode(), nil, &env); err != nil {
+			return nil, err
+		}
+		all = append(all, env.Data.Items...)
+		if env.Data.NextCursor == "" || env.Data.NextCursor == cursor {
+			return all, nil
+		}
+		cursor = env.Data.NextCursor
 	}
-	q := url.Values{"agent_id": {agentID}}
-	if err := hostedCall(cr, "GET", "/api/v2/tasks?"+q.Encode(), nil, &env); err != nil {
-		return nil, err
-	}
-	return env.Data.Items, nil
+	return nil, fmt.Errorf("the task list did not end after 1000 pages; nothing is shown rather than part of it")
 }
 
 func fetchPendingApprovals(cr hostedCreds, sessionID string) ([]approvalRow, error) {
