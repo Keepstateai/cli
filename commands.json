@@ -1579,6 +1579,28 @@
      "summary": "how often, with --on (5 to 120; default the service's 5)"
     }
    ]
+  },
+  {
+   "verb": "session delete",
+   "aliases": [],
+   "usage": "ks session delete <session> [--plan] [--execute PLAN] [--confirm SESSION]",
+   "summary": "delete a session record through a plan; the runtime's stop and the content's standing are reported apart",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--plan",
+     "summary": "plan only: what deletion would remove, stop and retain; changes nothing"
+    },
+    {
+     "flag": "--execute PLAN",
+     "summary": "delete by this plan"
+    },
+    {
+     "flag": "--confirm SESSION",
+     "summary": "the session's id, confirming the deletion (never implied by --yes)"
+    }
+   ]
   }
  ]
 }

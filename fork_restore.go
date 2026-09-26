@@ -221,3 +221,109 @@ func hostedCheckpointPolicy(cr hostedCreds, inv *Invocation) {
 		fmt.Printf("  storage: %s\n", sanitize(p.StorageEffect))
 	})
 }
+
+// ---- deleting a session (KS-060) -----------------------------------------------------
+
+// hostedSessionDelete plans a deletion (changing nothing) or executes the
+// plan it names. The answer reports the runtime's stop and the content's
+// standing apart: a stopped machine is not deleted content, and retained
+// content is never called erased.
+func hostedSessionDelete(cr hostedCreds, inv *Invocation) {
+	plan, exec := inv.Bool("plan"), strings.TrimSpace(inv.Str("execute"))
+	if plan == (exec != "") {
+		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "a deletion is planned first (--plan) and executed by naming that plan (--execute PLAN): one of the two. Nothing was deleted"})
+	}
+	sess := sessionRecordOf(cr, inv)
+	base := "/api/v2/sessions/" + url.PathEscape(sess.RecordID)
+	if plan {
+		var env struct {
+			Data struct {
+				ID        string         `json:"id"`
+				ExpiresAt string         `json:"expires_at"`
+				Plan      map[string]any `json:"plan"`
+			} `json:"data"`
+		}
+		if err := hostedCall(cr, "POST", base+"/deletion-plan", map[string]any{}, &env); err != nil {
+			die(err)
+		}
+		d := env.Data
+		emit(d, func() {
+			fmt.Printf("deletion plan %s for session %s: NOTHING was deleted (plan expires %s)\n", d.ID, sess.ShortID, figure(d.ExpiresAt))
+			keys := make([]string, 0, len(d.Plan))
+			for k := range d.Plan {
+				if k != "retention" {
+					keys = append(keys, k)
+				}
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				printPlanSection(d.Plan, k, k)
+			}
+			printPlanSection(d.Plan, "retention", "retention")
+			fmt.Printf("delete exactly this: ks session delete %s --execute %s --confirm %s\n", sess.ShortID, d.ID, sess.ShortID)
+		})
+		return
+	}
+	if c := strings.TrimSpace(inv.Str("confirm")); c != sess.ShortID && c != sess.RecordID && c != sess.ID {
+		fail(&cliError{Code: exitUsage, Kind: "confirmation_required",
+			Message:    fmt.Sprintf("deleting session %s is confirmed by naming it with --confirm; --yes does not confirm a deletion, and nothing was deleted", sess.ShortID),
+			NextAction: fmt.Sprintf("ks session delete %s --execute %s --confirm %s", sess.ShortID, exec, sess.ShortID)})
+	}
+	var env struct {
+		Data struct {
+			Deleted        bool            `json:"deleted"`
+			ExecutedAt     string          `json:"executed_at"`
+			RuntimeCleanup json.RawMessage `json:"runtime_cleanup"`
+			Retention      map[string]any  `json:"retention"`
+			TasksCancelled int64           `json:"tasks_cancelled"`
+			AgentsRemoved  int64           `json:"agents_removed"`
+			ResultsDeleted int64           `json:"results_deleted"`
+		} `json:"data"`
+	}
+	if err := hostedMutate(cr, "DELETE", base+"?"+url.Values{"plan_id": {exec}}.Encode(), nil, &env); err != nil {
+		var he *hostedErr
+		if errors.As(err, &he) && strings.HasPrefix(he.Type, "ks_plan_") {
+			ce := classify(err)
+			ce.Message = "nothing was deleted: " + ce.Message
+			ce.NextAction = "plan again: ks session delete " + sess.ShortID + " --plan"
+			die(ce)
+		}
+		die(err)
+	}
+	d := env.Data
+	var cleanup struct {
+		RuntimeStop *struct {
+			State     string `json:"state"`
+			Detail    string `json:"detail"`
+			Operation string `json:"operation"`
+			Attempts  int    `json:"attempts"`
+		} `json:"runtime_stop"`
+		ContentPurge *struct {
+			State  string `json:"state"`
+			Detail string `json:"detail"`
+		} `json:"content_purge"`
+	}
+	var cleanupText string
+	if json.Unmarshal(d.RuntimeCleanup, &cleanup) != nil {
+		_ = json.Unmarshal(d.RuntimeCleanup, &cleanupText)
+	}
+	emit(map[string]any{"deleted": d.Deleted, "executed_at": d.ExecutedAt, "runtime_cleanup": d.RuntimeCleanup, "retention": d.Retention}, func() {
+		fmt.Printf("session %s deleted as records at %s: %d agent(s) removed, %d instruction(s) cancelled, %d result(s) deleted\n", sess.ShortID, figure(d.ExecutedAt), d.AgentsRemoved, d.TasksCancelled, d.ResultsDeleted)
+		switch {
+		case cleanup.RuntimeStop != nil:
+			fmt.Printf("  runtime   %s: %s (operation %s, %d attempt(s))\n", figure(cleanup.RuntimeStop.State), sanitize(cleanup.RuntimeStop.Detail), figure(cleanup.RuntimeStop.Operation), cleanup.RuntimeStop.Attempts)
+		case cleanupText != "":
+			fmt.Printf("  runtime   %s\n", sanitize(cleanupText))
+		default:
+			fmt.Println("  runtime   the service did not say whether the runtime stopped; it is not assumed stopped")
+		}
+		if cleanup.ContentPurge != nil {
+			fmt.Printf("  content   %s: %s\n", figure(cleanup.ContentPurge.State), sanitize(cleanup.ContentPurge.Detail))
+		} else {
+			fmt.Println("  content   the service did not report it; saved content is not assumed erased")
+		}
+		if v, ok := d.Retention["checkpoint_content"].(string); ok {
+			fmt.Printf("  retention %s\n", sanitize(v))
+		}
+	})
+}

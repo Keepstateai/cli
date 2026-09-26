@@ -121,6 +121,17 @@ var registry = []*Command{
 		Effects:  "reads the idle policy and state; nothing changes. An idle agent session is saved and paused, never killed",
 		Examples: []string{"ks session idle 3f2a1c"},
 		Nothing:  "Nothing was read.", Run: hosted(hostedSessionIdle)},
+	{Path: []string{"session", "delete"}, Summary: "delete a session record through a plan; the runtime's stop and the content's standing are reported apart", Surface: "hosted",
+		Args: []Arg{{Name: "session", Required: true}},
+		Flags: []Flag{
+			{Name: "plan", Kind: flagBool, Summary: "plan only: what deletion would remove, stop and retain; changes nothing"},
+			{Name: "execute", Kind: flagString, Value: "PLAN", Summary: "delete by this plan"},
+			{Name: "confirm", Kind: flagString, Value: "SESSION", Summary: "the session's id, confirming the deletion (never implied by --yes)"},
+		},
+		Needs:    "deletion.plans",
+		Effects:  "--plan changes nothing. --execute removes the session's live records (agents, queued work, approvals, connections, results) in one commit and stops its runtime for good through a recorded cleanup operation; saved content is retained under the published policy, not erased, and the answer says which is which. Forks are separate sessions and are not deleted",
+		Examples: []string{"ks session delete 3f2a1c --plan", "ks session delete 3f2a1c --execute dplan_0123 --confirm 3f2a1c"},
+		Nothing:  "Nothing was deleted.", Run: hosted(hostedSessionDelete)},
 	{Path: []string{"session", "checkpoint-policy"}, Summary: "a session's automatic-save policy and where it stands; --on/--off changes it against the session's revision", Surface: "hosted",
 		Args: []Arg{{Name: "session", Required: true}},
 		Flags: []Flag{
