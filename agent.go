@@ -125,6 +125,18 @@ type taskRow struct {
 type submittedTask struct {
 	taskRow
 	Replayed bool `json:"replayed"`
+	// Runtime is present only when the session is not running (KS-041): the
+	// instruction is accepted and HELD, the session was not woken, and
+	// NextAction names the explicit action that would run it.
+	Runtime *submissionRuntime `json:"runtime,omitempty"`
+}
+
+type submissionRuntime struct {
+	SessionID  string `json:"session_id"`
+	State      string `json:"state"`
+	Woken      bool   `json:"woken"`
+	NextAction string `json:"next_action,omitempty"`
+	Note       string `json:"note"`
 }
 
 type approvalRow struct {
@@ -1093,12 +1105,60 @@ func hostedAgentTell(cr hostedCreds, inv *Invocation) {
 		die(err)
 	}
 	t := env.Data
-	emit(map[string]any{"session": sess.ID, "agent": a.ID, "submission_id": sid, "replayed": t.Replayed, "task": t.taskRow}, func() {
+	// KS-041: accepted work on a session that is not running is HELD, and
+	// only an explicit --resume (or ks agent resume) starts the runtime.
+	// Acceptance itself never woke anything.
+	resumed := map[string]any(nil)
+	if inv.Bool("resume") && t.Runtime != nil {
+		if !strings.HasSuffix(t.Runtime.NextAction, "/resume") {
+			fail(&cliError{Code: exitConflict, Kind: "not_resumable", WorkStarted: workYes,
+				Message: fmt.Sprintf("task %s was ACCEPTED and is held (%s), but --resume cannot run it: the session is %s and needs %s, which is not a resume",
+					t.ID, sanitize(t.Runtime.Note), figure(t.Runtime.State), figure(t.Runtime.NextAction)),
+				NextAction: fmt.Sprintf("ks session show %s", sess.ShortID)})
+		}
+		progress("task %s accepted and held; resuming session %s because --resume was given", t.ID, sess.ShortID)
+		r, rerr := postResume(cr, agentSessionID(sess))
+		if rerr != nil {
+			ce := classify(rerr)
+			ce.WorkStarted = workYes
+			ce.Message = fmt.Sprintf("task %s was ACCEPTED and is held, but the session was not resumed: %s", t.ID, ce.Message)
+			ce.NextAction = fmt.Sprintf("ks agent resume %s --session %s", a.Name, sess.ShortID)
+			die(ce)
+		}
+		resumed = r
+	}
+	emit(map[string]any{"session": sess.ID, "agent": a.ID, "submission_id": sid, "replayed": t.Replayed, "task": t.taskRow,
+		"accepted": true, "runtime": t.Runtime, "resumed": resumed}, func() {
+		word := "queued"
 		if t.Replayed {
-			fmt.Printf("already queued: task %s for agent %s at queue position %d (%s); the same instruction was submitted once\n", t.ID, a.Name, t.QueueSeq, figure(t.State))
+			word = "already queued"
+		}
+		if t.Runtime != nil {
+			word = "accepted and HELD"
+			if t.Replayed {
+				word = "already accepted and HELD"
+			}
+		}
+		fmt.Printf("%s: task %s for agent %s at queue position %d (%s)", word, t.ID, a.Name, t.QueueSeq, figure(t.State))
+		if t.Replayed {
+			fmt.Print("; the same instruction was submitted once")
+		}
+		fmt.Println()
+		if t.Runtime == nil {
+			if inv.Bool("resume") {
+				fmt.Println("the session is running; --resume had nothing to resume")
+			}
 			return
 		}
-		fmt.Printf("queued: task %s for agent %s at queue position %d (%s)\n", t.ID, a.Name, t.QueueSeq, figure(t.State))
+		fmt.Printf("  the session is %s and was NOT woken: %s\n", figure(t.Runtime.State), sanitize(t.Runtime.Note))
+		switch {
+		case resumed != nil:
+			fmt.Printf("  resuming session %s (state: %s) because you asked with --resume; session time is metered again\n", sess.ShortID, figure(resumed["runtime_state"]))
+		case strings.HasSuffix(t.Runtime.NextAction, "/resume"):
+			fmt.Printf("  to run it: ks agent resume %s --session %s (or submit with --resume)\n", a.Name, sess.ShortID)
+		default:
+			fmt.Printf("  it runs after: %s\n", figure(t.Runtime.NextAction))
+		}
 	})
 }
 

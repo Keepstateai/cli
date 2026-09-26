@@ -567,7 +567,7 @@
   {
    "verb": "agent tell",
    "aliases": [],
-   "usage": "ks agent tell <name> <instruction> [--session ID]",
+   "usage": "ks agent tell <name> <instruction> [--session ID] [--resume]",
    "summary": "queue one instruction for an agent from outside any window",
    "status": "planned",
    "surface": "hosted",
@@ -576,6 +576,10 @@
     {
      "flag": "--session ID",
      "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--resume",
+     "summary": "if the session is parked, resume it after the instruction is accepted; without it a parked session is never woken and the instruction waits, held"
     }
    ]
   },
