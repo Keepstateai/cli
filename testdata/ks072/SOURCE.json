@@ -1,0 +1,9 @@
+{
+ "what": "the KS-072 golden layouts and discovery, vendored unchanged from the service repository",
+ "server_commit": "6e2fae39a38cf73442ef3775b82c186c5fa3a1d7",
+ "server_merge": "f2ba152359968f2a7c1ae5cc6ab0f074386c5109",
+ "files": {
+  "discovery.json": {"from": "judge/tests/golden/ks072_discovery.json", "sha256": "06c409b523bc48f1509938070a163d47b1fa3daa4cc4a978336d2d34e98ff1cf"},
+  "layouts.json": {"from": "judge/tests/test_checks.py LAYOUTS (json.dump, indent=1, sort_keys=True)", "sha256": "45793c10c30a5e6ca1cea998b9ad6ec472c548a9b44b80897dee93d8cbb45db7"}
+ }
+}

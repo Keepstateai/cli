@@ -78,6 +78,7 @@ type agentCtl struct {
 	stateReads     int
 	resumes        int
 	resumeStopping bool // the first resume is refused: the save is still completing
+	saveFails      bool // the pause's save fails (KS-051): answered through the operation record
 }
 
 func newAgentCtl() *agentCtl {
@@ -312,6 +313,18 @@ func (c *agentCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			out[k] = v
 		}
 		env(201, out)
+	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/v2/tasks/") && !strings.Contains(strings.TrimPrefix(r.URL.Path, "/api/v2/tasks/"), "/"):
+		id := strings.TrimPrefix(r.URL.Path, "/api/v2/tasks/")
+		for _, t := range agentTaskRows {
+			if t["id"] == id {
+				env(200, t)
+				return
+			}
+		}
+		fault(404, "ks_not_found", "no such task")
+	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/cancel") && strings.HasPrefix(r.URL.Path, "/api/v2/tasks/"):
+		id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/v2/tasks/"), "/cancel")
+		env(200, map[string]any{"task": map[string]any{"id": id, "state": "cancelling"}, "requested": true})
 	case r.Method == "GET" && r.URL.Path == "/api/v2/tasks":
 		var items []map[string]any
 		for _, t := range agentTaskRows {
@@ -409,6 +422,14 @@ func (c *agentCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		env(200, lease)
+	case r.Method == "GET" && r.URL.Path == "/api/operations/op_save":
+		env(200, map[string]any{"operation_id": "op_save", "state": "failed", "http_status": 502, "method": "POST", "path": "/pause",
+			"response": map[string]any{"schema_version": 2, "error": map[string]any{"code": "ks_save_failed", "type": "ks_save_failed",
+				"message":      "the save did not complete and no new saved point was recorded; the previous saved point ck_prev is untouched; the session reads running",
+				"work_started": "no", "runtime_state": "running", "checkpoint_recorded": false, "previous_checkpoint_id": "ck_prev"}}})
+	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/pause") && c.saveFails:
+		w.WriteHeader(202)
+		_ = json.NewEncoder(w).Encode(map[string]any{"schema_version": 2, "data": map[string]any{"operation_id": "op_save", "state": "running"}})
 	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/pause"):
 		c.mu.Lock()
 		c.paused = true
@@ -520,6 +541,7 @@ func readAllBody(r *http.Request) ([]byte, error) {
 func agentFixture(t *testing.T) (*agentCtl, string, string) {
 	t.Helper()
 	c := newAgentCtl()
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	t.Cleanup(srv.Close)
 	bin, cfg := buildAndAuth(t, srv)
@@ -709,46 +731,43 @@ func (l *lockedBuf) String() string {
 
 // Ctrl-C closes the window and nothing else: exit 0, a line that says the
 // agent keeps working, and not one request that could stop it.
-func TestAgentOpenDetachesOnInterruptAndCancelsNothing(t *testing.T) {
+// QA-035-3 in the window: Ctrl-C interrupts the instruction in flight -- the
+// cancel route, shown, never text to the agent -- and the window stays; q
+// leaves it, and leaving sends nothing at all.
+func TestAgentWindowCtrlCInterruptsAndQLeaves(t *testing.T) {
 	c, bin, cfg := agentFixture(t)
 	c.mu.Lock()
 	c.endless = true
 	c.mu.Unlock()
-	cmd := exec.Command(bin, "agent", "open", "main", "--session", agentSessionShort)
-	cmd.Env = append(os.Environ(), fastEnv(cfg)...)
-	var so, se lockedBuf
-	cmd.Stdout, cmd.Stderr = &so, &se
-	if err := cmd.Start(); err != nil {
+	w := openWindow(t, bin, cfg, "agent", "open", "main", "--session", agentSessionShort)
+	waitUntil(t, "an event", func() bool { return strings.Contains(w.so.String(), "42") })
+	if err := w.cmd.Process.Signal(os.Interrupt); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(15 * time.Second)
-	for !strings.Contains(so.String(), "42") {
-		if time.Now().After(deadline) {
-			_ = cmd.Process.Kill()
-			t.Fatalf("the window printed no event in time:\n%s%s", so.String(), se.String())
-		}
-		time.Sleep(20 * time.Millisecond)
+	waitUntil(t, "the interrupt line", func() bool { return strings.Contains(w.so.String(), "Ctrl-C: interrupt requested for tsk_1") })
+	if !strings.Contains(w.so.String(), "not claimed stopped") || !strings.Contains(w.so.String(), "the window stays open") {
+		t.Errorf("the interrupt did not say what it did:\n%s", w.text())
 	}
-	if err := cmd.Process.Signal(os.Interrupt); err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("detaching exited %v\n%s%s", err, so.String(), se.String())
-		}
-	case <-time.After(15 * time.Second):
-		_ = cmd.Process.Kill()
-		t.Fatal("the window did not detach on the interrupt")
-	}
-	if !strings.Contains(se.String(), "[detached; the agent keeps working]") {
-		t.Errorf("detach line missing:\n%s", se.String())
-	}
+	cancels, texts := 0, 0
 	for _, r := range c.seen() {
-		if strings.HasPrefix(r, "DELETE ") || strings.Contains(r, "cancel") || strings.Contains(r, "/close") {
-			t.Errorf("detaching sent %q", r)
+		if strings.HasSuffix(r, "/api/v2/tasks/tsk_1/cancel") {
+			cancels++
+		}
+		if strings.HasPrefix(r, "POST ") && strings.HasSuffix(r, "/tasks") {
+			texts++
+		}
+	}
+	if cancels != 1 || texts != 0 {
+		t.Fatalf("Ctrl-C sent %d cancel(s) and %d instruction(s): %v", cancels, texts, c.seen())
+	}
+	before := len(c.seen())
+	w.detach(t)
+	if !strings.Contains(w.se.String(), "[left the window; the agent keeps working]") {
+		t.Errorf("leave line missing:\n%s", w.se.String())
+	}
+	for _, r := range c.seen()[before:] {
+		if strings.HasPrefix(r, "DELETE ") || strings.Contains(r, "cancel") || strings.Contains(r, "/close") || strings.HasPrefix(r, "POST ") {
+			t.Errorf("leaving sent %q", r)
 		}
 	}
 }
@@ -1288,7 +1307,8 @@ func waitUntil(t *testing.T, what string, ok func() bool) {
 // success: detaching is what was asked for.
 func (w *windowProc) detach(t *testing.T) {
 	t.Helper()
-	if err := w.cmd.Process.Signal(os.Interrupt); err != nil {
+	// leaving is its own key (C11); Ctrl-C interrupts instead (KS-035)
+	if _, err := io.WriteString(w.in, "q\n"); err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
@@ -1743,5 +1763,20 @@ func TestAgentOpenViewWatchesBesideTheWindowThatHoldsControl(t *testing.T) {
 	_, errs, code = auditExec(t, bin, cfg, dir, fastEnv(cfg), "agent", "open", "main", "--session", agentSessionShort, "--view", "--take-control")
 	if code != exitUsage || !strings.Contains(errs, "one or the other") {
 		t.Fatalf("--view --take-control: exit %d\n%s", code, errs)
+	}
+}
+
+// KS-051: a save that fails is said as the service read it back: nothing was
+// saved, the previous saved point is untouched, the session still runs. It
+// is a known failure (exit 1), never "parked" and never an unknown outcome.
+func TestAFailedSaveSaysWhatIsTrue(t *testing.T) {
+	c, bin, cfg := agentFixture(t)
+	c.mu.Lock()
+	c.saveFails = true
+	c.mu.Unlock()
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "agent", "pause", "main", "--session", agentSessionShort)
+	if code != exitFailed || strings.Contains(out+errs, "is parked") || !strings.Contains(errs, "NOT saved") ||
+		!strings.Contains(errs, "ck_prev (untouched)") || !strings.Contains(errs, "session reads     running") || !strings.Contains(errs, "Remote work started: no") {
+		t.Fatalf("failed save: exit %d\n%s%s", code, out, errs)
 	}
 }

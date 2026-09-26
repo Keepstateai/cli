@@ -57,6 +57,27 @@ type agentRow struct {
 	QueueRevision int64  `json:"queue_revision"`
 	Revision      int64  `json:"revision"`
 	CreatedAt     string `json:"created_at"`
+	// KS-038: whether a window holds control ("held" or "none") and whether
+	// the agent could take a consultation now, as the service reads them
+	Controller   string `json:"controller,omitempty"`
+	Consultation string `json:"consultation,omitempty"`
+	// The runner models: the model the supervisor started the runner with, and the
+	// one the runner itself named; both are shown, neither inferred
+	RunnerModel         string `json:"runner_model,omitempty"`
+	RunnerReportedModel string `json:"runner_reported_model,omitempty"`
+	// The funds park: present whenever the agent's session is NOT running; its
+	// activity is then the last word before the pause, frozen
+	SessionRuntime *sessionRuntimeDoc `json:"session_runtime,omitempty"`
+}
+
+// runnerModelLine shows both models as the service recorded them.
+func runnerModelLine(a agentRow) string {
+	started, reported := notRecorded(a.RunnerModel), notRecorded(a.RunnerReportedModel)
+	line := "started with " + started + "; the runner reported " + reported
+	if a.RunnerModel != "" && a.RunnerReportedModel != "" && a.RunnerModel != a.RunnerReportedModel {
+		line += " (THESE DIFFER)"
+	}
+	return sanitize(line)
 }
 
 // agentLease is the control lease of one window: the authority to steer
@@ -81,6 +102,10 @@ type agentWindow struct {
 		Cursor   string `json:"cursor"`
 	} `json:"resume"`
 	QueueDepth int64 `json:"queue_depth"`
+	// KS-032: the machine behind the agent, and the recovery view when the
+	// agent's own last report says it failed
+	Runtime  *openRuntime  `json:"runtime,omitempty"`
+	Recovery *openRecovery `json:"recovery,omitempty"`
 }
 
 type taskRow struct {
@@ -113,6 +138,14 @@ type taskRow struct {
 	// service records none" and is never rendered as attempt zero.
 	CurrentAttempt string `json:"current_attempt_id"`
 	ContentHash    string `json:"content_hash"`
+	// CancelRecovery is present on an instruction that reads cancelling:
+	// where the stop stands against C04's interrupt wait and, once that has
+	// passed, the explicit recovery actions (KS-044). Read, never inferred.
+	CancelRecovery *cancelRecovery `json:"cancel_recovery,omitempty"`
+	// SessionRuntime (the funds park) is present on the task read while the
+	// instruction is still to move (queued, claimed, running, cancelling)
+	// and its session is not running: why it is not moving
+	SessionRuntime *sessionRuntimeDoc `json:"session_runtime,omitempty"`
 }
 
 // submittedTask is a task as the submission route answers it: the task,
@@ -121,6 +154,18 @@ type taskRow struct {
 type submittedTask struct {
 	taskRow
 	Replayed bool `json:"replayed"`
+	// Runtime is present only when the session is not running (KS-041): the
+	// instruction is accepted and HELD, the session was not woken, and
+	// NextAction names the explicit action that would run it.
+	Runtime *submissionRuntime `json:"runtime,omitempty"`
+}
+
+type submissionRuntime struct {
+	SessionID  string `json:"session_id"`
+	State      string `json:"state"`
+	Woken      bool   `json:"woken"`
+	NextAction string `json:"next_action,omitempty"`
+	Note       string `json:"note"`
 }
 
 type approvalRow struct {
@@ -133,6 +178,49 @@ type approvalRow struct {
 	State           string          `json:"state"`
 	Revision        int64           `json:"revision"`
 	ExactActionHash string          `json:"exact_action_hash"`
+	// What a person deciding needs on the approval itself (KS-047), as the
+	// service states it: the instruction that was running when it was asked,
+	// what the exact action touches, and what deciding costs.
+	RequestedForTask string   `json:"requested_for_task,omitempty"`
+	Affects          []string `json:"affects,omitempty"`
+	CostImplication  string   `json:"cost_implication,omitempty"`
+	ActionableUntil  string   `json:"actionable_until,omitempty"`
+	DecidedBy        string   `json:"decided_by,omitempty"`
+	DecidedAt        string   `json:"decided_at,omitempty"`
+}
+
+// UnmarshalJSON reads the approval as the control plane's route table
+// serves it (action_kind, human_scope, arguments, decision) as well as the
+// shorter names this client used first (kind, summary, arguments_json,
+// state). Where both are present the service's own field wins; neither is
+// ever invented.
+func (a *approvalRow) UnmarshalJSON(b []byte) error {
+	type plain approvalRow
+	var p plain
+	if err := json.Unmarshal(b, &p); err != nil {
+		return err
+	}
+	var svc struct {
+		ActionKind string          `json:"action_kind"`
+		HumanScope string          `json:"human_scope"`
+		Arguments  json.RawMessage `json:"arguments"`
+		Decision   string          `json:"decision"`
+	}
+	_ = json.Unmarshal(b, &svc)
+	if svc.ActionKind != "" {
+		p.Kind = svc.ActionKind
+	}
+	if svc.HumanScope != "" {
+		p.Summary = svc.HumanScope
+	}
+	if len(svc.Arguments) > 0 && string(svc.Arguments) != "null" {
+		p.ArgumentsJSON = svc.Arguments
+	}
+	if svc.Decision != "" {
+		p.State = svc.Decision
+	}
+	*a = approvalRow(p)
+	return nil
 }
 
 // journalEvent is one row of the session's journal, as the stream serves it.
@@ -177,16 +265,15 @@ func agentSessionID(r inventoryRow) string {
 	return r.ID
 }
 
-// agentSession answers the one session --session names, through the same
-// resolution the session verbs use: a full id, or a prefix unique among
-// the account's sessions.
+// agentSession answers the one session a command means, in the KS-022
+// order (binding.go): --session through the same resolution the session
+// verbs use (a full id, or a prefix unique among the account's sessions);
+// else this project's binding; else a choice at a terminal; else an error.
+// A target that --session did not name is shown before anything acts.
 func agentSession(cr hostedCreds, inv *Invocation) inventoryRow {
-	if inv.Str("session") == "" {
-		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--session names the session the agent lives in", NextAction: "ks session list"})
-	}
-	r, err := resolveSession(cr, inv.Str("session"))
-	if err != nil {
-		die(err)
+	r, how, explicit := targetSession(cr, inv.Str("session"))
+	if !explicit {
+		showTarget(r, how)
 	}
 	return r
 }
@@ -253,17 +340,33 @@ func pickAgent(sess inventoryRow, agents []agentRow, arg string) (agentRow, erro
 		NextAction: "ks agent list --session " + sess.ShortID}
 }
 
+// fetchTasks reads an agent's whole queue and history, following the
+// service's cursor page after page (KS-050): a list that stopped at the
+// first page would silently leave work out.
 func fetchTasks(cr hostedCreds, agentID string) ([]taskRow, error) {
-	var env struct {
-		Data struct {
-			Items []taskRow `json:"items"`
-		} `json:"data"`
+	var all []taskRow
+	cursor := ""
+	for page := 0; page < 1000; page++ {
+		var env struct {
+			Data struct {
+				Items      []taskRow `json:"items"`
+				NextCursor string    `json:"next_cursor"`
+			} `json:"data"`
+		}
+		q := url.Values{"agent_id": {agentID}}
+		if cursor != "" {
+			q.Set("cursor", cursor)
+		}
+		if err := hostedCall(cr, "GET", "/api/v2/tasks?"+q.Encode(), nil, &env); err != nil {
+			return nil, err
+		}
+		all = append(all, env.Data.Items...)
+		if env.Data.NextCursor == "" || env.Data.NextCursor == cursor {
+			return all, nil
+		}
+		cursor = env.Data.NextCursor
 	}
-	q := url.Values{"agent_id": {agentID}}
-	if err := hostedCall(cr, "GET", "/api/v2/tasks?"+q.Encode(), nil, &env); err != nil {
-		return nil, err
-	}
-	return env.Data.Items, nil
+	return nil, fmt.Errorf("the task list did not end after 1000 pages; nothing is shown rather than part of it")
 }
 
 func fetchPendingApprovals(cr hostedCreds, sessionID string) ([]approvalRow, error) {
@@ -318,7 +421,21 @@ func agentLine(a agentRow) string {
 	if task == "" {
 		task = "none"
 	}
-	return fmt.Sprintf("%-16s %-16s %-11s %-8s %s", clip(a.Name, 16), clip(a.ID, 16), clip(figure(a.Activity), 11), agentRole(a), task)
+	activity := stateCell("agent_activity", a.Activity)
+	if a.SessionRuntime != nil {
+		activity = "frozen"
+	}
+	line := fmt.Sprintf("%-16s %-16s %-11s %-8s %s", clip(a.Name, 16), clip(a.ID, 16), clip(activity, 11), agentRole(a), task)
+	if a.Controller != "" || a.Consultation != "" {
+		line += fmt.Sprintf("  control %s · advice %s", figure(a.Controller), figure(a.Consultation))
+	}
+	switch rt := a.SessionRuntime; {
+	case rt.funds():
+		line += "  " + fundsPausedLine
+	case rt != nil:
+		line += "  session " + sanitize(stateLabel("session_runtime", rt.State)) + ": not running"
+	}
+	return line
 }
 
 func hostedAgentList(cr hostedCreds, inv *Invocation) {
@@ -350,24 +467,109 @@ func hostedAgentStatus(cr hostedCreds, inv *Invocation) {
 	if err != nil {
 		die(err)
 	}
-	tasks, err := fetchTasks(cr, a.ID)
-	if err != nil {
-		die(err)
-	}
-	waiting, current := queueState(a, tasks)
-	emit(map[string]any{"session": sess.ID, "agent": a, "queue_depth": waiting, "current_task": current, "tasks": len(tasks)}, func() {
-		fmt.Printf("agent %s (%s) in session %s\n", a.Name, a.ID, sess.ShortID)
-		fmt.Printf("  activity       %s\n", figure(a.Activity))
-		fmt.Printf("  role           %s\n", agentRole(a))
-		fmt.Printf("  queue          %d waiting\n", waiting)
-		if current != nil {
-			fmt.Printf("  current task   %s (%s) at queue position %d\n", current.ID, figure(current.State), current.QueueSeq)
-		} else {
-			fmt.Printf("  current task   none\n")
+	show := func(a agentRow) {
+		tasks, err := fetchTasks(cr, a.ID)
+		if err != nil {
+			die(err)
 		}
-		fmt.Printf("  revision       %d (queue %d)\n", a.Revision, a.QueueRevision)
-		fmt.Printf("  observed       %s\n", figure(a.ObservedAt))
-	})
+		waiting, current := queueState(a, tasks)
+		age, stale := observedAge(a.ObservedAt, time.Now())
+		// KS-031: whether the queue is held, read beside the activity, so an
+		// agent reading ready over a queue held behind an unknown outcome is
+		// never shown as simply ready. A hold that cannot be read is said.
+		var hold *queueHold
+		holdProblem := ""
+		if holds, herr := fetchQueueHolds(cr, a.ID); herr != nil {
+			holdProblem = sanitize(errText(herr))
+		} else if h, aerr := activeHold(holds); aerr != nil {
+			holdProblem = sanitize(errText(aerr))
+		} else {
+			hold = h
+		}
+		doc := map[string]any{"session": sess.ID, "agent": a, "queue_depth": waiting, "current_task": current, "tasks": len(tasks), "observed_age": age, "stale": stale, "hold": hold}
+		if holdProblem != "" {
+			doc["hold_unreadable"] = holdProblem
+		}
+		emit(doc, func() {
+			fmt.Printf("agent %s (%s) in session %s\n", a.Name, a.ID, sess.ShortID)
+			// The funds park: a session that is not running comes FIRST, and
+			// the agent's own word is then its last before the pause
+			for _, l := range runtimeLines(a.SessionRuntime, "ks agent resume "+a.Name+" --session "+sess.ShortID) {
+				fmt.Println(l)
+			}
+			if a.SessionRuntime != nil {
+				fmt.Printf("  activity       FROZEN at %s (%s): the last word before the session stopped, not current\n", stateLabel("agent_activity", a.Activity), age)
+			} else {
+				fmt.Printf("  activity       %s (%s)\n", stateLabel("agent_activity", a.Activity), age)
+			}
+			if a.Activity == "recovery_required" {
+				fmt.Printf("  RECOVERY       its runner stopped and what it was doing is unknown: this agent is NOT ready; decide: ks agent queue show %s --session %s\n", a.Name, sess.ShortID)
+			}
+			switch {
+			case holdProblem != "":
+				fmt.Printf("  queue hold     could not be READ, so it is not stated; it is not known to be free: %s\n", holdProblem)
+			case hold != nil && runnerStopped(hold.BlockingState):
+				fmt.Printf("  queue hold     HELD behind %s, whose outcome is UNKNOWN (the runner stopped in it): nothing starts until a person decides; ks agent queue show %s --session %s\n", hold.BlockingTask, a.Name, sess.ShortID)
+			case hold != nil:
+				fmt.Printf("  queue hold     HELD behind %s (%s): nothing starts until a person decides; ks agent queue show %s --session %s\n", hold.BlockingTask, figure(hold.BlockingState), a.Name, sess.ShortID)
+			}
+			if stale && a.SessionRuntime == nil {
+				fmt.Printf("  STALE          no observation for more than %s: this is the last known state, not the current one\n", staleAfter)
+			}
+			fmt.Printf("  role           %s\n", agentRole(a))
+			fmt.Printf("  runner model   %s\n", runnerModelLine(a))
+			fmt.Printf("  queue          %d waiting\n", waiting)
+			if current != nil && a.SessionRuntime != nil {
+				fmt.Printf("  current task   %s at queue position %d: NOT moving, the session is not running (last recorded %s)\n", current.ID, current.QueueSeq, stateLabel("task_state", current.State))
+			} else if current != nil {
+				fmt.Printf("  current task   %s (%s) at queue position %d\n", current.ID, stateLabel("task_state", current.State), current.QueueSeq)
+			} else {
+				fmt.Printf("  current task   none\n")
+			}
+			fmt.Printf("  revision       %d (queue %d)\n", a.Revision, a.QueueRevision)
+			fmt.Printf("  observed       %s\n", figure(a.ObservedAt))
+		})
+	}
+	show(a)
+	if !inv.Bool("watch") {
+		return
+	}
+	// --watch: read again every 2 s; Ctrl-C stops watching and nothing
+	// remote changes (VER-037-2)
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(stop)
+	cadence := pollCadence(boundedWait())
+	for {
+		select {
+		case <-stop:
+			fmt.Fprintln(os.Stderr, "stopped watching; nothing on the agent changed")
+			return
+		case <-time.After(cadence):
+		}
+		now, err := resolveAgent(cr, sess, a.ID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "the agent could not be read (%s); the last state above is kept\n", errText(err))
+			continue
+		}
+		show(now)
+	}
+}
+
+// staleAfter is C04's stale threshold for a live status.
+const staleAfter = 15 * time.Second
+
+// observedAge says how old an observation is, and whether it is stale.
+func observedAge(observed string, now time.Time) (string, bool) {
+	t, err := time.Parse(time.RFC3339Nano, observed)
+	if err != nil {
+		return "observed at an unknown time", true
+	}
+	age := now.Sub(t).Round(time.Second)
+	if age < 0 {
+		age = 0
+	}
+	return "observed " + age.String() + " ago", age > staleAfter
 }
 
 // ---------------------------------------------------------------------
@@ -573,10 +775,23 @@ func decideVerbs(sess inventoryRow, ap approvalRow) string {
 }
 
 func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
-	sess := agentSession(cr, inv)
-	a, err := resolveAgent(cr, sess, inv.Arg(0))
-	if err != nil {
-		die(err)
+	var sess inventoryRow
+	var a agentRow
+	var err error
+	bound, _, _ := currentBinding(cr)
+	if inv.Str("session") == "" && bound == nil {
+		// no session named and none bound: the service resolves the name
+		// across what you may see, and chooses nothing (KS-032)
+		sess, a = resolveOpenTarget(cr, inv.Arg(0), inv.Str("project"))
+		showTarget(sess, "the name "+inv.Arg(0))
+	} else {
+		if inv.Str("project") != "" {
+			fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--project narrows a search by name; with --session (or a project binding) the session is already named"})
+		}
+		sess = agentSession(cr, inv)
+		if a, err = resolveAgent(cr, sess, inv.Arg(0)); err != nil {
+			die(err)
+		}
 	}
 	if inv.Bool("view") && inv.Bool("take-control") {
 		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--view watches and --take-control steers; a window is one or the other",
@@ -591,14 +806,77 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 	if err != nil {
 		die(err)
 	}
+	// OPENING NEVER WAKES A SESSION (KS-032). A session that is not running
+	// is shown with the actions the service names, and only --resume asks
+	// for the resume route.
+	if w.Runtime != nil && !w.Runtime.Running {
+		resumable := false
+		for _, ac := range w.Runtime.Actions {
+			if ac.Action == "resume_session" {
+				resumable = true
+			}
+		}
+		if inv.Bool("resume") && resumable {
+			for _, ac := range w.Runtime.Actions {
+				if ac.Action == "resume_session" && ac.Discloses != "" {
+					progress("%s", sanitize(ac.Discloses))
+				}
+			}
+			r, rerr := postResume(cr, agentSessionID(sess))
+			if rerr != nil {
+				die(rerr)
+			}
+			progress("session %s is resuming because you asked with --resume (state: %s)", sess.ShortID, figure(r["runtime_state"]))
+		} else {
+			if inv.Bool("resume") {
+				fail(&cliError{Code: exitConflict, Kind: "not_resumable", Message: fmt.Sprintf("session %s is %s and cannot be resumed: %s", sess.ShortID, stateLabel("session_runtime", w.Runtime.State), sanitize(w.Runtime.Note))})
+			}
+			emit(map[string]any{"session": sess.ID, "agent": w.Agent, "runtime": w.Runtime, "recovery": w.Recovery, "woken": false, "session_runtime": a.SessionRuntime}, func() {
+				if a.SessionRuntime.funds() {
+					// The funds park: the pause and its cause come first
+					fmt.Printf("agent %s (%s) in session %s: %s\n", a.Name, a.ID, sess.ShortID, fundsPausedLine)
+					for _, l := range runtimeLines(a.SessionRuntime, "ks agent open "+a.Name+" --session "+sess.ShortID+" --resume") {
+						fmt.Println(l)
+					}
+				}
+				fmt.Printf("agent %s (%s) in session %s: the session is %s and was NOT woken\n", a.Name, a.ID, sess.ShortID, stateLabel("session_runtime", w.Runtime.State))
+				fmt.Printf("  %s\n", sanitize(w.Runtime.Note))
+				if w.Runtime.LastSavedAt != "" {
+					fmt.Printf("  last saved %s (%s)\n", w.Runtime.LastSavedAt, figure(w.Runtime.CheckpointID))
+				}
+				printOpenActions(w.Runtime.Actions, a.Name, sess)
+			})
+			return
+		}
+	}
+	if w.Recovery != nil {
+		emit(map[string]any{"session": sess.ID, "agent": w.Agent, "runtime": w.Runtime, "recovery": w.Recovery}, func() {
+			fmt.Printf("agent %s (%s) in session %s reads %s: %s\n", a.Name, a.ID, sess.ShortID, stateLabel("agent_activity", w.Recovery.Activity), sanitize(w.Recovery.Note))
+			printOpenActions(w.Recovery.Actions, a.Name, sess)
+		})
+		return
+	}
 	joined := "opened"
 	if w.Reconnected {
 		joined = "rejoined"
 	}
 	// the header is a fact about the window, not a result: stderr, so a
 	// piped stdout carries the agent's events and nothing else
-	progress("agent %s (%s) in session %s · %s · %s · %s · %d queued",
-		a.Name, a.ID, sess.ShortID, figure(w.Agent.Activity), joined, controlLine(w), w.QueueDepth)
+	age, stale := observedAge(w.Agent.ObservedAt, time.Now())
+	progress("agent %s (%s) in session %s · %s (%s) · %s · %s · %d queued",
+		a.Name, a.ID, sess.ShortID, stateLabel("agent_activity", w.Agent.Activity), age, joined, controlLine(w), w.QueueDepth)
+	if stale {
+		progress("STALE: no observation of this agent for more than %s; the status above is the last known one", staleAfter)
+	}
+	if rt := w.Agent.SessionRuntime; rt != nil {
+		// the agent read says its session is not running: its word above is
+		// frozen, whatever the window's own open answered (the funds park)
+		if rt.funds() {
+			progress("%s; the status above is frozen at the saved point", fundsPausedLine)
+		} else {
+			progress("the session is %s: %s", stateLabel("session_runtime", rt.State), sanitize(rt.Note))
+		}
+	}
 
 	// WHETHER THE QUEUE IS MOVING. A window showing "3 queued" beside an
 	// agent that cannot start any of them is telling a person the number
@@ -739,18 +1017,42 @@ func showBacklog(cr hostedCreds, sess inventoryRow, upto int64) {
 // which is the one difference from the wait loop in operations.go.
 func followAgent(cr hostedCreds, win *liveWindow, w *agentWindow) {
 	sess := win.sess
-	// the window reads whole lines in the terminal's ordinary mode, so it
-	// puts the terminal into no mode of its own and has nothing to undo;
-	// the hook stays so a raw-mode input path cannot be added without one.
-	restore := func() {}
+	// the window reads whole lines in the terminal's ordinary mode; its
+	// settings are saved anyway and put back on every way out (KS-033), and
+	// the size of the window holding control is reported on the lease's
+	// control channel at open and on each settled resize
+	restoreTerm := saveTerminal()
+	stopSizes := startSizeReports(cr, win)
+	// ask the terminal to mark pastes, so a multi-line paste is one
+	// instruction; turned off again on every way out
+	paste := !out.noInput && stdoutIsTerminal()
+	if paste {
+		fmt.Print("\x1b[?2004h")
+	}
+	restore := func() {
+		stopSizes()
+		if paste {
+			fmt.Print("\x1b[?2004l")
+		}
+		restoreTerm()
+	}
+	// Ctrl-C (C11, QA-035-3) INTERRUPTS the current work: the same control
+	// request as ks task cancel on the instruction in flight, never text sent
+	// to the agent, and what it did is shown. Leaving the window is its own
+	// key (q). A terminating signal (SIGTERM, a closed terminal) leaves.
 	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer signal.Stop(sig)
 	go func() {
-		<-sig
-		restore()
-		fmt.Fprintln(os.Stderr, "[detached; the agent keeps working]")
-		os.Exit(exitOK)
+		for s := range sig {
+			if s == os.Interrupt {
+				win.interrupt(cr)
+				continue
+			}
+			restore()
+			fmt.Fprintln(os.Stderr, "[left the window; the agent keeps working]")
+			os.Exit(exitOK)
+		}
 	}()
 	go win.renew(cr)
 	go win.readInput(cr, restore)
@@ -761,14 +1063,20 @@ func followAgent(cr hostedCreds, win *liveWindow, w *agentWindow) {
 				Epoch any `json:"epoch"`
 			}
 			_ = json.Unmarshal(data, &hello)
-			progress("following from event %d (epoch %v); Ctrl-C detaches and the agent keeps working", w.Resume.AfterSeq, figure(hello.Epoch))
+			progress("following from event %d (epoch %v); Ctrl-C interrupts the instruction in flight, q leaves the window and the agent keeps working", w.Resume.AfterSeq, figure(hello.Epoch))
 			progress("%s", win.legend())
+			progress("Ctrl-C interrupts the instruction in flight · q leaves this window (the agent keeps working) · stop the agent: ks agent stop %s · save and pause the session: ks agent pause %s", win.agent.Name, win.agent.Name)
 		case "event":
 			var e journalEvent
 			if json.Unmarshal(data, &e) != nil {
 				return false
 			}
 			emitLine(e, agentEventLine(e))
+			// KS-031: a runner that stopped mid-instruction gets a screen,
+			// and the window never carries on as if the agent were working
+			for _, l := range recoveryScreenFor(e, win.agent.Name, sess.ShortID) {
+				progress("%s", l)
+			}
 		case "end":
 			progress("the stream ended; the agent keeps working")
 			return true
@@ -796,6 +1104,20 @@ type transcriptEntry struct {
 	ToolUseID string `json:"tool_use_id"`
 	Failed    bool   `json:"failed"`
 	Clipped   bool   `json:"clipped"`
+	// KS-049: who the control plane attributes the entry to. An entry the
+	// service attributes to nobody is shown as unattributed, never as the
+	// person's.
+	AuthorType     string `json:"author_type"`
+	AuthorID       string `json:"author_id"`
+	ConsultationID string `json:"consultation_id"`
+}
+
+// attribution renders the service's author of an entry, or says there is none.
+func attribution(t transcriptEntry) (string, bool) {
+	if t.AuthorType == "" || t.AuthorID == "" {
+		return "unattributed: the service recorded no author", false
+	}
+	return t.AuthorType + " " + t.AuthorID, true
 }
 
 // transcriptOf answers the conversation entry in a journal row, or nil.
@@ -821,6 +1143,23 @@ func transcriptLine(t transcriptEntry) string {
 		mark = "agent"
 	case "instruction":
 		mark = "asked"
+		who, _ := attribution(t)
+		body = fmt.Sprintf("[%s, task %s] %s", who, notRecorded(t.TaskID), body)
+	case "consultation":
+		// another agent's question to this one: never an instruction
+		mark = "asked?"
+		who, ok := attribution(t)
+		if ok {
+			who = "question from " + who
+		}
+		body = fmt.Sprintf("[%s, consultation %s] %s", who, notRecorded(t.ConsultationID), body)
+	case "advice":
+		mark = "advice"
+		who, ok := attribution(t)
+		if ok {
+			who = "from " + who
+		}
+		body = fmt.Sprintf("[%s, consultation %s] %s", who, notRecorded(t.ConsultationID), body)
 	case "tool_started":
 		mark = "tool"
 		body = orUnnamedTool(t.ToolName) + " started"
@@ -842,10 +1181,32 @@ func transcriptLine(t transcriptEntry) string {
 	default:
 		mark = figure(t.Kind)
 	}
+	if t.Kind == "tool_finished" {
+		if hint := consultRefusalHint(t.Text); hint != "" {
+			body += " -- " + hint
+		}
+	}
 	if t.Clipped {
 		body += " […clipped by the service]"
 	}
 	return fmt.Sprintf("%-6s %s", mark, body)
+}
+
+// consultRefusalHint reads a consultation refusal the service gave the
+// agent's consult tool (KS-063; the codes are the fleet door's) and says
+// what it means for a person watching. Nothing was asked in any of them.
+func consultRefusalHint(text string) string {
+	switch {
+	case strings.Contains(text, "ks_adviser_parked"):
+		return "the adviser is parked and a question never wakes it: a person resumes it (ks agent resume <adviser> --session <its session>), then it may be asked"
+	case strings.Contains(text, "ks_consult_recipients_cap"):
+		return "the consultation cap was reached (advisers per instruction, or consultations open at once); nothing was asked"
+	case strings.Contains(text, "ks_deadline_too_long"):
+		return "the requested answer deadline is longer than a consultation may wait; nothing was asked"
+	case strings.Contains(text, "ks_consult_budget"):
+		return "the adviser's session has too little of its token budget left for this connection's per-consultation limit; nothing was asked"
+	}
+	return ""
 }
 
 func orUnnamedTool(n string) string {
@@ -880,6 +1241,17 @@ func agentEventLine(e journalEvent) string {
 	head := fmt.Sprintf("%-6d %s", e.StreamSeq, clock(e.ObservedAt))
 	if t := transcriptOf(e); t != nil {
 		return sanitize(head + " " + transcriptLine(*t))
+	}
+	if e.kind() == "session.parked" {
+		var p struct {
+			Reason string `json:"reason"`
+			State  string `json:"runtime_state"`
+		}
+		_ = json.Unmarshal(e.Payload, &p)
+		if fundsParked(p.State, p.Reason) {
+			// The funds park: the window must not go quiet over a funds park
+			return sanitize("!! " + head + " " + fundsPausedLine + " (saved and paused, never killed; the agent is frozen and nothing is charged)")
+		}
 	}
 	line := fmt.Sprintf("%s %s %s", head, figure(e.SubjectType), figure(e.SubjectID))
 	if d := compactPayload(e.Payload); d != "" {
@@ -1030,7 +1402,13 @@ func hostedAgentTell(cr hostedCreds, inv *Invocation) {
 	var env struct {
 		Data submittedTask `json:"data"`
 	}
-	if err := hostedMutate(cr, "POST", path, map[string]any{"submission_id": sid, "text": text}, &env); err != nil {
+	var err2 error
+	var resolved bool
+	env.Data, resolved, err2 = sendInstruction(cr, a.ID, sid, map[string]any{"submission_id": sid, "text": text})
+	if resolved {
+		progress("accepted: the service holds submission %s (resolved after a lost acknowledgement)", sid)
+	}
+	if err := err2; err != nil {
 		var he *hostedErr
 		if errors.As(err, &he) {
 			switch he.Type {
@@ -1047,12 +1425,60 @@ func hostedAgentTell(cr hostedCreds, inv *Invocation) {
 		die(err)
 	}
 	t := env.Data
-	emit(map[string]any{"session": sess.ID, "agent": a.ID, "submission_id": sid, "replayed": t.Replayed, "task": t.taskRow}, func() {
+	// KS-041: accepted work on a session that is not running is HELD, and
+	// only an explicit --resume (or ks agent resume) starts the runtime.
+	// Acceptance itself never woke anything.
+	resumed := map[string]any(nil)
+	if inv.Bool("resume") && t.Runtime != nil {
+		if !strings.HasSuffix(t.Runtime.NextAction, "/resume") {
+			fail(&cliError{Code: exitConflict, Kind: "not_resumable", WorkStarted: workYes,
+				Message: fmt.Sprintf("task %s was ACCEPTED and is held (%s), but --resume cannot run it: the session is %s and needs %s, which is not a resume",
+					t.ID, sanitize(t.Runtime.Note), figure(t.Runtime.State), figure(t.Runtime.NextAction)),
+				NextAction: fmt.Sprintf("ks session show %s", sess.ShortID)})
+		}
+		progress("task %s accepted and held; resuming session %s because --resume was given", t.ID, sess.ShortID)
+		r, rerr := postResume(cr, agentSessionID(sess))
+		if rerr != nil {
+			ce := classify(rerr)
+			ce.WorkStarted = workYes
+			ce.Message = fmt.Sprintf("task %s was ACCEPTED and is held, but the session was not resumed: %s", t.ID, ce.Message)
+			ce.NextAction = fmt.Sprintf("ks agent resume %s --session %s", a.Name, sess.ShortID)
+			die(ce)
+		}
+		resumed = r
+	}
+	emit(map[string]any{"session": sess.ID, "agent": a.ID, "submission_id": sid, "replayed": t.Replayed, "task": t.taskRow,
+		"accepted": true, "runtime": t.Runtime, "resumed": resumed}, func() {
+		word := "queued"
 		if t.Replayed {
-			fmt.Printf("already queued: task %s for agent %s at queue position %d (%s); the same instruction was submitted once\n", t.ID, a.Name, t.QueueSeq, figure(t.State))
+			word = "already queued"
+		}
+		if t.Runtime != nil {
+			word = "accepted and HELD"
+			if t.Replayed {
+				word = "already accepted and HELD"
+			}
+		}
+		fmt.Printf("%s: task %s for agent %s at queue position %d (%s)", word, t.ID, a.Name, t.QueueSeq, figure(t.State))
+		if t.Replayed {
+			fmt.Print("; the same instruction was submitted once")
+		}
+		fmt.Println()
+		if t.Runtime == nil {
+			if inv.Bool("resume") {
+				fmt.Println("the session is running; --resume had nothing to resume")
+			}
 			return
 		}
-		fmt.Printf("queued: task %s for agent %s at queue position %d (%s)\n", t.ID, a.Name, t.QueueSeq, figure(t.State))
+		fmt.Printf("  the session is %s and was NOT woken: %s\n", figure(t.Runtime.State), sanitize(t.Runtime.Note))
+		switch {
+		case resumed != nil:
+			fmt.Printf("  resuming session %s (state: %s) because you asked with --resume; session time is metered again\n", sess.ShortID, figure(resumed["runtime_state"]))
+		case strings.HasSuffix(t.Runtime.NextAction, "/resume"):
+			fmt.Printf("  to run it: ks agent resume %s --session %s (or submit with --resume)\n", a.Name, sess.ShortID)
+		default:
+			fmt.Printf("  it runs after: %s\n", figure(t.Runtime.NextAction))
+		}
 	})
 }
 
@@ -1098,7 +1524,9 @@ func decidable(sess inventoryRow, ap approvalRow) error {
 	}
 	if state := strings.ToLower(ap.State); state != "" && state != "pending" {
 		return &cliError{Code: exitConflict, Kind: "approval_not_pending",
-			Message:    fmt.Sprintf("permission request %s is already %s, so nothing was decided; read the agent's current requests again before deciding", ap.ID, state),
+			Message: fmt.Sprintf("permission request %s is already %s%s, so nothing was decided; read the agent's current requests again before deciding",
+				ap.ID, state, decidedByAt(ap.DecidedBy, ap.DecidedAt)),
+			Detail:     resolvedDecision{Decision: state, DecidedBy: ap.DecidedBy, DecidedAt: ap.DecidedAt, Revision: ap.Revision},
 			NextAction: fmt.Sprintf("ks agent open <name> --session %s --no-follow", sess.ShortID)}
 	}
 	return nil
@@ -1237,12 +1665,56 @@ func decisionRefusal(cr hostedCreds, sess inventoryRow, ap approvalRow, decision
 				ap.ID, word),
 			NextAction: reread}
 	case "ks_approval_not_pending":
-		return &cliError{Code: exitConflict, Kind: "approval_not_pending",
-			Message: fmt.Sprintf("permission request %s was already decided elsewhere, so nothing was %s here; read the agent's current requests again before deciding.",
-				ap.ID, word),
+		// the service answers a lost race with what now stands; that is
+		// what the person needs, so it is printed, not a guess about it
+		var body struct {
+			Error struct {
+				Resolved resolvedDecision `json:"resolved"`
+			} `json:"error"`
+		}
+		_ = json.Unmarshal(he.Raw, &body)
+		r := body.Error.Resolved
+		what := "was already decided elsewhere"
+		if r.Decision != "" {
+			what = "was already " + r.Decision + decidedByAt(r.DecidedBy, r.DecidedAt)
+		}
+		ce := &cliError{Code: exitConflict, Kind: "approval_not_pending",
+			Message: fmt.Sprintf("permission request %s %s, so nothing was %s here and your decision was not recorded; read the agent's current requests again before deciding.",
+				ap.ID, what, word),
 			NextAction: reread}
+		if r.Decision != "" {
+			ce.Detail = r
+		}
+		return ce
 	}
 	return err
+}
+
+// resolvedDecision is what stands on an approval somebody already decided.
+type resolvedDecision struct {
+	Decision  string `json:"decision"`
+	DecidedBy string `json:"decided_by"`
+	DecidedAt string `json:"decided_at"`
+	Revision  int64  `json:"revision"`
+}
+
+func (r resolvedDecision) detailLines() []string {
+	return []string{
+		"recorded decision  " + figure(r.Decision),
+		"decided by         " + figure(r.DecidedBy),
+		"decided at         " + figure(r.DecidedAt),
+	}
+}
+
+func decidedByAt(by, at string) string {
+	s := ""
+	if by != "" {
+		s += " by " + by
+	}
+	if at != "" {
+		s += " at " + at
+	}
+	return s
 }
 
 func decisionLine(ap approvalRow, decision string) string {
@@ -1355,9 +1827,9 @@ func (win *liveWindow) legend() string {
 		return "this window reads nothing typed into it (--no-input); decide requests with ks agent approve <id> --session " + win.sess.ShortID
 	}
 	if _, held := win.hold(); !held {
-		return "type \"a <id>\" to approve a request or \"d <id>\" to deny it; this window is watching, so it queues no instruction (" + win.takeControlLine() + ")"
+		return "type \"a <id>\" to approve a request or \"d <id>\" to deny it, \"advice\" for the advice drawer; this window is watching, so it queues no instruction (" + win.takeControlLine() + ")"
 	}
-	return "type \"a <id>\" to approve a request, \"d <id>\" to deny it, anything else to send it to the agent as an instruction; \"q\" or Ctrl-C detaches"
+	return "type \"a <id>\" to approve a request, \"d <id>\" to deny it, \"advice\" for the advice drawer, anything else to send it to the agent as an instruction; Ctrl-C interrupts the instruction in flight; \"q\" leaves the window"
 }
 
 // refuse prints one refusal inside a window that stays open. A window is
@@ -1381,22 +1853,120 @@ func (win *liveWindow) readInput(cr hostedCreds, restore func()) {
 	}
 	sc := bufio.NewScanner(os.Stdin)
 	sc.Buffer(make([]byte, 0, 8<<10), 1<<20)
+	var paste *pasteBuffer
 	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
+		raw := sc.Text()
+		// KS-094: a bracketed paste (the terminal marks it) is ONE
+		// instruction, however many lines it has, and it is always text:
+		// a pasted "q" or "a <id>" line never becomes a window command
+		if text, done, ok := paste.feed(raw); ok {
+			if done {
+				paste = nil
+				if strings.TrimSpace(text) != "" {
+					win.submit(cr, text)
+				}
+			}
+			continue
+		}
+		if p, text, done := startPaste(raw); p != nil || done {
+			if done {
+				if strings.TrimSpace(text) != "" {
+					win.submit(cr, text)
+				}
+				continue
+			}
+			paste = p
+			continue
+		}
+		line := strings.TrimSpace(raw)
 		if line == "" {
 			continue
 		}
 		switch word, arg, ok := readWindowLine(line); {
 		case ok && word == "detach":
 			restore()
-			fmt.Fprintln(os.Stderr, "[detached; the agent keeps working]")
+			fmt.Fprintln(os.Stderr, "[left the window; the agent keeps working]")
 			os.Exit(exitOK)
+		case ok && word == "advice":
+			win.adviceDrawer(cr, arg)
 		case ok:
 			win.decide(cr, word, arg)
 		default:
 			win.submit(cr, line)
 		}
 	}
+}
+
+// interrupt is Ctrl-C in a window: a stop request for the instruction in
+// flight, through the cancel route, and a line saying what it did. A window
+// that is only watching steers nothing, and interrupts nothing.
+func (win *liveWindow) interrupt(cr hostedCreds) {
+	say := func(kind, human string, extra map[string]any) {
+		data := map[string]any{"type": kind}
+		for k, v := range extra {
+			data[k] = v
+		}
+		emitLine(data, "Ctrl-C: "+human)
+	}
+	if _, held := win.hold(); !held {
+		say("interrupt_refused", "this window is watching, so it interrupts nothing; leave with q", nil)
+		return
+	}
+	agents, err := fetchAgents(cr, agentSessionID(win.sess))
+	if err != nil {
+		say("interrupt_failed", "the agent could not be read, so nothing was interrupted: "+errText(err), nil)
+		return
+	}
+	var active string
+	for _, a := range agents {
+		if a.ID == win.agent.ID {
+			active = a.ActiveTaskID
+		}
+	}
+	if active == "" {
+		say("interrupt_nothing", "nothing is running, so nothing was interrupted; leave with q", nil)
+		return
+	}
+	t, err := fetchTask(cr, active)
+	if err != nil {
+		say("interrupt_failed", "instruction "+active+" could not be read, so nothing was interrupted: "+errText(err), nil)
+		return
+	}
+	rec, err := fetchSessionRecord(cr, agentSessionID(win.sess))
+	if err != nil {
+		say("interrupt_failed", "the session could not be read, so nothing was interrupted: "+errText(err), nil)
+		return
+	}
+	body := map[string]any{"expected_revision": t.Revision, "epoch": rec.ExecutionEpoch, "reason": "interrupted from the agent window (Ctrl-C)"}
+	var env struct {
+		Data struct {
+			Task *taskRow `json:"task"`
+		} `json:"data"`
+	}
+	resp, rb, err := doBounded(cr, "POST", "/api/v2/tasks/"+url.PathEscape(t.ID)+"/cancel", map[string]string{"Idempotency-Key": newIdempotencyKey()}, mustJSON(body))
+	switch {
+	case err != nil:
+		say("interrupt_unknown", "the interrupt of "+t.ID+" was sent and no answer came back ("+errText(err)+"); whether it arrived is unknown -- ks task show "+t.ID, nil)
+		return
+	case resp.StatusCode/100 != 2:
+		say("interrupt_refused", "the interrupt of "+t.ID+" was refused: "+errText(hostedError("POST", "cancel", resp, rb)), nil)
+		return
+	}
+	_ = json.Unmarshal(rb, &env)
+	state := "cancelling"
+	if env.Data.Task != nil && env.Data.Task.State != "" {
+		state = env.Data.Task.State
+	}
+	human := fmt.Sprintf("interrupt requested for %s; it reads %s", t.ID, stateLabel("task_state", state))
+	if state == "cancelling" {
+		human += " (asked to stop at a safe boundary; not claimed stopped)"
+	}
+	say("interrupted", human+"; the window stays open (q leaves)", map[string]any{"task_id": t.ID, "state": state})
+}
+
+func mustJSON(v any) []byte {
+	b, _ := json.Marshal(v)
+	return b
 }
 
 // readWindowLine reads one typed line as a window command. "a" and "d"
@@ -1417,6 +1987,9 @@ func readWindowLine(line string) (word, arg string, ok bool) {
 			return "", "", false
 		}
 		return "detach", "", true
+	case "advice":
+		word = "advice" // KS-066: the advice drawer, a read
+
 	default:
 		return "", "", false
 	}
@@ -1545,7 +2118,8 @@ func (win *liveWindow) submit(cr hostedCreds, text string) {
 	var env struct {
 		Data submittedTask `json:"data"`
 	}
-	if err := hostedMutate(cr, "POST", path, body, &env); err != nil {
+	env.Data, _, err = sendInstruction(cr, win.agent.ID, sid, body)
+	if err != nil {
 		var he *hostedErr
 		if errors.As(err, &he) && he.Type == "ks_controller_stale" {
 			win.displaced(sanitize(he.Message))
@@ -1768,7 +2342,7 @@ func hostedAgentPause(cr hostedCreds, inv *Invocation) {
 		Data sessionPause `json:"data"`
 	}
 	if err := hostedMutate(cr, "POST", "/api/v2/sessions/"+url.PathEscape(id)+"/pause", map[string]any{}, &env); err != nil {
-		die(err)
+		die(saveFailure(err, a.Name, sess))
 	}
 	p := env.Data
 	state := strings.ToLower(p.RuntimeState)
@@ -1808,6 +2382,55 @@ func hostedAgentPause(cr hostedCreds, inv *Invocation) {
 			NextAction:  fmt.Sprintf("ks agent pause %s --session %s --wait-timeout 5m (the same request, waiting longer)", a.Name, sess.ShortID)})
 	}
 	report(final, waited)
+}
+
+// saveFailed is what the service read back after a save that did not
+// complete (KS-051): no new saved point, the previous one as it was, and the
+// runtime state it observed (or unavailable).
+type saveFailed struct {
+	RuntimeState       string `json:"runtime_state"`
+	CheckpointRecorded bool   `json:"checkpoint_recorded"`
+	PreviousCheckpoint string `json:"previous_checkpoint_id"`
+}
+
+func (f saveFailed) detailLines() []string {
+	prev := f.PreviousCheckpoint
+	if prev == "" {
+		prev = "none (there was no earlier saved point)"
+	} else {
+		prev += " (untouched)"
+	}
+	return []string{
+		"new saved point    none recorded",
+		"previous          " + prev,
+		"session reads     " + figure(f.RuntimeState),
+	}
+}
+
+// saveFailure states a failed save as the service stated it. It is not an
+// unknown outcome: the service established that nothing was saved, and it
+// read back whether the session still runs.
+func saveFailure(err error, agent string, sess inventoryRow) error {
+	var he *hostedErr
+	if !errors.As(err, &he) || (he.Type != "ks_save_failed" && he.Type != "ks_fleet_unavailable") {
+		return err
+	}
+	var body struct {
+		Error saveFailed `json:"error"`
+	}
+	_ = json.Unmarshal(he.Raw, &body)
+	ce := classify(err)
+	ce.Code, ce.WorkStarted, ce.Detail = exitFailed, workNo, body.Error
+	if he.Type == "ks_fleet_unavailable" {
+		ce.Code = exitTemporary
+	}
+	ce.Message = "the session was NOT saved and nothing new was recorded: " + sanitize(he.Message)
+	if body.Error.RuntimeState == "running" {
+		ce.NextAction = fmt.Sprintf("the session is still running and its agents carry on; try again: ks agent pause %s --session %s", agent, sess.ShortID)
+	} else {
+		ce.NextAction = "ks session show " + sess.ShortID
+	}
+	return ce
 }
 
 func noteSuffix(note string) string {
@@ -1866,4 +2489,44 @@ func postResume(cr hostedCreds, id string) (map[string]any, error) {
 		env.Data = map[string]any{}
 	}
 	return env.Data, nil
+}
+
+// ---------------------------------------------------------------------
+// bracketed paste (KS-094 QA-094-1)
+// ---------------------------------------------------------------------
+
+const (
+	pasteStart = "\x1b[200~"
+	pasteEnd   = "\x1b[201~"
+)
+
+// pasteBuffer holds the lines of a paste that has started and not ended.
+type pasteBuffer struct{ lines []string }
+
+// startPaste recognises a line that opens a bracketed paste. It answers the
+// buffer to keep filling, or, when the paste also ends on this line, the
+// whole pasted text and done.
+func startPaste(raw string) (*pasteBuffer, string, bool) {
+	i := strings.Index(raw, pasteStart)
+	if i < 0 {
+		return nil, "", false
+	}
+	rest := raw[i+len(pasteStart):]
+	if j := strings.Index(rest, pasteEnd); j >= 0 {
+		return nil, rest[:j], true
+	}
+	return &pasteBuffer{lines: []string{rest}}, "", false
+}
+
+// feed adds one line to a paste in progress; ok is false when no paste is.
+func (p *pasteBuffer) feed(raw string) (text string, done, ok bool) {
+	if p == nil {
+		return "", false, false
+	}
+	if j := strings.Index(raw, pasteEnd); j >= 0 {
+		p.lines = append(p.lines, raw[:j])
+		return strings.Join(p.lines, "\n"), true, true
+	}
+	p.lines = append(p.lines, raw)
+	return "", false, true
 }

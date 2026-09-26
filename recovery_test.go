@@ -65,15 +65,18 @@ type recoveryCtl struct {
 	// one truthful answer -- requested-but-not-yet-stopped, terminal, and
 	// "you lost the race to a real completion" -- and the client has to
 	// word all three differently, so the fixture can produce each.
-	cancelState   string
-	cancelUnknown []string
-	attempts      []map[string]any
-	refusedCloses int    // task.finish_refused events the journal carries
-	eventsFault   string // the typed refusal the journal route answers with
-	holdsFault    string // the typed refusal the queue-hold route answers with
-	backlog       int    // conversation entries the journal already carries
-	cancelled     bool   // one instruction was cancelled while the queue was held
-	retryOffered  bool   // a later service that DOES offer a new attempt
+	cancelState    string
+	cancelUnknown  []string
+	cancelRecovery map[string]any // the `recovery` object a cancel is answered with, when set
+	taskRecovery   map[string]any // the `cancel_recovery` a task read carries, when set
+	notStuck       bool           // /reconcile answers ks_task_not_stuck (inside the interrupt wait)
+	attempts       []map[string]any
+	refusedCloses  int    // task.finish_refused events the journal carries
+	eventsFault    string // the typed refusal the journal route answers with
+	holdsFault     string // the typed refusal the queue-hold route answers with
+	backlog        int    // conversation entries the journal already carries
+	cancelled      bool   // one instruction was cancelled while the queue was held
+	retryOffered   bool   // a later service that DOES offer a new attempt
 }
 
 func newRecoveryCtl() *recoveryCtl {
@@ -173,6 +176,8 @@ func (c *recoveryCtl) holdDoc() map[string]any {
 			// this client, which still cannot ask for one
 			retry["available"] = true
 			retry["state_after"] = "a new attempt is recorded under the task; the earlier attempt keeps its outcome and its cost"
+			retry["checkpoint_id"] = "ckpt_after_fail"
+			retry["via"] = "POST /api/v2/sessions/session_rec/restore with checkpoint_id=ckpt_after_fail (a whole-session restore)"
 			delete(retry, "unavailable_reason")
 		}
 		doc["choices"] = []map[string]any{
@@ -336,8 +341,20 @@ func (c *recoveryCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"media_type": "text/plain; charset=utf-8", "bytes": len(text), "text": text})
 	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/v2/tasks/"):
 		id := strings.TrimPrefix(r.URL.Path, "/api/v2/tasks/")
+		c.mu.Lock()
+		tr := c.taskRecovery
+		c.mu.Unlock()
 		for _, t := range recoveryTaskRows {
 			if t["id"] == id {
+				if tr != nil && id == recoveryBlocking {
+					row := map[string]any{"cancel_recovery": tr}
+					for k, v := range t {
+						row[k] = v
+					}
+					row["state"] = "cancelling"
+					env(200, row)
+					return
+				}
 				env(200, t)
 				return
 			}
@@ -428,6 +445,7 @@ func (c *recoveryCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		c.mu.Lock()
 		c.cancels = append(c.cancels, string(raw))
 		st, unknown := c.cancelState, append([]string(nil), c.cancelUnknown...)
+		rec := c.cancelRecovery
 		c.mu.Unlock()
 		if st == "" {
 			st = "cancelled"
@@ -447,6 +465,9 @@ func (c *recoveryCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// the declared bound, present only for work a worker is executing
 			out["signal_deadline"] = unknown[0]
 		}
+		if rec != nil {
+			out["recovery"] = rec
+		}
 		env(200, out)
 	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/reconcile") && strings.HasPrefix(r.URL.Path, "/api/v2/tasks/"):
 		raw, _ := readAllBody(r)
@@ -457,6 +478,13 @@ func (c *recoveryCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = json.Unmarshal(raw, &body)
 		if strings.TrimSpace(fmt.Sprint(body["finding"])) == "" {
 			fault(422, "ks_finding_required", "a finding is required")
+			return
+		}
+		c.mu.Lock()
+		ns := c.notStuck
+		c.mu.Unlock()
+		if ns {
+			fault(409, "ks_task_not_stuck", "a stop was requested and the 10 s interrupt wait has not passed; the runner may still confirm it. Nothing was recorded")
 			return
 		}
 		row := map[string]any{}
@@ -1349,5 +1377,42 @@ func TestTheRecoverySurfacesStateNoCostTheServiceDidNotState(t *testing.T) {
 	// the option the service DOES cost still shows that cost
 	if !strings.Contains(view, "nothing runs, so nothing is metered") {
 		t.Errorf("a stated cost was dropped:\n%s", view)
+	}
+}
+
+// KS-046: where the service OFFERS retry-from-safe-point it names the save
+// point and the restore route; the view shows both with the one command that
+// takes it, and ks task resume without --checkpoint names that save point
+// and still chooses nothing. Where it does not offer it, no command is shown
+// for it at all.
+func TestTheRetryIsOfferedOnlyWithTheServicesSavePointAndRoute(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	dir := t.TempDir()
+	out, _, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "agent", "queue", "show", "main", "--session", agentSessionShort)
+	if code != 0 || strings.Contains(out, "ks task resume") {
+		t.Fatalf("an unavailable retry printed a command: %d\n%s", code, out)
+	}
+	c.set(func(c *recoveryCtl) { c.retryOffered = true })
+	out, errs, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "agent", "queue", "show", "main", "--session", agentSessionShort)
+	if code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	for _, want := range []string{
+		"ks task resume " + recoveryBlocking + " --session " + agentSessionShort + " --checkpoint ckpt_after_fail",
+		"from      ckpt_after_fail",
+		"via       POST /api/v2/sessions/session_rec/restore with checkpoint_id=ckpt_after_fail",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the offered retry lacks %q:\n%s", want, out)
+		}
+	}
+	_, errs, code = auditExec(t, bin, cfg, dir, fastEnv(cfg), "task", "resume", recoveryBlocking, "--session", agentSessionShort)
+	if code != exitUsage || !strings.Contains(errs, "offers this retry from saved point ckpt_after_fail") || !strings.Contains(errs, "--checkpoint ckpt_after_fail") {
+		t.Fatalf("resume without a checkpoint: %d\n%s", code, errs)
+	}
+	for _, req := range c.seen() {
+		if strings.HasPrefix(req, "POST ") {
+			t.Fatalf("naming the offer sent a mutation: %v", c.seen())
+		}
 	}
 }

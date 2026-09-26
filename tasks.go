@@ -96,7 +96,7 @@ func verificationLine(t taskRow) string {
 	if strings.TrimSpace(t.Verification) == "" {
 		return "none: this instruction has no independent verification, so it reads finished and never verified"
 	}
-	return figure(t.Verification)
+	return stateLabel("verification_state", t.Verification)
 }
 
 // attemptLine states the attempt identity the service holds for this
@@ -112,8 +112,26 @@ func attemptLine(t taskRow) string {
 }
 
 func taskListLine(t taskRow) string {
+	return taskListLineIn(t, nil)
+}
+
+// taskListLineIn is one instruction's row with its session's runtime: an
+// instruction still to move in a session that is not running reads paused
+// (funds park) or not moving, never running (the funds park).
+func taskListLineIn(t taskRow, rt *sessionRuntimeDoc) string {
+	if t.SessionRuntime != nil {
+		rt = t.SessionRuntime
+	}
+	state := stateCell("task_state", t.State)
+	if rt != nil && (frozenTask(t.State) || t.State == "queued") {
+		if rt.funds() {
+			state = "paused"
+		} else {
+			state = "not moving"
+		}
+	}
 	return fmt.Sprintf("%-26s %4d %-12s %-9s %-10s %s",
-		clip(t.ID, 26), t.QueueSeq, clip(figure(t.State), 12), clip(figure(t.Origin), 9),
+		clip(t.ID, 26), t.QueueSeq, clip(state, 12), clip(figure(t.Origin), 9),
 		clip(taskAuthor(t), 10), figure(t.CreatedAt))
 }
 
@@ -171,7 +189,7 @@ func hostedTaskList(cr hostedCreds, inv *Invocation) {
 		}
 		sortTasks(ts)
 		total += len(ts)
-		out = append(out, taskQueue{Agent: a.Name, AgentID: a.ID, Tasks: ts})
+		out = append(out, taskQueue{Agent: a.Name, AgentID: a.ID, Tasks: ts, SessionRuntime: a.SessionRuntime})
 	}
 	// An incomplete listing is ONE answer, not a document followed by an
 	// error: --json must never print two envelopes, and nobody must be shown
@@ -191,6 +209,9 @@ func hostedTaskList(cr hostedCreds, inv *Invocation) {
 		}
 		for _, q := range out {
 			fmt.Printf("agent %s (%s)\n", q.Agent, q.AgentID)
+			for _, l := range runtimeLines(q.SessionRuntime, "ks agent resume "+q.Agent+" --session "+sess.ShortID) {
+				fmt.Println(l)
+			}
 			if q.Unreadable != "" {
 				fmt.Printf("  this queue could not be READ, so it is not shown; it is not known to be empty: %s\n", q.Unreadable)
 				continue
@@ -201,7 +222,7 @@ func hostedTaskList(cr hostedCreds, inv *Invocation) {
 			}
 			fmt.Printf("  %-26s %4s %-12s %-9s %-10s %s\n", "INSTRUCTION", "POS", "STATE", "ORIGIN", "AUTHOR", "SUBMITTED")
 			for _, t := range q.Tasks {
-				fmt.Printf("  %s\n", taskListLine(t))
+				fmt.Printf("  %s\n", taskListLineIn(t, q.SessionRuntime))
 			}
 		}
 		fmt.Printf("%d instruction(s) across %d agent(s); one in full: ks task show <instruction> --session %s\n",
@@ -218,6 +239,9 @@ type taskQueue struct {
 	AgentID    string    `json:"agent_id"`
 	Tasks      []taskRow `json:"tasks"`
 	Unreadable string    `json:"unreadable,omitempty"`
+	// SessionRuntime is the agent's session when it is not running
+	// (the funds park), as the agent read carries it
+	SessionRuntime *sessionRuntimeDoc `json:"session_runtime,omitempty"`
 }
 
 // partialQueues is what an incomplete listing carries as FIELDS: what was
@@ -329,7 +353,14 @@ func hostedTaskShow(cr hostedCreds, inv *Invocation) {
 			refusalProblem = sanitize(rerr.Error())
 		}
 	}
+	// KS-066: the instruction's advice, collapsed; a failed read is said
+	advice, adviceErr := fetchTaskAdvice(cr, t.ID)
+	adviceProblemText := ""
+	if adviceErr != nil {
+		adviceProblemText = adviceProblem(adviceErr)
+	}
 	emit(map[string]any{"task": t, "agent": t.AgentID, "agent_name": agentName,
+		"advice": advice, "advice_unreadable": adviceProblemText,
 		"content": content, "content_unreadable": contentProblem,
 		"hold": holdState, "hold_unreadable": holdProblem,
 		"attempts": atts, "attempts_unreadable": errText(attErr),
@@ -340,7 +371,31 @@ func hostedTaskShow(cr hostedCreds, inv *Invocation) {
 		} else {
 			fmt.Printf("  agent          %s\n", t.AgentID)
 		}
-		fmt.Printf("  state          %s\n", figure(t.State))
+		if rt := t.SessionRuntime; rt != nil {
+			// The funds park: the instruction is still to move and its session
+			// is not running; the pause is the state, the task's own word is
+			// frozen history
+			resume := ""
+			if agentName != "" {
+				resume = "ks agent resume " + agentName + " --session " + sessionShort
+			} else {
+				resume = "ks agent resume <agent> --session <session>"
+			}
+			if rt.funds() {
+				fmt.Printf("  state          %s\n", fundsPausedLine)
+			} else {
+				fmt.Printf("  state          NOT moving: the session is %s\n", sanitize(stateLabel("session_runtime", rt.State)))
+			}
+			fmt.Printf("  last recorded  %s (frozen; nothing is moving while the session is not running)\n", stateLabel("task_state", t.State))
+			for _, l := range runtimeLines(rt, resume) {
+				fmt.Println(l)
+			}
+		} else {
+			fmt.Printf("  state          %s\n", stateLabel("task_state", t.State))
+		}
+		if t.CancelRecovery != nil {
+			printCancelRecovery(t.CancelRecovery, cancelRecoveryHints(t.ID, agentName, sessionShort))
+		}
 		fmt.Printf("  queue position %d\n", t.QueueSeq)
 		fmt.Printf("  author         %s\n", taskAuthor(t))
 		fmt.Printf("  origin         %s\n", figure(t.Origin))
@@ -363,7 +418,7 @@ func hostedTaskShow(cr hostedCreds, inv *Invocation) {
 					closed = "-"
 				}
 				fmt.Printf("    %-26s index %-3d generation %-3d %-11s closed %-24s worker %s\n",
-					at.ID, at.AttemptIndex, at.ExecutionEpoch, figure(at.State), closed, notRecorded(at.WorkerID))
+					at.ID, at.AttemptIndex, at.ExecutionEpoch, stateLabel("attempt_state", at.State), closed, notRecorded(at.WorkerID))
 				if at.RetryOf != "" || at.CheckpointID != "" || at.AuthorizedBy != "" {
 					fmt.Printf("      follows %s, from saved point %s, authorized by %s\n",
 						notRecorded(at.RetryOf), notRecorded(at.CheckpointID), notRecorded(at.AuthorizedBy))
@@ -395,6 +450,15 @@ func hostedTaskShow(cr hostedCreds, inv *Invocation) {
 			fmt.Printf("  queue hold     could not be read, so whether this instruction holds the queue is NOT stated: %s\n", holdProblem)
 		} else {
 			fmt.Printf("  queue hold     %s\n", holdState)
+		}
+		if adviceProblemText != "" {
+			fmt.Printf("  advice         %s\n", adviceProblemText)
+		} else if len(advice.Consultations) == 0 {
+			fmt.Printf("  advice         this instruction consulted nobody\n")
+		} else {
+			for _, l := range adviceSummaryLines(advice) {
+				fmt.Printf("  %s\n", l)
+			}
 		}
 		fmt.Printf("  instructions:\n")
 		if contentProblem != "" {
@@ -565,6 +629,11 @@ func hostedTaskCancel(cr hostedCreds, inv *Invocation) {
 			Replayed       bool     `json:"replayed"`
 			Note           string   `json:"note"`
 			SignalDeadline string   `json:"signal_deadline"`
+			// Recovery is where an unconfirmed stop stands against C04's
+			// 10 s interrupt wait, and once that has passed, the explicit
+			// actions a person may choose between. Printed as the service
+			// wrote them: this client takes none of them on its own.
+			Recovery *cancelRecovery `json:"recovery"`
 		} `json:"data"`
 	}
 	// Bound to the revision that was read and the generation it was prepared
@@ -587,8 +656,8 @@ func hostedTaskCancel(cr hostedCreds, inv *Invocation) {
 	}
 	emit(map[string]any{"task": got, "requested": env.Data.Requested,
 		"replayed": env.Data.Replayed, "note": env.Data.Note,
-		"signal_deadline": env.Data.SignalDeadline,
-		"agent":           a.Name, "session": sess.ID}, func() {
+		"signal_deadline": env.Data.SignalDeadline, "recovery": env.Data.Recovery,
+		"agent": a.Name, "session": sess.ID}, func() {
 		switch state {
 		case "cancelling":
 			fmt.Printf("instruction %s now reads %s\n", t.ID, figure(state))
@@ -602,6 +671,7 @@ func hostedTaskCancel(cr hostedCreds, inv *Invocation) {
 				fmt.Printf("  by             %s the worker has either been handed the request or no\n", env.Data.SignalDeadline)
 				fmt.Printf("                 longer supervises this agent\n")
 			}
+			printCancelRecovery(env.Data.Recovery, cancelRecoveryHints(t.ID, a.Name, sess.ShortID))
 		case "cancelled":
 			fmt.Printf("instruction %s now reads %s\n", t.ID, figure(state))
 			fmt.Printf("  it will not run. Its identity, content and history are kept.\n")
@@ -649,6 +719,10 @@ type attemptRowClient struct {
 	StartedAt        string   `json:"started_at"`
 	EndedAt          string   `json:"ended_at"`
 	ErrorCode        string   `json:"error_code"`
+	// KS-031: the conversation this execution ran in (what a runner
+	// announced, or else what the dispatch assigned) and its close summary
+	RunnerSessionID string `json:"runner_session_id,omitempty"`
+	Summary         string `json:"summary,omitempty"`
 }
 
 func fetchAttempts(cr hostedCreds, taskID string) ([]attemptRowClient, error) {
@@ -683,6 +757,9 @@ type checkpointRowClient struct {
 	Scope             string   `json:"scope"`
 	Reason            string   `json:"reason"`
 	CreatedAt         string   `json:"created_at"`
+	// KS-053: the lineage and the engine's chunk counts (never estimated)
+	Parent string         `json:"parent_checkpoint_id,omitempty"`
+	Chunks map[string]int `json:"chunks,omitempty"`
 }
 
 func fetchCheckpoints(cr hostedCreds, sessionID string) ([]checkpointRowClient, error) {
@@ -727,11 +804,28 @@ func hostedSessionCheckpoints(cr hostedCreds, inv *Invocation) {
 		fmt.Printf("%-26s %-11s %-19s %-26s %s\n", "SAVED POINT", "STATE", "BOUNDARY", "ATTEMPT'S INSTRUCTION", "TAKEN")
 		for _, c := range rows {
 			fmt.Println(checkpointLine(c))
+			if c.State != "valid" {
+				// a failed save stays visible, with why, and is never offered
+				why := c.Reason
+				if why == "" {
+					why = "the service recorded no reason"
+				}
+				fmt.Printf("    not restorable: %s\n", sanitize(why))
+			}
+			if c.Parent != "" || len(c.Chunks) > 0 {
+				var parts []string
+				for _, k := range []string{"memory", "disk", "device"} {
+					if n, ok := c.Chunks[k]; ok {
+						parts = append(parts, fmt.Sprintf("%s %d", k, n))
+					}
+				}
+				fmt.Printf("    follows %s; chunks %s\n", notRecorded(c.Parent), notRecorded(strings.Join(parts, ", ")))
+			}
 		}
 		fmt.Printf("\nA saved point is a WHOLE-SESSION saved point. Restoring one returns EVERY agent and\n")
 		fmt.Printf("EVERY instruction in this session to that moment; it is not a file-level or a\n")
 		fmt.Printf("single-instruction rollback.\n")
-		fmt.Printf("%d saved point(s). Name one: ks task resume <instruction> --session %s --checkpoint <saved point>\n",
+		fmt.Printf("%d saved point(s). Name a valid one: ks task resume <instruction> --session %s --checkpoint <saved point>\n",
 			len(rows), r.ShortID)
 	})
 }
@@ -958,10 +1052,12 @@ func hostedTaskResume(cr hostedCreds, inv *Invocation) {
 			fmt.Printf("                 queue is a separate decision — ks agent queue resume %s --session %s --finding \"...\"\n",
 				a.Name, sess.ShortID)
 		}
+		continuationLines(res)
 		if res.Note != "" {
 			fmt.Printf("  note           %s\n", res.Note)
 		}
 	})
+	continuationUnknown(res, sess.ShortID)
 }
 
 // restoreAnswer is what the restore route reports: the phases it completed,
@@ -980,6 +1076,61 @@ type restoreAnswer struct {
 	HoldID         string   `json:"hold_id"`
 	Scope          string   `json:"scope"`
 	Note           string   `json:"note"`
+	// Continuation is what continues from the saved point, as the engine
+	// established it (KS-052): exact_runtime, none or unknown, with the
+	// service's note. Printed exactly as given; unknown is never success.
+	Continuation     string `json:"continuation"`
+	ContinuationNote string `json:"continuation_note"`
+	// StackCompatibility is the engine's verdict on the saved point's pinned
+	// stack (KS-052): verified, unknown or incompatible. Only verified
+	// supports exact continuation; unknown is NOT established.
+	StackCompatibility string `json:"stack_compatibility"`
+}
+
+// continuationLines prints the continuation exactly as the service gave it.
+func continuationLines(res restoreAnswer) {
+	switch res.StackCompatibility {
+	case "verified":
+		fmt.Printf("  stack          verified: the saved point was taken on the engine's pinned stack\n")
+	case "incompatible":
+		fmt.Printf("  stack          INCOMPATIBLE: the saved point was taken on a different pinned stack; nothing was restored\n")
+		for _, p := range res.Phases {
+			if !p.Done && strings.Contains(p.Detail, "stack") {
+				fmt.Printf("                 %s\n", sanitize(p.Detail))
+			}
+		}
+	default:
+		fmt.Printf("  stack          NOT established: the engine did not verify the saved point's pinned stack (%s), so exact continuation on the same stack is not claimed\n", figure(res.StackCompatibility))
+	}
+	c := res.Continuation
+	if c == "" {
+		c = "not stated by the service"
+	}
+	fmt.Printf("  continuation   %s\n", sanitize(c))
+	if res.ContinuationNote != "" {
+		fmt.Printf("                 %s\n", sanitize(res.ContinuationNote))
+	}
+}
+
+// continuationUnknown refuses to call a restore whose outcome the service
+// could not establish a success.
+func continuationUnknown(res restoreAnswer, sessShort string) {
+	if res.StackCompatibility == "incompatible" {
+		detail := ""
+		for _, p := range res.Phases {
+			if !p.Done && p.Detail != "" {
+				detail = p.Detail
+			}
+		}
+		fail(&cliError{Code: exitConflict, Kind: "ks_stack_incompatible", WorkStarted: workNo,
+			Message:    "the saved point was taken on a different pinned stack and was NOT restored: " + sanitize(detail),
+			NextAction: "retry the instruction from its own record (ks task resume ... --checkpoint <a saved point on this stack>)"})
+	}
+	if res.Continuation == "unknown" {
+		fail(&cliError{Code: exitTemporary, Kind: "continuation_unknown", WorkStarted: workUnknown,
+			Message:    "the restore's outcome is UNKNOWN: " + sanitize(res.ContinuationNote),
+			NextAction: "ks session show " + sessShort + " (the queue is held and the intent is on the record; do not rerun blindly)"})
+	}
 }
 
 func errText(err error) string {
@@ -1009,8 +1160,19 @@ func refuseWithoutABoundary(cr hostedCreds, sess inventoryRow, agentName string,
 	}
 	det := boundaryChoices{Task: t.ID, Agent: agentName, Session: sess.ShortID,
 		Checkpoints: valid, Unreadable: errText(cerr)}
-	fail(&cliError{Code: exitUsage, Kind: "boundary_required", Detail: det, Message: msg,
-		NextAction: fmt.Sprintf("ks session checkpoints %s", sess.ShortID)})
+	next := fmt.Sprintf("ks session checkpoints %s", sess.ShortID)
+	// where the hold on this queue OFFERS the retry, the service has named
+	// the save point it would resume from: say so, and still choose nothing
+	if holds, herr := fetchQueueHolds(cr, t.AgentID); herr == nil {
+		if h, aerr := activeHold(holds); aerr == nil && h != nil && h.BlockingTask == t.ID {
+			if c := retryChoice(h); c != nil && c.Available && c.CheckpointID != "" {
+				det.Offered, det.Via = c.CheckpointID, c.Via
+				msg += fmt.Sprintf(" The service offers this retry from saved point %s, through %s.", c.CheckpointID, figure(c.Via))
+				next = fmt.Sprintf("ks task resume %s --session %s --checkpoint %s --finding \"...\"", t.ID, sess.ShortID, c.CheckpointID)
+			}
+		}
+	}
+	fail(&cliError{Code: exitUsage, Kind: "boundary_required", Detail: det, Message: msg, NextAction: next})
 }
 
 // boundaryChoices is the refusal's facts as FIELDS: which instruction, and
@@ -1021,6 +1183,10 @@ type boundaryChoices struct {
 	Session     string                `json:"session"`
 	Checkpoints []checkpointRowClient `json:"checkpoints"`
 	Unreadable  string                `json:"unreadable,omitempty"`
+	// Offered is the save point the service's hold names for this retry,
+	// with the route it goes through; empty where it names none.
+	Offered string `json:"offered_checkpoint_id,omitempty"`
+	Via     string `json:"offered_via,omitempty"`
 }
 
 func (b boundaryChoices) detailLines() []string {
@@ -1032,6 +1198,9 @@ func (b boundaryChoices) detailLines() []string {
 		lines = append(lines, "saved points       could not be READ, so none are listed; that is not the same as none existing: "+b.Unreadable)
 		return lines
 	}
+	if b.Offered != "" {
+		lines = append(lines, fmt.Sprintf("offered by service %s, through %s", b.Offered, b.Via))
+	}
 	if len(b.Checkpoints) == 0 {
 		lines = append(lines, "saved points       none restorable")
 		return lines
@@ -1041,4 +1210,71 @@ func (b boundaryChoices) detailLines() []string {
 		lines = append(lines, "  "+checkpointLine(c))
 	}
 	return lines
+}
+
+// cancelRecoveryHints names the ks command for each recovery action.
+func cancelRecoveryHints(taskID, agentName, sessionShort string) map[string]string {
+	if sessionShort == "" {
+		return nil
+	}
+	return map[string]string{
+		"wait":           fmt.Sprintf("ks task show %s --session %s", taskID, sessionShort),
+		"stop_runtime":   fmt.Sprintf("ks agent pause %s --session %s", agentName, sessionShort),
+		"record_unknown": fmt.Sprintf("ks task reconcile %s --session %s --finding \"what you established\"", taskID, sessionShort),
+	}
+}
+
+// cancelRecovery is the service's account of an unconfirmed stop (KS-044
+// QA-044-2): when it was requested, C04's interrupt wait, whether that has
+// passed, and -- once it has -- the explicit actions on offer.
+type cancelRecovery struct {
+	RequestedAt          string `json:"requested_at"`
+	InterruptWaitSeconds int    `json:"interrupt_wait_seconds"`
+	OverdueAt            string `json:"overdue_at"`
+	Overdue              bool   `json:"overdue"`
+	Note                 string `json:"note"`
+	Options              []struct {
+		Action  string `json:"action"`
+		Request string `json:"request"`
+		Effect  string `json:"effect"`
+		DoesNot string `json:"does_not"`
+	} `json:"options"`
+}
+
+// printCancelRecovery says where an unconfirmed stop stands. Inside the
+// interrupt wait it says the stop is still pending; after it, it lists the
+// service's recovery actions verbatim, each with what it does and what it
+// does not do, and takes none of them.
+//
+// hints maps an action to the ks command that takes it, where the caller
+// knows the session and agent; each is printed beside the service's request.
+func printCancelRecovery(r *cancelRecovery, hints map[string]string) {
+	if r == nil {
+		return
+	}
+	if !r.Overdue {
+		if r.OverdueAt != "" {
+			fmt.Printf("  interrupt wait %d s: if the stop is not confirmed by %s, recovery actions are offered\n", r.InterruptWaitSeconds, r.OverdueAt)
+		} else if r.Note != "" {
+			fmt.Printf("  interrupt wait %s\n", r.Note)
+		}
+		return
+	}
+	fmt.Printf("  NOT STOPPED: the stop was not confirmed within the %d s interrupt wait.\n", r.InterruptWaitSeconds)
+	if r.Note != "" {
+		fmt.Printf("  note           %s\n", r.Note)
+	}
+	if len(r.Options) == 0 {
+		fmt.Printf("  the service named no recovery action; nothing was taken\n")
+		return
+	}
+	fmt.Printf("  choose one; none is taken for you:\n")
+	for _, o := range r.Options {
+		fmt.Printf("    %-15s %s\n", o.Action, o.Request)
+		fmt.Printf("    %-15s does: %s\n", "", o.Effect)
+		fmt.Printf("    %-15s does not: %s\n", "", o.DoesNot)
+		if h := hints[o.Action]; h != "" {
+			fmt.Printf("    %-15s ks: %s\n", "", h)
+		}
+	}
 }

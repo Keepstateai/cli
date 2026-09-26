@@ -25,6 +25,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -180,7 +181,13 @@ func scanWorkspace(root string, out io.Writer) ([]wsFile, error) {
 // when out is not nil, and returns the packed files (with digests) and the
 // selection (with its digest).
 func scanSelected(root string, out io.Writer, overrides []string) ([]wsFile, *selection, error) {
-	sel, err := buildSelection(root, overrides)
+	return scanSelectedUnder(root, out, overrides, selectionPolicyVersion)
+}
+
+// scanSelectedUnder packs the selection built under a named policy: run
+// uses the policy its approval recorded, so a v1 approval still verifies.
+func scanSelectedUnder(root string, out io.Writer, overrides []string, policy string) ([]wsFile, *selection, error) {
+	sel, err := buildSelectionUnder(root, overrides, policy)
 	if err != nil {
 		return nil, sel, err
 	}
@@ -301,6 +308,8 @@ func testsDigest(root string, files []wsFile, isTest func(rel string) bool) (str
 // and null as words; no trailing newline. For a manifest whose text is
 // plain ASCII this is exactly json.Marshal over sorted keys with HTML
 // escaping off and no trailing newline.
+var canonicalInt = regexp.MustCompile(`^-?(0|[1-9][0-9]*)$`)
+
 func canonicalJSON(v any) ([]byte, error) {
 	var b bytes.Buffer
 	if err := writeCanonical(&b, v); err != nil {
@@ -322,11 +331,13 @@ func writeCanonical(b *bytes.Buffer, v any) error {
 	case string:
 		return writeCanonicalString(b, x)
 	case json.Number:
-		n, err := strconv.ParseInt(string(x), 10, 64)
-		if err != nil {
-			return fmt.Errorf("number %q is not a whole number; the manifest carries whole numbers only", x)
+		// the shared rule (manifest-canonical-v1): a canonical
+		// integer literal, written verbatim at any size; a fraction, an
+		// exponent, a leading zero or -0 is refused, never normalized
+		if !canonicalInt.MatchString(string(x)) || string(x) == "-0" {
+			return fmt.Errorf("number %q is not a canonical whole number; the manifest carries canonical integers only", x)
 		}
-		b.WriteString(strconv.FormatInt(n, 10))
+		b.WriteString(string(x))
 	case int:
 		b.WriteString(strconv.FormatInt(int64(x), 10))
 	case int64:
@@ -653,30 +664,6 @@ func ladderWords(ladder []rung) string {
 	return strings.Join(s, ", ")
 }
 
-func cruiseModels(inv *Invocation) {
-	c := mustCreds()
-	var t modelTable
-	if err := hostedCall(c, "GET", "/api/models", nil, &t); err != nil {
-		die(err)
-	}
-	if out.json {
-		emit(t, nil)
-		return
-	}
-	fmt.Printf("model table %s (from %s)\n", t.Version, c.CTL)
-	for _, f := range familyNames(t) {
-		fmt.Printf("  %s (provider %s): %s\n", f, t.Families[f].Provider, strings.Join(t.Families[f].Rungs, ", "))
-	}
-	if len(t.DefaultLadder) == 0 {
-		fmt.Println("default ladder: unavailable")
-	} else {
-		fmt.Printf("default ladder: %s\n", ladderWords(t.DefaultLadder))
-	}
-	if t.Version != embeddedModels.Version {
-		fmt.Printf("this client drafts from table %s; name rungs with --ladder family:model to use the live one\n", embeddedModels.Version)
-	}
-}
-
 // ---------------------------------------------------------------------
 // init
 // ---------------------------------------------------------------------
@@ -713,31 +700,62 @@ func cruiseInit(inv *Invocation) {
 	}
 	tarSha := hex.EncodeToString(h.Sum(nil))
 
-	// 2. the check; without one there is no job, and init stops
-	//    here, before anything is written
-	ck := detectChecks(root, files)
-	named := strings.TrimSpace(inv.Str("tests"))
-	if named != "" {
-		ck = checks{command: named, kind: "named", isTest: checksFor(named)}
+	// 2. the check (KS-072): discovered the way the verifier discovers it,
+	//    nested tests and every input they read pinned; without one there is
+	//    no job, and with tests of more than one ecosystem nothing is chosen
+	shas := map[string]string{}
+	for _, f := range files {
+		shas[f.rel] = hex.EncodeToString(f.sha[:])
 	}
-	if ck.command == "" {
-		fmt.Fprintln(os.Stderr, "no check found: a goal with no check is not a job.")
-		fmt.Fprintln(os.Stderr, "init looks for pytest (test_*.py), npm test (package.json scripts.test) or go test (go.mod with _test.go files).")
-		fmt.Fprintln(os.Stderr, "Name the command that decides done: ks cruise init --tests CMD. This version does not draft checks.")
+	disc := ks072Discover(shas, nil)
+	named := strings.TrimSpace(inv.Str("tests"))
+	runner := strings.TrimSpace(inv.Str("check"))
+	if named != "" && runner == "" && !ks072LegacyPytest.MatchString(named) {
+		switch {
+		case strings.HasPrefix(named, "go test"):
+			runner = "go"
+		case strings.HasPrefix(named, "npm ") || strings.HasPrefix(named, "node "):
+			runner = "node"
+		default:
+			fmt.Fprintf(os.Stderr, "ks cruise init: the verifier runs pytest, go test or node --test; %q is none of them. Name the runner with --check pytest|go|node.\n", named)
+			os.Exit(2)
+		}
+	}
+	chosen, code, serr := ks072Select(disc, runner, named)
+	if serr != nil {
+		switch code {
+		case "ks_check_ambiguous":
+			fmt.Fprintf(os.Stderr, "ks cruise init: %v. Nothing is chosen for you; nothing was written.\n", serr)
+		case "ks_check_not_found":
+			fmt.Fprintln(os.Stderr, "no check found: a goal with no check is not a job.")
+			fmt.Fprintln(os.Stderr, "init looks for Python (test_*.py, *_test.py), Go (*_test.go) and Node (*.test.js, *.spec.js, test/, __tests__/) tests, nested included.")
+			fmt.Fprintf(os.Stderr, "(%v) Name the check with --check pytest|go|node. Nothing was written.\n", serr)
+		default:
+			fmt.Fprintf(os.Stderr, "ks cruise init: %v\n", serr)
+		}
 		os.Exit(2)
 	}
+	pinned := ks072InputsOf(disc, chosen.Ecosystem)
+	pinnedSet := map[string]bool{}
+	for _, r := range pinned {
+		for _, part := range strings.Split(r.Path, "/") {
+			if strings.HasPrefix(part, ".") {
+				fmt.Fprintf(os.Stderr, "ks cruise init: %s is a verifier input inside a dot directory, which the verifier refuses to pin; move it or exclude it. Nothing was written.\n", r.Path)
+				os.Exit(2)
+			}
+		}
+		pinnedSet[r.Path] = true
+	}
+	command := ks072Command(chosen.Runner)
+	if chosen.Source == "legacy_command" {
+		command = named
+	}
+	ck := checks{command: command, kind: chosen.Runner, isTest: func(rel string) bool { return pinnedSet[rel] }}
 	tests, testCount, err := testsDigest(root, files, ck.isTest)
 	if err != nil {
 		die(err)
 	}
-	// v1 pins root-level test files only: the verifier copies each pinned
-	// test flat into the checked tree, and the worker refuses a nested one.
-	for _, f := range files {
-		if ck.isTest(f.rel) && strings.Contains(f.rel, "/") {
-			fmt.Fprintf(os.Stderr, "ks cruise init: test file %s is nested; this version pins test files at the repository root only.\n", f.rel)
-			os.Exit(2)
-		}
-	}
+	pinnedDigest := ks072InputsDigest(pinned)
 
 	// 3. the goal: named, kept from the previous draft, or the check itself
 	goal := strings.TrimSpace(inv.Str("goal"))
@@ -830,6 +848,9 @@ func cruiseInit(inv *Invocation) {
 			"on_call_boundary": false,
 		},
 	}
+	if chosen.Source == "explicit" {
+		m["verifier"].(map[string]any)["check"] = map[string]any{"runner": chosen.Runner, "paths": []any{}}
+	}
 	if err := writeSelection(root, sel); err != nil {
 		die(err)
 	}
@@ -844,7 +865,8 @@ func cruiseInit(inv *Invocation) {
 
 	// 6. the digest first, on its own line, then the summary
 	if out.json {
-		emit(map[string]any{"manifest_sha": sha, "draft": cruiseDraft, "goal": goal, "check": ck.command, "check_kind": ck.kind,
+		emit(map[string]any{"manifest_sha": sha, "draft": cruiseDraft, "goal": goal, "check": ck.command, "check_kind": ck.kind, "check_source": chosen.Source,
+			"pinned_inputs": pinned, "pinned_inputs_digest": pinnedDigest,
 			"tests_pinned": testCount, "tests_digest": tests, "boundary": boundary, "ladder": ladderWords(ladder), "rungs": len(ladder),
 			"time_s": cruiseTimeS, "spend_microusd": spend, "reserve_microusd": cruiseReserve,
 			"workspace": map[string]any{"files": len(files), "packed_bytes": cw.n, "tree_digest": treeDigest(files), "selection_digest": sel.Digest, "excluded": len(sel.Excluded), "policy_version": sel.PolicyVersion}, "previous_approval_removed": lockRemoved}, nil)
@@ -853,12 +875,9 @@ func cruiseInit(inv *Invocation) {
 	fmt.Println(sha)
 	fmt.Printf("manifest: %s (draft, version 1)\n", cruiseDraft)
 	fmt.Printf("goal: %s\n", goal)
-	how := "detected; override with --tests"
-	if ck.kind == "named" {
-		how = "named with --tests"
-	}
-	fmt.Printf("check: %s (%s)\n", ck.command, how)
-	fmt.Printf("tests pinned: %d files, tests_digest %s\n", testCount, short(tests))
+	how := map[string]string{"discovered": "discovered; choose another with --check", "explicit": "chosen with --check", "legacy_command": "named with --tests"}[chosen.Source]
+	fmt.Printf("check: %s (%s, %s)\n", ck.command, chosen.Runner, how)
+	fmt.Printf("pinned: %d verifier inputs (tests, their config, lockfiles and fixtures, nested included), tests_digest %s, inputs digest %s\n", testCount, short(tests), short(pinnedDigest))
 	fmt.Printf("boundary: %s\n", boundary)
 	src := "from --ladder"
 	if fromTable {
@@ -1000,6 +1019,42 @@ func cruiseApprove(inv *Invocation) {
 		die(fmt.Errorf("the workspace changed since init (tree digest %s, draft says %s); run ks cruise init again",
 			short(treeDigest(files)), short(want)))
 	}
+	// KS-074: the binding, inside the bytes about to be approved
+	ver, _ := m["verifier"].(map[string]any)
+	runner := checkRunnerOf(ver)
+	inputs, _, ierr := bindingInputs(files, runner)
+	if ierr != nil {
+		die(fmt.Errorf("%v; run ks cruise init again", ierr))
+	}
+	named, kerr := parseKeyFlags(inv.List("key"))
+	if kerr != nil {
+		die(&cliError{Code: exitUsage, Kind: "usage", Message: kerr.Error()})
+	}
+	c := mustCreds()
+	// KS-075: the ladder against the live catalog, before anything is bound
+	if err := checkLadderLive(c, m); err != nil {
+		die(err)
+	}
+	keys, err := fetchKeys(c)
+	if err != nil {
+		die(err)
+	}
+	routes, rerr := chooseRoutes(keys, bindingProviders(m), named)
+	if rerr != nil {
+		die(&cliError{Code: exitUsage, Kind: "route_unbound", Message: "the approval binds one provider key per provider the ladder uses: " + rerr.Error() + ". Nothing was approved"})
+	}
+	ws, _ := m["workspace"].(map[string]any)
+	if ws == nil || ws["sha256"] == nil {
+		die(fmt.Errorf("the draft names no workspace digest, and an approval binds the exact upload; run ks cruise init again"))
+	}
+	m["binding_version"] = cruiseBindingVersion
+	ws["selection_digest"] = sel.Digest
+	ver["inputs_digest"] = inputs
+	ver["check"] = map[string]any{"runner": runner, "paths": []any{}}
+	m["routes"] = routes
+	if err := writeDraft(root, m); err != nil {
+		die(err)
+	}
 	sha, err := manifestSHA(m)
 	if err != nil {
 		die(err)
@@ -1012,6 +1067,7 @@ func cruiseApprove(inv *Invocation) {
 	emit(map[string]any{"manifest_sha": sha, "lock": cruiseLock, "version": m["version"], "approved_at": lk.ApprovedAt}, func() {
 		fmt.Println(sha)
 		fmt.Printf("approved: %s locks manifest version %v at %s\n", cruiseLock, m["version"], lk.ApprovedAt)
+		fmt.Printf("bound: upload selection %s, check %s over inputs %s, keys %s\n", short(sel.Digest), runner, short(inputs), routesWords(routes))
 		fmt.Println("next: ks cruise run")
 	})
 }
@@ -1066,7 +1122,13 @@ func cruiseRun(inv *Invocation) error {
 	defer tmp.Close()
 	h := sha256.New()
 	cw := &capWriter{w: io.MultiWriter(tmp, h)}
-	files, sel, err := scanSelected(root, cw, readSelectionOverrides(root))
+	// the selection is rebuilt under the policy the approval recorded: a
+	// v1 approval is checked against a v1 selection, never re-judged by v2
+	policy := lk.PolicyVersion
+	if policy == "" {
+		policy = selectionPolicyVersion // no recorded policy: refused below by the empty digest
+	}
+	files, sel, err := scanSelectedUnder(root, cw, readSelectionOverrides(root), policy)
 	if err != nil {
 		return err
 	}
@@ -1074,7 +1136,19 @@ func cruiseRun(inv *Invocation) error {
 	// the pinned tests, recomputed
 	ver, _ := m["verifier"].(map[string]any)
 	command, _ := ver["command"].(string)
-	tests, _, err := testsDigest(root, files, checksFor(command))
+	pinnedRels := map[string]bool{}
+	if pp, ok := ver["prohibited_paths"].([]any); ok {
+		for _, x := range pp {
+			if r, _ := x.(string); r != "" && !strings.HasSuffix(r, "/") {
+				pinnedRels[r] = true
+			}
+		}
+	}
+	isPinned := checksFor(command)
+	if len(pinnedRels) > 0 {
+		isPinned = func(rel string) bool { return pinnedRels[rel] }
+	}
+	tests, _, err := testsDigest(root, files, isPinned)
 	if err != nil {
 		return err
 	}
@@ -1105,6 +1179,29 @@ func cruiseRun(inv *Invocation) error {
 	case lk.SelectionDigest != sel.Digest:
 		return fmt.Errorf("the upload selection changed since approve (selection digest %s, approved %s under %s); review it (ks cruise preview), then ks cruise init and approve again", short(sel.Digest), short(lk.SelectionDigest), lk.PolicyVersion)
 	}
+	bound := m["binding_version"] != nil
+	if bound {
+		// KS-074: everything the approval bound, recomputed; a change sends
+		// nothing at all
+		if want, _ := m["workspace"].(map[string]any)["selection_digest"].(string); want != sel.Digest {
+			return fmt.Errorf("the upload selection changed since approve (%s, approved %s); nothing was sent", short(sel.Digest), short(want))
+		}
+		inputs, _, ierr := bindingInputs(files, checkRunnerOf(ver))
+		if ierr != nil {
+			return fmt.Errorf("%v; nothing was sent", ierr)
+		}
+		if want, _ := ver["inputs_digest"].(string); want != inputs {
+			return fmt.Errorf("the check's inputs changed since approve (inputs digest %s, approved %s): a changed conftest, lockfile, fixture or test is a new check; nothing was sent (ks cruise init, then approve)", short(inputs), short(want))
+		}
+		keys, kerr := fetchKeys(c)
+		if kerr != nil {
+			return fmt.Errorf("the provider keys could not be read to check the approved routes (%v); nothing was sent", kerr)
+		}
+		routes, _ := m["routes"].([]any)
+		if ch := routeChanges(keys, routes); len(ch) > 0 {
+			return fmt.Errorf("a key the approval binds changed: %s; nothing was sent (approve again to bind the key now in place)", strings.Join(ch, "; "))
+		}
+	}
 	tarSha := hex.EncodeToString(h.Sum(nil))
 	ws, _ := m["workspace"].(map[string]any)
 	if ws == nil {
@@ -1116,6 +1213,8 @@ func cruiseRun(inv *Invocation) error {
 		if have != tarSha {
 			return fmt.Errorf("the packed workspace (%s) is not the one approved (%s); run ks cruise init and approve again", short(tarSha), short(have))
 		}
+	} else if bound {
+		return fmt.Errorf("the approved manifest names no workspace digest; a bound approval is sent exactly as approved, so nothing was sent")
 	} else {
 		// the draft was approved without a workspace digest (a hand-written
 		// draft): fill it now; the digest sent is of the filled manifest
@@ -1129,27 +1228,80 @@ func cruiseRun(inv *Invocation) error {
 	if err != nil {
 		return err
 	}
+	// the bytes sent ARE the approved bytes: their digest is the lock's
+	if sum := sha256.Sum256(manifestBytes); bound && hex.EncodeToString(sum[:]) != lk.SHA256 {
+		return fmt.Errorf("the manifest bytes are not the approved ones (%s, approved %s); nothing was sent", short(hex.EncodeToString(sum[:])), short(lk.SHA256))
+	}
+
+	// KS-075: the ladder against the live catalog; an unlisted model is
+	// refused here, before any upload, and nothing is substituted
+	if err := checkLadderLive(c, m); err != nil {
+		return err
+	}
+
+	// KS-029: the job-specific preflight, with what only this client
+	// measured, BEFORE anything is uploaded; a blocker stops here
+	if err := cruisePreflight(c, int64(sel.Bytes), int64(sel.Files), command, m); err != nil {
+		return err
+	}
 
 	// POST /api/jobs { manifest, manifest_sha, workspace_b64 }: the
 	// manifest goes over the wire as its canonical bytes, so what the
-	// control plane hashes is what the customer approved.
+	// control plane hashes is what the customer approved. With
+	// --separate-upload the workspace is left out and sent on its own
+	// route once the job exists.
+	separate := inv.Bool("separate-upload")
 	var body bytes.Buffer
 	body.WriteString(`{"manifest":`)
 	body.Write(manifestBytes)
-	body.WriteString(`,"manifest_sha":"` + sha + `","workspace_b64":"`)
-	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
-		return err
+	if separate {
+		body.WriteString(`,"manifest_sha":"` + sha + `"}`)
+	} else {
+		body.WriteString(`,"manifest_sha":"` + sha + `","workspace_b64":"`)
+		if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+			return err
+		}
+		b64 := base64.NewEncoder(base64.StdEncoding, &body)
+		if _, err := io.Copy(b64, tmp); err != nil {
+			return err
+		}
+		b64.Close()
+		body.WriteString(`"}`)
 	}
-	b64 := base64.NewEncoder(base64.StdEncoding, &body)
-	if _, err := io.Copy(b64, tmp); err != nil {
-		return err
-	}
-	b64.Close()
-	body.WriteString(`"}`)
 
 	var job map[string]any
 	if err := hostedMutate(c, "POST", "/api/jobs", body.Bytes(), &job); err != nil {
 		return err
+	}
+	if separate {
+		id := jstr(job, "id")
+		kept, kerr := keepArchive(tmp, id)
+		if kerr != nil {
+			return &cliError{Code: exitFailed, Kind: "archive_not_kept",
+				Message:    fmt.Sprintf("job %s was created without its workspace, and the packed archive could not be kept for its upload (%v); the job cannot start. Nothing was uploaded", id, kerr),
+				NextAction: "ks cruise cancel " + id + ", then ks cruise run again"}
+		}
+		if job["manifest"] == nil {
+			job["manifest"] = m
+		}
+		after, uerr := uploadKept(c, job, kept, true)
+		if uerr != nil {
+			progress("job %s exists and is queued WITHOUT its workspace; it cannot start until the upload is stored. The archive is kept at %s", id, kept)
+			var ce *cliError
+			if errors.As(uerr, &ce) && ce.NextAction == "" {
+				ce.NextAction = "ks cruise upload " + id
+			}
+			var he *hostedErr
+			if errors.As(uerr, &he) {
+				return &cliError{Code: classify(he).Code, Kind: "upload_refused", Message: fmt.Sprintf("the workspace upload for job %s was refused: %s", id, sanitize(he.Message)), NextAction: "ks cruise upload " + id + " (or ks cruise cancel " + id + ")"}
+			}
+			return uerr
+		}
+		for _, k := range []string{"state", "workspace_sha", "workspace_bytes"} {
+			if v, ok := after[k]; ok {
+				job[k] = v
+			}
+		}
 	}
 	ceiling := "unavailable"
 	if n, ok := jnum(job, "spend_ceiling_microusd"); ok {
@@ -1278,6 +1430,10 @@ func cruiseStatus(inv *Invocation) {
 	} else {
 		job = fetchJob(c, id)
 	}
+	if inv.Bool("watch") {
+		cruiseWatch(c, jstr(job, "id"))
+		return
+	}
 	emit(job, func() { printJob(job) })
 }
 
@@ -1341,6 +1497,9 @@ func printJob(job map[string]any) {
 	if n, ok := jnum(job, "spend_ceiling_microusd"); ok {
 		ceiling = dollars(n)
 	}
+	if l := workspaceLine(job); l != "" {
+		fmt.Println(l)
+	}
 	fmt.Printf("spent %s of %s ceiling\n", spent, ceiling)
 	fmt.Printf("verdict: %s\n", jstr(job, "verdict"))
 	if sha, _ := job["artifact_sha"].(string); sha != "" {
@@ -1389,40 +1548,6 @@ func eventDetail(e map[string]any) string {
 	return s
 }
 
-func cruiseCancel(inv *Invocation) {
-	c := mustCreds()
-	id := inv.Arg(0)
-	var job map[string]any
-	if err := hostedMutate(c, "POST", "/api/jobs/"+id+"/cancel", map[string]any{}, &job); err != nil {
-		die(err)
-	}
-	emit(job, func() {
-		progress("job %s %s", id, jstr(job, "state"))
-		fmt.Println(id)
-	})
-}
-
-func cruiseResume(inv *Invocation) {
-	c := mustCreds()
-	id := inv.Arg(0)
-	req := map[string]any{}
-	if specs := csvList(inv.Str("ladder")); len(specs) > 0 {
-		ladder, err := parseLadder(specs)
-		if err != nil {
-			die(err)
-		}
-		req["ladder"] = ladder
-	}
-	var job map[string]any
-	if err := hostedMutate(c, "POST", "/api/jobs/"+id+"/resume", req, &job); err != nil {
-		die(err)
-	}
-	emit(job, func() {
-		progress("job %s %s", id, jstr(job, "state"))
-		fmt.Println(id)
-	})
-}
-
 func cruiseArtifact(inv *Invocation) error {
 	c := mustCreds()
 	id := inv.Arg(0)
@@ -1435,42 +1560,93 @@ func cruiseArtifact(inv *Invocation) error {
 	if inv.Set("out") {
 		dest = inv.Str("out")
 	}
-	if _, err := os.Stat(dest); err == nil {
-		return fmt.Errorf("%s exists; choose another name with --out", dest)
+	// KS-078: where the control plane serves the result, a verified one is
+	// also re-checked against the candidate tree the receipt verified, and
+	// the badge is shown exactly as served; elsewhere, the sha256 check only
+	badge, candidate := "", ""
+	if st, err := fetchJobStatus(c, id); err == nil && st.Result != nil {
+		badge = st.Result.Badge
+		if badge == badgeVerified {
+			candidate, _ = st.Result.Provenance["candidate_digest"].(string)
+			if candidate == "" {
+				return &cliError{Code: exitIntegrity, Kind: "candidate_missing", Message: "the result reads verified but names no candidate digest to re-check the bytes against; nothing written"}
+			}
+		}
 	}
-	resp, err := hostedDo(c, "GET", "/api/jobs/"+id+"/artifact", "", nil)
+	n, err := safeDownload(c, id, dest, want, candidate)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		return hostedError("GET", "/api/jobs/"+id+"/artifact", resp, raw)
-	}
-	// downloaded next to the target, verified, then renamed into place:
-	// the named file exists only once its sha256 matches the job's record
-	dir := filepath.Dir(dest)
-	tmp, err := os.CreateTemp(dir, ".ks-artifact-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	h := sha256.New()
-	n, err := io.Copy(io.MultiWriter(tmp, h), resp.Body)
-	tmp.Close()
-	if err != nil {
-		return fmt.Errorf("download interrupted: %w", err)
-	}
-	got := hex.EncodeToString(h.Sum(nil))
-	if got != want {
-		return fmt.Errorf("artifact refused: sha256 %s does not match the job's record %s (nothing written)", short(got), short(want))
-	}
-	if err := os.Rename(tmp.Name(), dest); err != nil {
-		return err
-	}
-	emit(map[string]any{"job_id": id, "path": dest, "bytes": n, "sha256": want}, func() {
-		progress("artifact %s: %s bytes, sha256 %s verified", id, commas(n), short(want))
+	emit(map[string]any{"job_id": id, "path": dest, "bytes": n, "sha256": want, "badge": badge}, func() {
+		progress("artifact %s: %s bytes, sha256 %s matches the job's record", id, commas(n), short(want))
+		switch badge {
+		case "":
+			progress("provenance: not read from this control plane; this download is not shown as verified (ks cruise result %s)", id)
+		default:
+			progress("badge: %s", badgeLine(badge))
+		}
 		fmt.Println(dest)
 	})
 	return nil
+}
+
+// cruisePreflight asks the control plane whether this job could start:
+// the workspace as measured here, the acceptance check and the ladder's
+// families. A blocker refuses the run before any upload; a control plane
+// that serves no preflight (an older one) is said and not guessed about.
+func cruisePreflight(c hostedCreds, bytes, files int64, check string, m map[string]any) error {
+	body := map[string]any{"mode": "cruise", "workspace_bytes": bytes, "workspace_files": files}
+	if check != "" {
+		body["check_command"] = check
+	}
+	var fams []string
+	seen := map[string]bool{}
+	if l, ok := m["ladder"].([]any); ok {
+		for _, r := range l {
+			if rr, ok := r.(map[string]any); ok {
+				if f, _ := rr["family"].(string); f != "" && !seen[f] {
+					seen[f] = true
+					fams = append(fams, f)
+				}
+			}
+		}
+	}
+	if len(fams) > 0 {
+		body["ladder"] = fams
+	}
+	var env struct {
+		Data map[string]any `json:"data"`
+	}
+	if err := hostedCall(c, "POST", "/api/v2/preflight", body, &env); err != nil {
+		var he *hostedErr
+		if errors.As(err, &he) && he.Status == 404 {
+			progress("this control plane serves no job preflight; the job intake checks the job itself")
+			return nil
+		}
+		return err
+	}
+	var blocks []string
+	for _, ck := range preflightChecks(env.Data) {
+		if ck.Status == "block" {
+			line := ck.Check + ": " + sanitize(ck.Detail)
+			if ck.NextAction != "" {
+				line += " (" + sanitize(ck.NextAction) + ")"
+			}
+			blocks = append(blocks, line)
+		}
+	}
+	if len(blocks) > 0 {
+		fail(&cliError{Code: exitConflict, Kind: "preflight_blocked", Message: "preflight found blockers, so nothing was uploaded and no job was created: " + strings.Join(blocks, "; "),
+			NextAction: "ks preflight"})
+	}
+	return nil
+}
+
+func routesWords(routes []any) string {
+	var out []string
+	for _, x := range routes {
+		r, _ := x.(map[string]any)
+		out = append(out, fmt.Sprintf("%v=%v", r["provider"], r["key_id"]))
+	}
+	return strings.Join(out, ", ")
 }

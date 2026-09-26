@@ -105,7 +105,9 @@ func auditExec(t *testing.T, bin, cfg, dir string, env []string, args ...string)
 	cmd.Env = append(append(os.Environ(), "XDG_CONFIG_HOME="+cfg), env...)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
+	fixtureBarrier() // the test's changes to a fake happen before it is asked
 	err := cmd.Run()
+	fixtureBarrier() // what the fake recorded happens before the test reads it
 	code := 0
 	if ee, ok := err.(*exec.ExitError); ok {
 		code = ee.ExitCode()

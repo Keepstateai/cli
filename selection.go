@@ -36,7 +36,13 @@ import (
 )
 
 const (
-	selectionPolicyVersion = "ks-upload-policy/1"
+	// selectionPolicyVersion is the policy new selections are built under.
+	// v2 adds the verifier's SKIP_DIRS (dependency and tool trees) as an
+	// exclusion; v1 selections are still rebuilt exactly under v1 when an
+	// existing approval names v1, so its digest still verifies.
+	selectionPolicyVersion = selectionPolicyV2
+	selectionPolicyV1      = "ks-upload-policy/1"
+	selectionPolicyV2      = "ks-upload-policy/2"
 	cruiseSelection        = ".keepstate/selection.json"
 )
 
@@ -242,7 +248,18 @@ func allowed(overrides []string, rel string) bool {
 // and reconciles sizes. Symlinks are collected and the walk continues so
 // the preview can list them all; the error names them.
 func buildSelection(root string, overrides []string) (*selection, error) {
-	sel := &selection{PolicyVersion: selectionPolicyVersion, Included: []selFile{}, Excluded: []selExcluded{}, Symlinks: []string{}, Overrides: append([]string{}, overrides...)}
+	return buildSelectionUnder(root, overrides, selectionPolicyVersion)
+}
+
+// knownPolicy: a policy version this client can rebuild a selection under.
+func knownPolicy(v string) bool { return v == selectionPolicyV1 || v == selectionPolicyV2 }
+
+// buildSelectionUnder builds the selection under one named policy.
+func buildSelectionUnder(root string, overrides []string, policy string) (*selection, error) {
+	if !knownPolicy(policy) {
+		return nil, fmt.Errorf("upload policy %q is not one this client knows (it knows %s and %s); update the client, or approve again", policy, selectionPolicyV1, selectionPolicyV2)
+	}
+	sel := &selection{PolicyVersion: policy, Included: []selFile{}, Excluded: []selExcluded{}, Symlinks: []string{}, Overrides: append([]string{}, overrides...)}
 	sort.Strings(sel.Overrides)
 	var rules []ignoreRule
 	if fi, err := os.Lstat(filepath.Join(root, ".gitignore")); err == nil && fi.Mode().IsRegular() {
@@ -267,6 +284,12 @@ func buildSelection(root string, overrides []string) (*selection, error) {
 			isDir := e.IsDir()
 			if excludedName(name) {
 				sel.Excluded = append(sel.Excluded, selExcluded{Path: crel, Reason: "mandatory: " + map[string]string{".git": "the repository's history", ".keepstate": "the client's job files"}[name]})
+				continue
+			}
+			// v2: the trees the verifier never reads (its SKIP_DIRS) are not
+			// uploaded; an explicit --allow of the path still includes it
+			if policy == selectionPolicyV2 && isDir && verifierSkipDirs[name] && !allowed(overrides, crel) {
+				sel.Excluded = append(sel.Excluded, selExcluded{Path: crel, Reason: "dependency or tool tree: " + name + " (the verifier's SKIP_DIRS; --allow " + crel + " to include it)"})
 				continue
 			}
 			if reason := sensitiveReason(name, isDir); reason != "" && !allowed(overrides, crel) {
@@ -425,13 +448,35 @@ func cruisePreview(inv *Invocation) {
 	if sel == nil {
 		die(err)
 	}
-	// the check the draft names decides which files are its tests
-	isTest := isAnyTestFile
+	// the verifier inputs that would be pinned (KS-072): the draft's pinned
+	// set when there is a draft, else what discovery would pin -- every
+	// input of the one ecosystem with tests, or of all of them when more
+	// than one has tests (init then asks which)
+	shas := map[string]string{}
+	for _, f := range sel.Included {
+		shas[f.Path] = f.SHA256
+	}
+	disc := ks072Discover(shas, nil)
+	pinnedSet := map[string]bool{}
+	for _, e := range disc.WithTests {
+		for _, r := range ks072InputsOf(disc, e) {
+			pinnedSet[r.Path] = true
+		}
+	}
+	isTest := func(rel string) bool { return pinnedSet[rel] }
 	var allowedPaths []any
 	if m, derr := readDraft(); derr == nil {
 		if ver, _ := m["verifier"].(map[string]any); ver != nil {
-			if cmd, _ := ver["command"].(string); cmd != "" {
-				isTest = checksFor(cmd)
+			if pp, ok := ver["prohibited_paths"].([]any); ok {
+				draftSet := map[string]bool{}
+				for _, x := range pp {
+					if r, _ := x.(string); r != "" && !strings.HasSuffix(r, "/") {
+						draftSet[r] = true
+					}
+				}
+				if len(draftSet) > 0 {
+					isTest = func(rel string) bool { return draftSet[rel] }
+				}
 			}
 			allowedPaths, _ = ver["allowed_paths"].([]any)
 		}

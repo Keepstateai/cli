@@ -82,6 +82,7 @@ func runAgentEnv(t *testing.T, c *runCtl) (string, string) {
 
 func TestRunAgentReachesReadyAndSaysSo(t *testing.T) {
 	c := &runCtl{workspace: "available", prov: readyAnswer()}
+	syncFixture(t, &c.mu)
 	bin, cfg := runAgentEnv(t, c)
 	out, errOut, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "run", "--agent", "--name", "checkout")
 	if code != 0 {
@@ -115,6 +116,7 @@ func TestRunAgentReachesReadyAndSaysSo(t *testing.T) {
 
 func TestRunAgentWithATaskSubmitsItOnlyAfterReady(t *testing.T) {
 	c := &runCtl{workspace: "available", prov: readyAnswer()}
+	syncFixture(t, &c.mu)
 	bin, cfg := runAgentEnv(t, c)
 	out, errOut, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "run", "--agent", "--task", "run the tests")
 	if code != 0 {
@@ -142,6 +144,7 @@ func TestRunAgentWithATaskSubmitsItOnlyAfterReady(t *testing.T) {
 
 func TestRunAgentRefusedWhereAgentModeIsNotAvailableCreatesNothing(t *testing.T) {
 	c := &runCtl{workspace: "unavailable", prov: readyAnswer()}
+	syncFixture(t, &c.mu)
 	bin, cfg := runAgentEnv(t, c)
 	out, errOut, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "run", "--agent")
 	if code == 0 {
@@ -158,6 +161,7 @@ func TestRunAgentRefusedWhereAgentModeIsNotAvailableCreatesNothing(t *testing.T)
 // QA-029: a blocker stops the run before anything is created or billed.
 func TestRunAgentStopsOnAPreflightBlockerBeforeCreatingAnything(t *testing.T) {
 	c := &runCtl{workspace: "available", blockers: []string{"no enabled anthropic key on the account"}, prov: readyAnswer()}
+	syncFixture(t, &c.mu)
 	bin, cfg := runAgentEnv(t, c)
 	out, errOut, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "run", "--agent")
 	if code == 0 {
@@ -192,6 +196,7 @@ func TestRunAgentNeverPrintsReadyForAnAgentThatIsNotReady(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c := &runCtl{workspace: "available", prov: tc.prov}
+			syncFixture(t, &c.mu)
 			bin, cfg := runAgentEnv(t, c)
 			out, errOut, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "run", "--agent", "--task", "x")
 			if code != tc.exit {
@@ -212,6 +217,7 @@ func TestRunAgentNeverPrintsReadyForAnAgentThatIsNotReady(t *testing.T) {
 
 func TestRunFlagsThatBelongToAgentModeAreRefusedWithoutIt(t *testing.T) {
 	c := &runCtl{workspace: "available", prov: readyAnswer()}
+	syncFixture(t, &c.mu)
 	bin, cfg := runAgentEnv(t, c)
 	for _, args := range [][]string{{"run", "--task", "x"}, {"run", "--open"}, {"run", "--name", "n"}, {"run", "--agent", "--image", "base"}} {
 		out, errOut, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), args...)

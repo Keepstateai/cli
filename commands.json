@@ -187,7 +187,7 @@
   {
    "verb": "cruise init",
    "aliases": [],
-   "usage": "ks cruise init [--allow PATH...] [--goal TEXT] [--tests CMD] [--paths GLOB...] [--ladder family:model,...] [--spend USD]",
+   "usage": "ks cruise init [--allow PATH...] [--goal TEXT] [--tests CMD] [--check RUNNER] [--paths GLOB...] [--ladder family:model,...] [--spend USD]",
    "summary": "draft the acceptance manifest from the repository into .keepstate/cruise.json",
    "status": "available",
    "surface": "client",
@@ -203,6 +203,10 @@
     {
      "flag": "--tests CMD",
      "summary": "the command that decides done, when init should not detect it (pytest, npm test, go test)"
+    },
+    {
+     "flag": "--check RUNNER",
+     "summary": "the check to pin and run: pytest, go or node; required when tests of more than one ecosystem are found"
     },
     {
      "flag": "--paths GLOB...",
@@ -222,30 +226,48 @@
   {
    "verb": "cruise approve",
    "aliases": [],
-   "usage": "ks cruise approve",
-   "summary": "lock the draft: its digest and the time into .keepstate/cruise.lock",
+   "usage": "ks cruise approve [--key PROVIDER=KEY]",
+   "summary": "lock the draft, binding the upload selection, the check's inputs and one provider key per ladder provider into the digest",
    "status": "available",
-   "surface": "client",
-   "note": "makes no request; refused when the workspace changed since init"
+   "surface": "hosted",
+   "note": "makes no request; refused when the workspace changed since init",
+   "flags": [
+    {
+     "flag": "--key PROVIDER=KEY",
+     "summary": "the key to bind for a provider with several enabled keys (repeatable)"
+    }
+   ]
   },
   {
    "verb": "cruise run",
    "aliases": [],
-   "usage": "ks cruise run",
+   "usage": "ks cruise run [--separate-upload]",
    "summary": "upload the workspace and the locked manifest; start the job",
    "status": "available",
    "surface": "hosted",
    "safety": "Refuses, before any request: a draft without a lock (run `ks cruise approve`), a workspace over 50 MiB (.git and .keepstate excluded), a test file changed since approve (the tests_digest differs), a draft changed since approve, and a workspace changed since approve.",
-   "safetyMeasured": "2026-09-16, cruise_test.go (TestCruiseRunRefusals) against a recording control plane: each refusal exits non-zero with zero requests."
+   "safetyMeasured": "2026-09-16, cruise_test.go (TestCruiseRunRefusals) against a recording control plane: each refusal exits non-zero with zero requests.",
+   "flags": [
+    {
+     "flag": "--separate-upload",
+     "summary": "create the job without its workspace, then send the packed archive's raw bytes as its own upload (PUT /api/jobs/{id}/workspace); the job cannot start until the upload is stored, and the archive is kept until it is, so ks cruise upload JOB can send it again"
+    }
+   ]
   },
   {
    "verb": "cruise status",
    "aliases": [],
-   "usage": "ks cruise status [job]",
+   "usage": "ks cruise status [job] [--watch]",
    "summary": "the job (or the newest): state, rung, each attempt, save points, spend, verdict, artifact",
    "status": "available",
    "surface": "hosted",
-   "note": "absent values read \"unavailable\", never zero"
+   "note": "--watch reads GET /api/jobs/{id}/status, served by production ctl 4f9b4ad (build 8a22c753).",
+   "flags": [
+    {
+     "flag": "--watch",
+     "summary": "follow the job live: its plain state, the attempt in flight, a pending verifier result, the last save point, spend kept apart (unavailable is never $0) and the next actions, re-read as events arrive at the pace the service names; Ctrl-C ends only the watch"
+    }
+   ]
   },
   {
    "verb": "cruise logs",
@@ -261,7 +283,8 @@
    "usage": "ks cruise cancel <job>",
    "summary": "cancel a job",
    "status": "available",
-   "surface": "hosted"
+   "surface": "hosted",
+   "note": "Reads the job's review first (GET /api/jobs/{id}/status, served by production ctl 4f9b4ad) and shows the option's effect before acting; against an older control plane it says so and acts as before."
   },
   {
    "verb": "cruise resume",
@@ -275,7 +298,8 @@
      "flag": "--ladder family:model,...",
      "summary": "the rungs to continue on, in order"
     }
-   ]
+   ],
+   "note": "Reads the job's review first (GET /api/jobs/{id}/status, served by production ctl 4f9b4ad) and shows the option's effect before acting; against an older control plane it says so and acts as before."
   },
   {
    "verb": "cruise artifact",
@@ -291,15 +315,22 @@
     }
    ],
    "safety": "Verifies the download's sha256 against the job's artifact_sha before the named file exists; a mismatch is refused and nothing is written.",
-   "safetyMeasured": "2026-09-16, cruise_test.go (TestCruiseArtifactVerifiesBeforeWriting) against a control plane serving a tampered artifact."
+   "safetyMeasured": "2026-09-16, cruise_test.go (TestCruiseArtifactVerifiesBeforeWriting) against a control plane serving a tampered artifact.",
+   "note": "Where the job status serves a verified result (production ctl 4f9b4ad does), the bytes are also re-checked against the verified candidate tree and the badge is shown as served; otherwise only the sha256 check applies and the download is not shown as verified."
   },
   {
    "verb": "cruise models",
    "aliases": [],
-   "usage": "ks cruise models",
-   "summary": "the model table the control plane serves: families, rungs, default ladder",
+   "usage": "ks cruise models [--cached]",
+   "summary": "the model catalog: exact ids, family, provider route, rung, runner compatibility as stated, price standing and your key route",
    "status": "available",
-   "surface": "hosted"
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--cached",
+     "summary": "show the last catalog read, labelled CACHED with its version and served_at; makes no request"
+    }
+   ]
   },
   {
    "verb": "doctor",
@@ -312,10 +343,16 @@
   {
    "verb": "update",
    "aliases": [],
-   "usage": "ks update",
-   "summary": "self-update (checksum-verified)",
+   "usage": "ks update [--require-provenance]",
+   "summary": "self-update (checksum-verified, provenance-checked with gh)",
    "status": "available",
-   "surface": "client"
+   "surface": "client",
+   "flags": [
+    {
+     "flag": "--require-provenance",
+     "summary": "replace nothing unless gh verifies the new binary's build provenance"
+    }
+   ]
   },
   {
    "verb": "logout",
@@ -336,10 +373,16 @@
   {
    "verb": "version",
    "aliases": [],
-   "usage": "ks version",
-   "summary": "print the version",
+   "usage": "ks version [--verify]",
+   "summary": "print the version; with --verify, check this binary's build provenance",
    "status": "available",
-   "surface": "client"
+   "surface": "client",
+   "flags": [
+    {
+     "flag": "--verify",
+     "summary": "check this binary's GitHub build-provenance attestation with gh; without gh, or on any error, it reads NOT verified and exits non-zero"
+    }
+   ]
   },
   {
    "verb": "operation show",
@@ -492,7 +535,7 @@
   {
    "verb": "preflight",
    "aliases": [],
-   "usage": "ks preflight [--provider PROVIDER] [--mode MODE]",
+   "usage": "ks preflight [--provider PROVIDER] [--mode MODE] [--check COMMAND] [--ladder FAMILIES]",
    "summary": "what a run needs and what is missing: identity, keys, credit, capabilities, and the local upload preview; starts nothing",
    "status": "available",
    "surface": "hosted",
@@ -504,6 +547,14 @@
     {
      "flag": "--mode MODE",
      "summary": "what you are about to start: cruise (default) or agent"
+    },
+    {
+     "flag": "--check COMMAND",
+     "summary": "the acceptance check a Cruise job would run (default: the one in .keepstate/cruise.json)"
+    },
+    {
+     "flag": "--ladder FAMILIES",
+     "summary": "the model families a Cruise job would climb, comma-separated (default: the draft's ladder)"
     }
    ]
   },
@@ -518,14 +569,14 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session the agents live in; a short id is accepted when it is unique among yours"
+     "summary": "the session the agents live in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     }
    ]
   },
   {
    "verb": "agent open",
    "aliases": [],
-   "usage": "ks agent open <name> [--session ID] [--take-control] [--view] [--no-follow]",
+   "usage": "ks agent open <name> [--session ID] [--take-control] [--view] [--no-follow] [--resume] [--project PROJECT]",
    "summary": "the agent window: its state, then its events as they happen",
    "status": "planned",
    "surface": "hosted",
@@ -533,7 +584,7 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     },
     {
      "flag": "--take-control",
@@ -546,13 +597,21 @@
     {
      "flag": "--no-follow",
      "summary": "print the window's current state and exit, following nothing"
+    },
+    {
+     "flag": "--resume",
+     "summary": "if the session is saved and stopped, resume it (runtime is charged again) and then open; without it a stopped session is never woken"
+    },
+    {
+     "flag": "--project PROJECT",
+     "summary": "narrow a search by name to one project (without --session)"
     }
    ]
   },
   {
    "verb": "agent status",
    "aliases": [],
-   "usage": "ks agent status <name> [--session ID]",
+   "usage": "ks agent status <name> [--session ID] [--watch]",
    "summary": "one agent's activity, queue depth and current task",
    "status": "planned",
    "surface": "hosted",
@@ -560,14 +619,18 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--watch",
+     "summary": "read it again every 2 seconds until Ctrl-C, which stops watching and changes nothing"
     }
    ]
   },
   {
    "verb": "agent tell",
    "aliases": [],
-   "usage": "ks agent tell <name> <instruction> [--session ID]",
+   "usage": "ks agent tell <name> <instruction> [--session ID] [--resume]",
    "summary": "queue one instruction for an agent from outside any window",
    "status": "planned",
    "surface": "hosted",
@@ -575,7 +638,11 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--resume",
+     "summary": "if the session is parked, resume it after the instruction is accepted; without it a parked session is never woken and the instruction waits, held"
     }
    ]
   },
@@ -590,7 +657,7 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     }
    ]
   },
@@ -605,7 +672,7 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     },
     {
      "flag": "--finding TEXT",
@@ -624,7 +691,7 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     },
     {
      "flag": "--finding TEXT",
@@ -643,7 +710,7 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session the instruction belongs to; a short id is accepted when it is unique among yours"
+     "summary": "the session the instruction belongs to; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     },
     {
      "flag": "--checkpoint ID",
@@ -661,7 +728,9 @@
   },
   {
    "verb": "agent approve",
-   "aliases": [],
+   "aliases": [
+    "approval approve"
+   ],
    "usage": "ks agent approve <request> [--session ID]",
    "summary": "approve one permission request an agent is waiting on, by its id",
    "status": "planned",
@@ -670,13 +739,15 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session the request belongs to; a short id is accepted when it is unique among yours"
+     "summary": "the session the request belongs to; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     }
    ]
   },
   {
    "verb": "agent deny",
-   "aliases": [],
+   "aliases": [
+    "approval deny"
+   ],
    "usage": "ks agent deny <request> [--session ID]",
    "summary": "deny one permission request an agent is waiting on, by its id",
    "status": "planned",
@@ -685,7 +756,7 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session the request belongs to; a short id is accepted when it is unique among yours"
+     "summary": "the session the request belongs to; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     }
    ]
   },
@@ -700,7 +771,7 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     }
    ]
   },
@@ -715,7 +786,7 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours"
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     }
    ]
   },
@@ -732,7 +803,7 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session whose instructions to read; a short id is accepted when it is unique among yours"
+     "summary": "the session whose instructions to read; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     },
     {
      "flag": "--agent NAME",
@@ -775,7 +846,7 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session the instruction belongs to; a short id is accepted when it is unique among yours"
+     "summary": "the session the instruction belongs to; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     },
     {
      "flag": "--reason TEXT",
@@ -794,13 +865,879 @@
    "flags": [
     {
      "flag": "--session ID",
-     "summary": "the session the instruction belongs to; a short id is accepted when it is unique among yours"
+     "summary": "the session the instruction belongs to; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     },
     {
      "flag": "--finding TEXT",
      "summary": "what you established about the attempt; required, and recorded with the decision"
     }
    ]
+  },
+  {
+   "verb": "adviser connect",
+   "aliases": [],
+   "usage": "ks adviser connect <adviser> [--session ID] [--agent NAME] [--confirm SESSION/AGENT] [--expires DURATION] [--max-consultations N] [--max-tokens N] [--max-output-tokens N]",
+   "summary": "let an agent consult another agent of yours, after you have seen both ends and confirmed the adviser by name",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session of the agent that will ask; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--agent NAME",
+     "summary": "the agent that will ask (default main)"
+    },
+    {
+     "flag": "--confirm SESSION/AGENT",
+     "summary": "confirm the adviser without a prompt; it must name the adviser shown, as session/agent or by its id"
+    },
+    {
+     "flag": "--expires DURATION",
+     "summary": "how long the connection lasts (default 24h, at most 720h)"
+    },
+    {
+     "flag": "--max-consultations N",
+     "summary": "how many consultations the connection carries (default 50)"
+    },
+    {
+     "flag": "--max-tokens N",
+     "summary": "input plus output tokens admitted per consultation (default 16384)"
+    },
+    {
+     "flag": "--max-output-tokens N",
+     "summary": "output tokens admitted per consultation (default 4096)"
+    }
+   ]
+  },
+  {
+   "verb": "adviser list",
+   "aliases": [],
+   "usage": "ks adviser list [--session ID] [--agent NAME]",
+   "summary": "an agent's adviser connections, live, revoked and expired, in both directions",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--agent NAME",
+     "summary": "the agent (default main)"
+    }
+   ]
+  },
+  {
+   "verb": "adviser disconnect",
+   "aliases": [],
+   "usage": "ks adviser disconnect <grant>",
+   "summary": "withdraw a connection: every future consultation over it stops at once",
+   "status": "planned",
+   "surface": "hosted"
+  },
+  {
+   "verb": "session use",
+   "aliases": [],
+   "usage": "ks session use [session] [--clear] [--trust-repo] [--confirm SESSION]",
+   "summary": "bind this project to a session, so commands without --session mean it: per account, project root and control plane",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--clear",
+     "summary": "remove this project's binding"
+    },
+    {
+     "flag": "--trust-repo",
+     "summary": "adopt the session this repository's .keepstate/session.json names, once you confirm it with --confirm"
+    },
+    {
+     "flag": "--confirm SESSION",
+     "summary": "the id of the session the repository names; required with --trust-repo, never implied by --yes"
+    }
+   ]
+  },
+  {
+   "verb": "session rename",
+   "aliases": [],
+   "usage": "ks session rename <session> <new-name>",
+   "summary": "rename a session by id; its id and everything in it are unchanged",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "agent rename",
+   "aliases": [],
+   "usage": "ks agent rename <name> <new-name> [--session ID]",
+   "summary": "rename an agent by id; its tasks, approvals and adviser connections keep resolving",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    }
+   ]
+  },
+  {
+   "verb": "result list",
+   "aliases": [],
+   "usage": "ks result list [--task ID] [--session ID] [--agent NAME]",
+   "summary": "the results of one task, or of a session's tasks: name, size, sha256, task, verification",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--task ID",
+     "summary": "one instruction's results"
+    },
+    {
+     "flag": "--session ID",
+     "summary": "every task of this session's agents; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--agent NAME",
+     "summary": "only this agent's tasks (with --session)"
+    }
+   ]
+  },
+  {
+   "verb": "result show",
+   "aliases": [],
+   "usage": "ks result show <result>",
+   "summary": "one result: size, sha256, task and attempt, the producer's checks, the task's verification, provenance",
+   "status": "planned",
+   "surface": "hosted"
+  },
+  {
+   "verb": "result download",
+   "aliases": [],
+   "usage": "ks result download <result> [--out FILE] [--force] [--extract DIR] [--task ID] [--grant-ttl DURATION] [--keep-partial]",
+   "summary": "download a result, verify its size and sha256, and place it without replacing anything",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--out FILE",
+     "summary": "where to place it; default the result's own file name in this directory"
+    },
+    {
+     "flag": "--force",
+     "summary": "replace an existing file at the target (atomically, and only with verified bytes)"
+    },
+    {
+     "flag": "--extract DIR",
+     "summary": "unpack a tar, tar.gz or zip result into this NEW directory after every entry passes the C09 checks"
+    },
+    {
+     "flag": "--task ID",
+     "summary": "refuse unless the result belongs to this task"
+    },
+    {
+     "flag": "--grant-ttl DURATION",
+     "summary": "how long the download grant lives (1s to 1h; default the service's 10m)"
+    },
+    {
+     "flag": "--keep-partial",
+     "summary": "keep an interrupted download's incomplete bytes (.ks-partial-<result>) so the same command can resume; without it they are removed"
+    }
+   ]
+  },
+  {
+   "verb": "agent logs",
+   "aliases": [],
+   "usage": "ks agent logs [--session ID] [--follow] [--cursor CURSOR] [--limit N]",
+   "summary": "the session's setup log and its agent's log from a cursor, safe to print; --follow polls until the service says it ends",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--follow",
+     "summary": "keep reading new lines from the cursor until the service says following ends (a session that pauses ends it) or Ctrl-C"
+    },
+    {
+     "flag": "--cursor CURSOR",
+     "summary": "start after this cursor (from a previous page)"
+    },
+    {
+     "flag": "--limit N",
+     "summary": "at most N lines per page"
+    }
+   ]
+  },
+  {
+   "verb": "file list",
+   "aliases": [],
+   "usage": "ks file list [path] [--session ID]",
+   "summary": "one directory of a session's workspace: type, mode, size, name; secret files marked redacted",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session whose workspace to read; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    }
+   ]
+  },
+  {
+   "verb": "file show",
+   "aliases": [],
+   "usage": "ks file show <path> [--session ID] [--max-bytes N] [--out FILE]",
+   "summary": "one workspace file, at most 1 MiB, printed as safe text or written to a new file",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session whose workspace to read; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--max-bytes N",
+     "summary": "read at most N bytes (default and maximum 1 MiB)"
+    },
+    {
+     "flag": "--out FILE",
+     "summary": "write the bytes to this NEW file instead of printing them"
+    }
+   ]
+  },
+  {
+   "verb": "agent queue list",
+   "aliases": [],
+   "usage": "ks agent queue list <name> [--session ID]",
+   "summary": "an agent's pending work in dispatch order, the instruction executing now apart, and the queue revision a move names",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    }
+   ]
+  },
+  {
+   "verb": "task move",
+   "aliases": [],
+   "usage": "ks task move <instruction> [--session ID] [--before TASK] [--after TASK] [--queue-revision QREV]",
+   "summary": "move one queued instruction before or after another pending one of the same agent, against a queue revision",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--before TASK",
+     "summary": "place it just before this pending instruction"
+    },
+    {
+     "flag": "--after TASK",
+     "summary": "place it just after this pending instruction"
+    },
+    {
+     "flag": "--queue-revision QREV",
+     "summary": "the queue revision of the view you decided from (ks agent queue list prints it); without it the queue is read now and shown first"
+    }
+   ]
+  },
+  {
+   "verb": "approval list",
+   "aliases": [],
+   "usage": "ks approval list [--session ID] [--all]",
+   "summary": "a session's permission requests with the instruction each was asked for, what it touches and what deciding costs",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the request belongs to; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--all",
+     "summary": "every request, decided ones too, with who decided and when"
+    }
+   ]
+  },
+  {
+   "verb": "approval show",
+   "aliases": [],
+   "usage": "ks approval show <request> [--session ID]",
+   "summary": "one permission request in full: the action, its instruction, what it touches, the cost, expiry and decision",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the request belongs to; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    }
+   ]
+  },
+  {
+   "verb": "agent queue cancel",
+   "aliases": [],
+   "usage": "ks agent queue cancel <name> [--session ID] [--preview] [--confirm QREV] [--states STATES] [--reason TEXT]",
+   "summary": "cancel an agent's pending instructions in bulk: previewed first, then confirmed by naming the preview's queue revision",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--preview",
+     "summary": "show exactly what would be cancelled, and the queue revision a confirmation must name; changes nothing"
+    },
+    {
+     "flag": "--confirm QREV",
+     "summary": "cancel exactly what the preview at this queue revision showed; if the queue changed since, nothing is cancelled"
+    },
+    {
+     "flag": "--states STATES",
+     "summary": "queued, held, or queued,held (default both)"
+    },
+    {
+     "flag": "--reason TEXT",
+     "summary": "why, recorded with each cancellation"
+    }
+   ]
+  },
+  {
+   "verb": "task replace",
+   "aliases": [],
+   "usage": "ks task replace <instruction> [--session ID] [--text TEXT] [--queue-revision QREV] [--reason TEXT]",
+   "summary": "replace one pending instruction: it is cancelled with its content kept and a new one takes its place, against a queue revision",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--text TEXT",
+     "summary": "the replacement instruction (at most 64 KiB)"
+    },
+    {
+     "flag": "--queue-revision QREV",
+     "summary": "the queue revision of the view you decided from; without it the queue is read now and shown first"
+    },
+    {
+     "flag": "--reason TEXT",
+     "summary": "why, recorded with the replacement"
+    }
+   ]
+  },
+  {
+   "verb": "cruise proposal list",
+   "aliases": [],
+   "usage": "ks cruise proposal list [--session ID]",
+   "summary": "a session's proposed Cruise jobs, newest first: state, goal, manifest digest and the job each became",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session whose agents proposed; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    }
+   ]
+  },
+  {
+   "verb": "cruise proposal show",
+   "aliases": [],
+   "usage": "ks cruise proposal show <proposal>",
+   "summary": "one proposed job: its manifest in full, the digest the service states and the digest computed here, and its job",
+   "status": "planned",
+   "surface": "hosted"
+  },
+  {
+   "verb": "cruise proposal approve",
+   "aliases": [],
+   "usage": "ks cruise proposal approve <proposal> [--confirm DIGEST]",
+   "summary": "run a proposed job by confirming the digest of the exact manifest shown",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--confirm DIGEST",
+     "summary": "the manifest digest you reviewed (all of it, or the 12 characters shown); required without a terminal, never implied by --yes"
+    }
+   ]
+  },
+  {
+   "verb": "cruise proposal decline",
+   "aliases": [],
+   "usage": "ks cruise proposal decline <proposal> [--reason TEXT]",
+   "summary": "decline a proposed job; it never runs",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--reason TEXT",
+     "summary": "why, recorded with the decline"
+    }
+   ]
+  },
+  {
+   "verb": "session usage",
+   "aliases": [],
+   "usage": "ks session usage <session>",
+   "summary": "a session's model use, runtime and storage, apart, with units, source and whether each figure is actual, estimated or unavailable",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "check define",
+   "aliases": [],
+   "usage": "ks check define [--session ID] [--agent NAME] [--input PATH] [--artifact PATH] [--workdir PATH] [--kind KIND] [--timeout SECONDS] [--max-output BYTES] <name> [--] <argv...>",
+   "summary": "store a check: an argument vector with no shell, the files it depends on, its artifacts and bounds; runs nothing",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--agent NAME",
+     "summary": "the agent the check belongs to (default main)"
+    },
+    {
+     "flag": "--input PATH",
+     "summary": "a workspace file the check's behaviour depends on (repeatable; at least one); a change to any of them needs your trust again"
+    },
+    {
+     "flag": "--artifact PATH",
+     "summary": "a workspace file the check produces, whose digest is recorded (repeatable)"
+    },
+    {
+     "flag": "--workdir PATH",
+     "summary": "the workspace directory it runs in (default the workspace root)"
+    },
+    {
+     "flag": "--kind KIND",
+     "summary": "check or setup (default check)"
+    },
+    {
+     "flag": "--timeout SECONDS",
+     "summary": "the deadline, after which its process group is killed (default 600, at most 3600)"
+    },
+    {
+     "flag": "--max-output BYTES",
+     "summary": "the output kept (default 256 KiB, at most 1 MiB)"
+    }
+   ]
+  },
+  {
+   "verb": "check list",
+   "aliases": [],
+   "usage": "ks check list [--session ID] [--agent NAME]",
+   "summary": "an agent's checks: the exact action, the definition hash and the input sets you trusted",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--agent NAME",
+     "summary": "the agent the check belongs to (default main)"
+    }
+   ]
+  },
+  {
+   "verb": "check run",
+   "aliases": [],
+   "usage": "ks check run <check>",
+   "summary": "request a run of a check; it executes only over inputs you trusted",
+   "status": "planned",
+   "surface": "hosted"
+  },
+  {
+   "verb": "check show",
+   "aliases": [],
+   "usage": "ks check show <run>",
+   "summary": "one run: state, inputs seen, exit status, output, artifacts' digests, the action to trust",
+   "status": "planned",
+   "surface": "hosted"
+  },
+  {
+   "verb": "check trust",
+   "aliases": [],
+   "usage": "ks check trust <run> [--confirm HASH]",
+   "summary": "trust the exact action a run stopped at: this definition over the inputs it saw",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--confirm HASH",
+     "summary": "the action hash you were shown (all of it, or the 12 characters shown); required without a terminal, never implied by --yes"
+    }
+   ]
+  },
+  {
+   "verb": "session fork",
+   "aliases": [],
+   "usage": "ks session fork <session> [--plan] [--checkpoint CHECKPOINT] [--children N] [--execute DIGEST] [--plan-id ID]",
+   "summary": "plan a fork of a named saved point, then execute exactly that plan by its digest",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--plan",
+     "summary": "plan only: what the fork would do and cost; creates nothing"
+    },
+    {
+     "flag": "--checkpoint CHECKPOINT",
+     "summary": "the saved point to branch (with --plan); never chosen for you"
+    },
+    {
+     "flag": "--children N",
+     "summary": "how many children (with --plan; 1 to 8, default 1)"
+    },
+    {
+     "flag": "--execute DIGEST",
+     "summary": "execute the plan with this digest"
+    },
+    {
+     "flag": "--plan-id ID",
+     "summary": "the plan the digest belongs to (with --execute)"
+    }
+   ]
+  },
+  {
+   "verb": "session restore",
+   "aliases": [],
+   "usage": "ks session restore <session> [--checkpoint CHECKPOINT] [--reason TEXT] [--accept-affected DIGEST]",
+   "summary": "restore a session from a named saved point, and say exactly what continues from it",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--checkpoint CHECKPOINT",
+     "summary": "the saved point; never chosen for you"
+    },
+    {
+     "flag": "--reason TEXT",
+     "summary": "why, recorded with the restore (required)"
+    },
+    {
+     "flag": "--accept-affected DIGEST",
+     "summary": "consent to the exact list of work the service said the restore affects"
+    }
+   ]
+  },
+  {
+   "verb": "agent view",
+   "aliases": [],
+   "usage": "ks agent view <name> [--session ID] [--choose N] [--confirm CHOICE]",
+   "summary": "the live window's model: header, runner, footer counts and the KS menu, as the service gives them, within 80x24",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--choose N",
+     "summary": "perform menu item N through the request the service names for it"
+    },
+    {
+     "flag": "--confirm CHOICE",
+     "summary": "the dialog choice that performs an item that changes the session (never preselected, never implied by --yes)"
+    }
+   ]
+  },
+  {
+   "verb": "agent stop",
+   "aliases": [],
+   "usage": "ks agent stop <name> [--session ID] [--confirm NAME] [--reason TEXT]",
+   "summary": "stop an agent: its instruction in flight is asked to stop and its queue is held; the session keeps running",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--confirm NAME",
+     "summary": "confirm by naming the agent (required without a terminal; never implied by --yes)"
+    },
+    {
+     "flag": "--reason TEXT",
+     "summary": "why, recorded with the stop"
+    }
+   ]
+  },
+  {
+   "verb": "agent create",
+   "aliases": [],
+   "usage": "ks agent create <name> [--session ID]",
+   "summary": "create the primary agent of a session that has none",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    }
+   ]
+  },
+  {
+   "verb": "agent remove",
+   "aliases": [],
+   "usage": "ks agent remove <name> [--session ID] [--plan] [--execute PLAN]",
+   "summary": "remove an agent through a plan: what it cancels and keeps, then the removal naming that plan",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--plan",
+     "summary": "plan only: what removal would cancel, release and keep; changes nothing"
+    },
+    {
+     "flag": "--execute PLAN",
+     "summary": "remove the agent by this plan"
+    }
+   ]
+  },
+  {
+   "verb": "result diff",
+   "aliases": [],
+   "usage": "ks result diff <result> [--content]",
+   "summary": "what an attempt's ks-changeset.json says it changed, against its recorded base, with every path escaped",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--content",
+     "summary": "also show the new text of each changed text file (escaped)"
+    }
+   ]
+  },
+  {
+   "verb": "result apply",
+   "aliases": [],
+   "usage": "ks result apply [result] [--dir DIR] [--confirm DIGEST] [--recover]",
+   "summary": "apply an attempt's changeset to this project, only onto the recorded base, transactionally",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--dir DIR",
+     "summary": "the project root to apply to (default this project's root)"
+    },
+    {
+     "flag": "--confirm DIGEST",
+     "summary": "the changeset's digest (the 12 characters shown, or all of it); required without a terminal, never implied by --yes"
+    },
+    {
+     "flag": "--recover",
+     "summary": "put every path an interrupted apply touched back as it was"
+    }
+   ]
+  },
+  {
+   "verb": "session idle",
+   "aliases": [],
+   "usage": "ks session idle <session>",
+   "summary": "a session's idle policy and where it stands: counting, warned with the park time and countdown, deferred with the reason",
+   "status": "planned",
+   "surface": "hosted"
+  },
+  {
+   "verb": "project configure",
+   "aliases": [],
+   "usage": "ks project configure [--project ID] [--session ID] [--file PATH] [--confirm DIGEST]",
+   "summary": "propose .keepstate/project.json as the project's defaults, see the exact changes, and trust that digest only if you confirm it",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--project ID",
+     "summary": "the project (default: the project of --session or of this project's binding)"
+    },
+    {
+     "flag": "--session ID",
+     "summary": "a session of the project; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--file PATH",
+     "summary": "the defaults file (default .keepstate/project.json at the project root)"
+    },
+    {
+     "flag": "--confirm DIGEST",
+     "summary": "trust the proposal with this digest (the 12 characters shown, or all of it); never implied by --yes"
+    }
+   ]
+  },
+  {
+   "verb": "session checkpoint-policy",
+   "aliases": [],
+   "usage": "ks session checkpoint-policy <session> [--on] [--off] [--interval MINUTES]",
+   "summary": "a session's automatic-save policy and where it stands; --on/--off changes it against the session's revision",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--on",
+     "summary": "turn automatic saves on"
+    },
+    {
+     "flag": "--off",
+     "summary": "turn automatic saves off"
+    },
+    {
+     "flag": "--interval MINUTES",
+     "summary": "how often, with --on (5 to 120; default the service's 5)"
+    }
+   ]
+  },
+  {
+   "verb": "session delete",
+   "aliases": [],
+   "usage": "ks session delete <session> [--plan] [--execute PLAN] [--confirm SESSION]",
+   "summary": "delete a session record through a plan; the runtime's stop and the content's standing are reported apart",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--plan",
+     "summary": "plan only: what deletion would remove, stop and retain; changes nothing"
+    },
+    {
+     "flag": "--execute PLAN",
+     "summary": "delete by this plan"
+    },
+    {
+     "flag": "--confirm SESSION",
+     "summary": "the session's id, confirming the deletion (never implied by --yes)"
+    }
+   ]
+  },
+  {
+   "verb": "adviser discover",
+   "aliases": [],
+   "usage": "ks adviser discover [name] [--project ID]",
+   "summary": "the existing agents you may consult: selector, availability, the runner each reported, last seen; creates and grants nothing",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--project ID",
+     "summary": "one project you may read instead of your own account"
+    }
+   ]
+  },
+  {
+   "verb": "cruise upload",
+   "aliases": [],
+   "usage": "ks cruise upload <job> [--from FILE]",
+   "summary": "send a queued job's workspace as its own upload, from the archive kept when the job was created (or --from FILE), checked against the job's manifest first",
+   "status": "available",
+   "surface": "hosted",
+   "safety": "Refuses, before any upload: a job that is not queued, a job whose workspace is already stored (nothing is sent), no kept archive and no --from (it never re-packs), and an archive whose sha256 or size differs from the job's manifest.",
+   "safetyMeasured": "2026-09-26, cruise_upload_test.go (TestCruiseUploadRefusalsSendNothing) against a recording control plane: each local refusal sends no PUT; the service's 403 exits 3 and its 409 exits 5.",
+   "flags": [
+    {
+     "flag": "--from FILE",
+     "summary": "the archive to send instead of the kept one; it must be the exact archive the job's manifest names (sha256 and size), or nothing is sent"
+    }
+   ]
+  },
+  {
+   "verb": "advice list",
+   "aliases": [],
+   "usage": "ks advice list <instruction>",
+   "summary": "every consultation one instruction raised: who was asked, who replied, who is pending or unavailable (named), whether the set is complete, current or history",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "Gated on the registry's advisers.advice row, which reads unavailable today; the verb refuses with that row's reason. The agent.workspace row decides only for an older registry that has no advisers.advice row."
+  },
+  {
+   "verb": "advice show",
+   "aliases": [],
+   "usage": "ks advice show <consultation>",
+   "summary": "one consultation in full: who asked whom, when it was asked, taken up and answered, the context it was asked with, and the adviser's own words",
+   "status": "planned",
+   "surface": "hosted",
+   "note": "Gated on the registry's advisers.advice row, which reads unavailable today; the verb refuses with that row's reason. The agent.workspace row decides only for an older registry that has no advisers.advice row."
+  },
+  {
+   "verb": "cruise review",
+   "aliases": [],
+   "usage": "ks cruise review <job>",
+   "summary": "a job in review: why it stopped, every attempt with its exact check result and cost, what remains of the ceiling, and each option with its effect",
+   "status": "available",
+   "surface": "hosted",
+   "note": "Reads GET /api/jobs/{id}/status (served by production ctl 4f9b4ad, build 8a22c753; an unauthenticated request answers 401)."
+  },
+  {
+   "verb": "cruise result",
+   "aliases": [],
+   "usage": "ks cruise result <job> [--download] [--out FILE]",
+   "summary": "an accepted job's result: the badge exactly as served, the provenance chain, and every limitation",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--download",
+     "summary": "also download the artifact: its sha256 and, for a verified result, the tree it holds are checked against the candidate the receipt verified before anything is written"
+    },
+    {
+     "flag": "--out FILE",
+     "summary": "where --download writes; default JOB.tar.gz; an existing file is never written over"
+    }
+   ],
+   "note": "Reads GET /api/jobs/{id}/status (served by production ctl 4f9b4ad, build 8a22c753; an unauthenticated request answers 401)."
+  },
+  {
+   "verb": "cruise apply",
+   "aliases": [],
+   "usage": "ks cruise apply <job> [--dir DIR] [--confirm DIGEST]",
+   "summary": "apply an accepted job's result to this project file by file, only onto the base each file was changed from, transactionally",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--dir DIR",
+     "summary": "the project root to apply to (default this project's root)"
+    },
+    {
+     "flag": "--confirm DIGEST",
+     "summary": "the changeset's digest (the 12 characters shown, or all of it); required without a terminal, never implied by --yes"
+    }
+   ],
+   "note": "Reads GET /api/jobs/{id}/status and GET /api/jobs/{id}/changeset (both served by production ctl 4f9b4ad, build 8a22c753; unauthenticated requests answer 401)."
+  },
+  {
+   "verb": "session migrate",
+   "aliases": [],
+   "usage": "ks session migrate <session> [--confirm DIGEST]",
+   "summary": "turn a legacy session into an agent session through a preview you review: runner, keys, saved points, what each legacy command does afterwards, what is preserved, the rollback point",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--confirm DIGEST",
+     "summary": "the preview's digest (the 12 characters shown, or all of it); required without a terminal, never implied by --yes"
+    }
+   ],
+   "note": "Reads GET /api/v2/sessions/{id}/migration and sends POST /api/v2/sessions/{id}/migrate, which the deployed control plane does not serve yet; gated on the registry's session.migration row, else agent.workspace."
   }
  ]
 }

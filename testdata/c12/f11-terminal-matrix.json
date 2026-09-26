@@ -1,0 +1,29 @@
+{
+ "$comment": "KS-091 F11: the terminal matrix, as data for the client's PTY harness (KS-094, protocol MP-TERMINAL-F11). Every size is crossed with every text sample and every output mode; the interactions run in each cell and every listed screen is reviewed. The strings are synthetic.",
+ "version": "c12-fixtures/1",
+ "sizes": [
+  {"cols": 80, "rows": 24},
+  {"cols": 120, "rows": 40},
+  {"cols": 160, "rows": 50},
+  {"cols": 60, "rows": 16, "below_minimum": true, "expect": "a stated minimum-size notice; no control overlaps another; nothing is cut mid-escape"}
+ ],
+ "text": [
+  {"name": "ascii", "sample": "Refactor the invoice parser and run its tests."},
+  {"name": "turkish", "sample": "İstanbul'daki şube için çalışma notlarını güncelle: ı İ ğ Ğ ş Ş ç Ç ö Ö ü Ü"},
+  {"name": "wide", "sample": "テストを実行 — 👍 combining é and zero​width"},
+  {"name": "long_path", "sample": "src/very/deeply/nested/directory/structure/that/keeps/going/and/going/until/it/wraps/the/line/module_with_a_long_name.py"},
+  {"name": "multiline_paste", "sample": "line one\nline two with\ttab\n\n  indented line four\nline five"},
+  {"name": "escape_injection", "sample": "adviser says: \u001b]0;pwned\u0007 \u001b[2J\u001b[H CLEARED \u001b[31mred\u001b[0m", "expect": "rendered inert: no title change, no clear, no colour from content"}
+ ],
+ "modes": ["color", "no-color (NO_COLOR=1)", "plain (--plain)", "screen reader (linear output, no box drawing)"],
+ "interactions": [
+  "resize during streaming output",
+  "multi-line paste then submit; then drop the connection and reconnect before submit",
+  "interrupted connection and reconnect to the same work",
+  "a second controller opens the same agent and takes control",
+  "Ctrl-C, leave and park, each visibly distinct",
+  "keyboard navigation through every control; focus returns after a dialog",
+  "a destructive confirmation that ordinary typed text cannot satisfy"
+ ],
+ "screens": ["empty", "loading", "ready", "working", "busy", "approval", "advice pending", "advice partial", "stale", "cancelled", "parked", "failed", "recovery"]
+}

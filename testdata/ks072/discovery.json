@@ -1,0 +1,304 @@
+{
+ "go-nested": {
+  "discovery": {
+   "ecosystems": {
+    "go": {
+     "config": [
+      {
+       "path": "go.mod",
+       "sha256": "f4051b6cb05e36db3f4488d29fc2a08573c8535da2fbe3ef2d31e28f8b5b0143"
+      }
+     ],
+     "deps": [],
+     "fixtures": [
+      {
+       "path": "pkg/mathx/testdata/cases.txt",
+       "sha256": "5bf31a4a8ead3087a1d0b8df56933cc319825c7f4bca4d1907d531e9798bcc6b"
+      }
+     ],
+     "test_support": [],
+     "tests": [
+      {
+       "path": "pkg/mathx/add_test.go",
+       "sha256": "1cd0c923ffbcec0373177010aed29a5b6798d9459651cc7d0d7c090d4441fa51"
+      }
+     ]
+    }
+   },
+   "symlinks": [],
+   "with_tests": [
+    "go"
+   ]
+  },
+  "selection": {
+   "pinned_inputs": [
+    {
+     "path": "go.mod",
+     "sha256": "f4051b6cb05e36db3f4488d29fc2a08573c8535da2fbe3ef2d31e28f8b5b0143"
+    },
+    {
+     "path": "pkg/mathx/add_test.go",
+     "sha256": "1cd0c923ffbcec0373177010aed29a5b6798d9459651cc7d0d7c090d4441fa51"
+    },
+    {
+     "path": "pkg/mathx/testdata/cases.txt",
+     "sha256": "5bf31a4a8ead3087a1d0b8df56933cc319825c7f4bca4d1907d531e9798bcc6b"
+    }
+   ],
+   "pinned_inputs_digest": "9e0d566f42c6cae20535ca88b4e05b6e2d2d346d0793b97888338f897c834b14",
+   "runner": "go",
+   "source": "discovered"
+  }
+ },
+ "mixed": {
+  "discovery": {
+   "ecosystems": {
+    "node": {
+     "config": [
+      {
+       "path": "package.json",
+       "sha256": "1b76513362d1e028974afd73a890101759aa6d907802d5fbfd9fa1ae76cba6de"
+      }
+     ],
+     "deps": [],
+     "fixtures": [
+      {
+       "path": "test/fixtures/cases.json",
+       "sha256": "45d41d67c7a3131e6bfbcc5fa8c66e08af5ffd0b997a88678bcc9320883d7778"
+      },
+      {
+       "path": "tests/testdata/cases.json",
+       "sha256": "52f31ea440aea00eee95c3c07c182fe6b3ac8c7d79c8073b30c269070ef71c0c"
+      }
+     ],
+     "test_support": [],
+     "tests": [
+      {
+       "path": "test/unit/add.test.js",
+       "sha256": "7c7a4d2017f86fb37f342e5703d00f66e182fa718a4901a5905fb3bc82e9298a"
+      }
+     ]
+    },
+    "python": {
+     "config": [
+      {
+       "path": "conftest.py",
+       "sha256": "e94697d5898a08c441138fa3b50f4ec43dd528469bbdb269f39a02158fc579d2"
+      },
+      {
+       "path": "pytest.ini",
+       "sha256": "c809c969ec7e11b9ff37784e9c6fcc0b7c5148d168e18b05aed797e03fbd6ead"
+      },
+      {
+       "path": "tests/unit/conftest.py",
+       "sha256": "88ffe5d907f59b2d1f740116c575ef4b8014536543a6da1880fb35dfc4ed0c90"
+      }
+     ],
+     "deps": [
+      {
+       "path": "requirements.txt",
+       "sha256": "8004a972c3d5c274d8c808e8d8afe03b9aca8af8eebf3df4298f114d8008b754"
+      }
+     ],
+     "fixtures": [
+      {
+       "path": "test/fixtures/cases.json",
+       "sha256": "45d41d67c7a3131e6bfbcc5fa8c66e08af5ffd0b997a88678bcc9320883d7778"
+      },
+      {
+       "path": "tests/testdata/cases.json",
+       "sha256": "52f31ea440aea00eee95c3c07c182fe6b3ac8c7d79c8073b30c269070ef71c0c"
+      }
+     ],
+     "test_support": [
+      {
+       "path": "tests/__init__.py",
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+       "path": "tests/unit/__init__.py",
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+     ],
+     "tests": [
+      {
+       "path": "tests/unit/test_add.py",
+       "sha256": "8e95d97df84e7c57a9bcc93e0a388eb21c902d4f0b6030a928ccb028d9e9eda6"
+      }
+     ]
+    }
+   },
+   "symlinks": [],
+   "with_tests": [
+    "node",
+    "python"
+   ]
+  },
+  "selection": {
+   "refused": "ks_check_ambiguous"
+  }
+ },
+ "no-tests": {
+  "discovery": {
+   "ecosystems": {},
+   "symlinks": [],
+   "with_tests": []
+  },
+  "selection": {
+   "refused": "ks_check_not_found"
+  }
+ },
+ "node-nested": {
+  "discovery": {
+   "ecosystems": {
+    "node": {
+     "config": [
+      {
+       "path": "package.json",
+       "sha256": "1b76513362d1e028974afd73a890101759aa6d907802d5fbfd9fa1ae76cba6de"
+      }
+     ],
+     "deps": [
+      {
+       "path": "package-lock.json",
+       "sha256": "58432c89a7ce2bffd0e0f217e0e48ee368b95b67ce9a10529b9e5d4b158c4f59"
+      }
+     ],
+     "fixtures": [
+      {
+       "path": "test/fixtures/cases.json",
+       "sha256": "45d41d67c7a3131e6bfbcc5fa8c66e08af5ffd0b997a88678bcc9320883d7778"
+      }
+     ],
+     "test_support": [],
+     "tests": [
+      {
+       "path": "test/unit/add.test.js",
+       "sha256": "7c7a4d2017f86fb37f342e5703d00f66e182fa718a4901a5905fb3bc82e9298a"
+      }
+     ]
+    }
+   },
+   "symlinks": [],
+   "with_tests": [
+    "node"
+   ]
+  },
+  "selection": {
+   "pinned_inputs": [
+    {
+     "path": "package-lock.json",
+     "sha256": "58432c89a7ce2bffd0e0f217e0e48ee368b95b67ce9a10529b9e5d4b158c4f59"
+    },
+    {
+     "path": "package.json",
+     "sha256": "1b76513362d1e028974afd73a890101759aa6d907802d5fbfd9fa1ae76cba6de"
+    },
+    {
+     "path": "test/fixtures/cases.json",
+     "sha256": "45d41d67c7a3131e6bfbcc5fa8c66e08af5ffd0b997a88678bcc9320883d7778"
+    },
+    {
+     "path": "test/unit/add.test.js",
+     "sha256": "7c7a4d2017f86fb37f342e5703d00f66e182fa718a4901a5905fb3bc82e9298a"
+    }
+   ],
+   "pinned_inputs_digest": "1ac056762a42730671c6666e90828777e8a56dfab24b820bf70cc5f34704f3a8",
+   "runner": "node",
+   "source": "discovered"
+  }
+ },
+ "py-nested": {
+  "discovery": {
+   "ecosystems": {
+    "python": {
+     "config": [
+      {
+       "path": "conftest.py",
+       "sha256": "e94697d5898a08c441138fa3b50f4ec43dd528469bbdb269f39a02158fc579d2"
+      },
+      {
+       "path": "pytest.ini",
+       "sha256": "c809c969ec7e11b9ff37784e9c6fcc0b7c5148d168e18b05aed797e03fbd6ead"
+      },
+      {
+       "path": "tests/unit/conftest.py",
+       "sha256": "88ffe5d907f59b2d1f740116c575ef4b8014536543a6da1880fb35dfc4ed0c90"
+      }
+     ],
+     "deps": [
+      {
+       "path": "requirements.txt",
+       "sha256": "8004a972c3d5c274d8c808e8d8afe03b9aca8af8eebf3df4298f114d8008b754"
+      }
+     ],
+     "fixtures": [
+      {
+       "path": "tests/testdata/cases.json",
+       "sha256": "52f31ea440aea00eee95c3c07c182fe6b3ac8c7d79c8073b30c269070ef71c0c"
+      }
+     ],
+     "test_support": [
+      {
+       "path": "tests/__init__.py",
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+       "path": "tests/unit/__init__.py",
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+     ],
+     "tests": [
+      {
+       "path": "tests/unit/test_add.py",
+       "sha256": "8e95d97df84e7c57a9bcc93e0a388eb21c902d4f0b6030a928ccb028d9e9eda6"
+      }
+     ]
+    }
+   },
+   "symlinks": [],
+   "with_tests": [
+    "python"
+   ]
+  },
+  "selection": {
+   "pinned_inputs": [
+    {
+     "path": "conftest.py",
+     "sha256": "e94697d5898a08c441138fa3b50f4ec43dd528469bbdb269f39a02158fc579d2"
+    },
+    {
+     "path": "pytest.ini",
+     "sha256": "c809c969ec7e11b9ff37784e9c6fcc0b7c5148d168e18b05aed797e03fbd6ead"
+    },
+    {
+     "path": "requirements.txt",
+     "sha256": "8004a972c3d5c274d8c808e8d8afe03b9aca8af8eebf3df4298f114d8008b754"
+    },
+    {
+     "path": "tests/__init__.py",
+     "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+     "path": "tests/testdata/cases.json",
+     "sha256": "52f31ea440aea00eee95c3c07c182fe6b3ac8c7d79c8073b30c269070ef71c0c"
+    },
+    {
+     "path": "tests/unit/__init__.py",
+     "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+     "path": "tests/unit/conftest.py",
+     "sha256": "88ffe5d907f59b2d1f740116c575ef4b8014536543a6da1880fb35dfc4ed0c90"
+    },
+    {
+     "path": "tests/unit/test_add.py",
+     "sha256": "8e95d97df84e7c57a9bcc93e0a388eb21c902d4f0b6030a928ccb028d9e9eda6"
+    }
+   ],
+   "pinned_inputs_digest": "d29d157525764207f93461bd0cd81698241158c5ea70b53d29aa01e1c0ab37c5",
+   "runner": "pytest",
+   "source": "discovered"
+  }
+ }
+}

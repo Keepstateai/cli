@@ -1,0 +1,47 @@
+{
+ "go-nested": {
+  "go.mod": "module example.com/g\n\ngo 1.22\n",
+  "pkg/mathx/add.go": "package mathx\n\nfunc Add(a, b int) int { return a - b }\n",
+  "pkg/mathx/add_test.go": "package mathx\n\nimport (\n\t\"bufio\"\n\t\"fmt\"\n\t\"os\"\n\t\"testing\"\n)\n\nfunc TestAdd(t *testing.T) {\n\tf, err := os.Open(\"testdata/cases.txt\")\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tdefer f.Close()\n\ts := bufio.NewScanner(f)\n\tn := 0\n\tfor s.Scan() {\n\t\tvar a, b, want int\n\t\tif _, err := fmt.Sscan(s.Text(), &a, &b, &want); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tif got := Add(a, b); got != want {\n\t\t\tt.Errorf(\"Add(%d,%d)=%d want %d\", a, b, got, want)\n\t\t}\n\t\tn++\n\t}\n\tif n == 0 {\n\t\tt.Fatal(\"no cases\")\n\t}\n}\n",
+  "pkg/mathx/testdata/cases.txt": "2 3 5\n-1 1 0\n"
+ },
+ "mixed": {
+  "README.md": "calc\n",
+  "conftest.py": "import os, sys\nsys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))\n",
+  "lib/add.js": "module.exports = (a, b) => a + b;\n",
+  "package.json": "{\n \"name\": \"n\",\n \"version\": \"1.0.0\",\n \"scripts\": {\n  \"test\": \"node --test\"\n }\n}\n",
+  "pytest.ini": "[pytest]\ntestpaths = tests\n",
+  "requirements.txt": "pytest\n",
+  "src/calc/__init__.py": "def add(a, b):\n    return a - b  # BUG\n",
+  "test/fixtures/cases.json": "[[2, 3, 5], [-1, 1, 0]]\n",
+  "test/unit/add.test.js": "const test = require('node:test');\nconst assert = require('node:assert');\nconst path = require('node:path');\nconst add = require('../../lib/add');\nconst cases = require(path.join(__dirname, '..', 'fixtures', 'cases.json'));\ntest('adds', () => { for (const [a, b, w] of cases) assert.strictEqual(add(a, b), w); });\n",
+  "tests/__init__.py": "",
+  "tests/testdata/cases.json": "[[2, 3, 5], [-1, 1, 0], [10, 5, 15]]\n",
+  "tests/unit/__init__.py": "",
+  "tests/unit/conftest.py": "import pytest\n\n@pytest.fixture\ndef offset():\n    return 0\n",
+  "tests/unit/test_add.py": "import json, os\nfrom calc import add\n\nCASES = json.load(open(os.path.join(os.path.dirname(__file__), '..', 'testdata', 'cases.json')))\n\ndef test_cases(offset):\n    for a, b, want in CASES:\n        assert add(a, b) + offset == want\n"
+ },
+ "no-tests": {
+  "pyproject.toml": "[project]\nname='x'\n",
+  "src/app.py": "print('hi')\n"
+ },
+ "node-nested": {
+  "lib/add.js": "module.exports = (a, b) => a - b; // BUG\n",
+  "package-lock.json": "{\"name\": \"n\", \"lockfileVersion\": 3, \"packages\": {}}\n",
+  "package.json": "{\n \"name\": \"n\",\n \"version\": \"1.0.0\",\n \"scripts\": {\n  \"test\": \"node --test\"\n }\n}\n",
+  "test/fixtures/cases.json": "[[2, 3, 5], [-1, 1, 0]]\n",
+  "test/unit/add.test.js": "const test = require('node:test');\nconst assert = require('node:assert');\nconst path = require('node:path');\nconst add = require('../../lib/add');\nconst cases = require(path.join(__dirname, '..', 'fixtures', 'cases.json'));\ntest('adds', () => { for (const [a, b, w] of cases) assert.strictEqual(add(a, b), w); });\n"
+ },
+ "py-nested": {
+  "README.md": "calc\n",
+  "conftest.py": "import os, sys\nsys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))\n",
+  "pytest.ini": "[pytest]\ntestpaths = tests\n",
+  "requirements.txt": "pytest\n",
+  "src/calc/__init__.py": "def add(a, b):\n    return a - b  # BUG\n",
+  "tests/__init__.py": "",
+  "tests/testdata/cases.json": "[[2, 3, 5], [-1, 1, 0], [10, 5, 15]]\n",
+  "tests/unit/__init__.py": "",
+  "tests/unit/conftest.py": "import pytest\n\n@pytest.fixture\ndef offset():\n    return 0\n",
+  "tests/unit/test_add.py": "import json, os\nfrom calc import add\n\nCASES = json.load(open(os.path.join(os.path.dirname(__file__), '..', 'testdata', 'cases.json')))\n\ndef test_cases(offset):\n    for a, b, want in CASES:\n        assert add(a, b) + offset == want\n"
+ }
+}

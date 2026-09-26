@@ -135,6 +135,10 @@ type hostedErr struct {
 	Type     string
 	Message  string
 	Mutation bool
+	// Raw is the refusal's body, kept for the few refusals that carry facts
+	// beyond the message (a decision that lost says what was decided, and by
+	// whom). Never printed as is.
+	Raw []byte
 }
 
 func (e *hostedErr) Error() string {
@@ -166,7 +170,29 @@ func classify(err error) *cliError {
 		return &cliError{Code: exitTemporary, Kind: "unreachable", Message: "the control plane did not answer: " + sanitize(te.err.Error()), WorkStarted: ws}
 	}
 	var he *hostedErr
+	if errors.As(err, &he) && he.Type == "ks_client_too_old" {
+		// the service refused by name an operation newer than this client's
+		// declared protocol: nothing was done, and the message names the
+		// capability it belongs to
+		return &cliError{Code: exitFailed, Kind: he.Type, Message: sanitize(he.Message), HTTPStatus: he.Status, WorkStarted: workNo,
+			NextAction: "ks update (this client speaks protocol " + clientProtocolText + ")"}
+	}
 	if errors.As(err, &he) {
+		// KS-090: the service's rollout and recovery refusals, by name
+		switch he.Type {
+		case "ks_rollout_paused":
+			return &cliError{Code: exitTemporary, Kind: he.Type, HTTPStatus: he.Status, WorkStarted: workNo,
+				Message:    "the service has paused new actions of this kind: " + sanitize(he.Message) + " [ks_rollout_paused]",
+				NextAction: "retry later; status, cancellation and results still work"}
+		case "ks_read_only_recovery":
+			return &cliError{Code: exitTemporary, Kind: he.Type, HTTPStatus: he.Status, WorkStarted: workNo,
+				Message:    "the service is in read-only recovery: " + sanitize(he.Message) + " [ks_read_only_recovery]",
+				NextAction: "retry after the service's repair; reading (status, lists, results) still works"}
+		case "ks_legacy_retired":
+			return &cliError{Code: exitFailed, Kind: he.Type, HTTPStatus: he.Status, WorkStarted: workNo,
+				Message:    sanitize(he.Message) + " [ks_legacy_retired]",
+				NextAction: "start an agent session instead: ks run --agent (existing sessions keep their status, saves and results)"}
+		}
 		c := &cliError{Kind: he.Type, Message: sanitize(he.Message), HTTPStatus: he.Status, WorkStarted: workNo}
 		if c.Kind == "" {
 			c.Kind = "http_" + fmt.Sprint(he.Status)

@@ -310,6 +310,13 @@ type fakeCtl struct {
 	posted   []byte // the last POST /api/jobs body
 	job      map[string]any
 	artifact []byte
+	pfBlock  bool   // the job preflight answers a blocker (KS-029)
+	keyAt    string // the anthropic key's created_at (KS-074: a rotation changes it)
+	dropped  string // a model the catalog no longer lists (KS-075)
+	keyOff   bool   // the anthropic key is disabled
+	put      []byte // the last PUT /api/jobs/{id}/workspace body (KS-001 workspace PUT)
+	puts     int
+	putFault string // "state", "mismatch", "role": the upload route's typed refusal
 }
 
 func (f *fakeCtl) seen() []string {
@@ -331,9 +338,47 @@ func (f *fakeCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
 	writeJSON := func(v any) { _ = json.NewEncoder(w).Encode(v) }
+	fault := ""
 	switch {
 	case r.Method == "GET" && r.URL.Path == "/api/models":
 		writeJSON(embeddedModels)
+	case r.Method == "GET" && r.URL.Path == "/api/v2/models":
+		f.mu.Lock()
+		dropped := f.dropped
+		f.mu.Unlock()
+		var models []any
+		for fam, mf := range embeddedModels.Families {
+			for i, id := range mf.Rungs {
+				if id == dropped {
+					continue
+				}
+				models = append(models, map[string]any{"id": id, "family": fam, "provider_route": mf.Provider, "rung": i + 1,
+					"runner_compatibility": map[string]any{"standing": map[bool]string{true: "exercised", false: "not_verified"}[fam == "anthropic"]},
+					"availability":         map[string]any{"standing": "listed", "catalog_version": "v2", "live": "not checked"},
+					"price":                map[string]any{"standing": "priced"},
+					"key_route":            map[string]any{"provider": mf.Provider, "standing": map[bool]string{true: "enabled", false: "missing"}[fam == "anthropic"], "key_id": map[bool]string{true: "vlt_anthropic1", false: ""}[fam == "anthropic"]}})
+			}
+		}
+		writeJSON(map[string]any{"schema_version": 2, "data": map[string]any{"catalog_version": "v2", "ratified": "2026-09-20", "served_at": "2026-09-26T10:00:00Z",
+			"default_ladder": embeddedModels.DefaultLadder, "models": models, "note": "catalog data, never a charge"}})
+	case r.Method == "GET" && r.URL.Path == "/api/v2/keys":
+		f.mu.Lock()
+		at, off := f.keyAt, f.keyOff
+		f.mu.Unlock()
+		if at == "" {
+			at = "2026-09-01T00:00:00Z"
+		}
+		writeJSON(map[string]any{"schema_version": 2, "data": map[string]any{"items": []any{
+			map[string]any{"id": "vlt_anthropic1", "provider": "anthropic", "alias": "dev", "last4": "abcd", "enabled": !off, "revision": 1, "created_at": at}}}})
+	case r.Method == "POST" && r.URL.Path == "/api/v2/preflight":
+		f.mu.Lock()
+		block := f.pfBlock
+		f.mu.Unlock()
+		checks := []any{map[string]any{"check": "workspace", "status": "pass", "detail": "ok", "category": "setup"}}
+		if block {
+			checks = append(checks, map[string]any{"check": "key_route", "status": "block", "detail": "no enabled key for the ladder's provider: anthropic", "category": "setup", "next_action": "ks key add --provider anthropic"})
+		}
+		writeJSON(map[string]any{"schema_version": 2, "data": map[string]any{"checks": checks, "ready": !block}})
 	case r.Method == "POST" && r.URL.Path == "/api/jobs":
 		b, _ := io.ReadAll(r.Body)
 		f.mu.Lock()
@@ -353,6 +398,33 @@ func (f *fakeCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == "GET" && r.URL.Path == "/api/jobs/job_0123456789ab/artifact":
 		w.Header().Set("Content-Type", "application/octet-stream")
 		_, _ = w.Write(artifact)
+	case r.Method == "PUT" && r.URL.Path == "/api/jobs/job_0123456789ab/workspace":
+		b, _ := io.ReadAll(r.Body)
+		f.mu.Lock()
+		f.put, fault = b, f.putFault
+		f.puts++
+		f.mu.Unlock()
+		switch fault {
+		case "state":
+			w.WriteHeader(409)
+			writeJSON(map[string]any{"error": map[string]any{"type": "ks_job_state", "message": "the workspace can be uploaded only while the job is queued (state: running)"}})
+			return
+		case "mismatch":
+			w.WriteHeader(409)
+			writeJSON(map[string]any{"error": map[string]any{"type": "ks_workspace_mismatch", "message": "the upload does not match the manifest's workspace"}})
+			return
+		case "role":
+			w.WriteHeader(403)
+			writeJSON(map[string]any{"error": map[string]any{"type": "ks_forbidden", "message": "your role on this account cannot upload"}})
+			return
+		}
+		if r.Header.Get("Content-Type") != "application/octet-stream" {
+			w.WriteHeader(400)
+			writeJSON(map[string]any{"error": map[string]any{"type": "ks_workspace_mismatch", "message": "not octet-stream"}})
+			return
+		}
+		sum := sha256.Sum256(b)
+		writeJSON(map[string]any{"id": "job_0123456789ab", "state": "queued", "workspace_sha": hex.EncodeToString(sum[:]), "workspace_bytes": len(b)})
 	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/cancel"):
 		writeJSON(map[string]any{"id": "job_0123456789ab", "state": "cancelled"})
 	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/resume"):
@@ -387,6 +459,7 @@ func gateJob() map[string]any {
 func startFake(t *testing.T) (*fakeCtl, string, string) {
 	t.Helper()
 	f := &fakeCtl{job: gateJob(), artifact: []byte("not-a-tarball-but-bytes")}
+	syncFixture(t, &f.mu)
 	srv := httptest.NewServer(f)
 	t.Cleanup(srv.Close)
 	bin, cfg := buildAndAuth(t, srv)
@@ -401,7 +474,9 @@ func ksIn(t *testing.T, bin, cfg, dir string, args ...string) (string, string, i
 	cmd.Env = append(os.Environ(), "XDG_CONFIG_HOME="+cfg)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
+	fixtureBarrier()
 	err := cmd.Run()
+	fixtureBarrier()
 	code := 0
 	if ee, ok := err.(*exec.ExitError); ok {
 		code = ee.ExitCode()
@@ -504,9 +579,18 @@ func TestCruiseInitApproveRun(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("approve exit %d\n%s%s", code, out, errs)
 	}
-	if first := strings.SplitN(out, "\n", 2)[0]; first != initSHA {
-		t.Fatalf("approve printed %s, init printed %s", first, initSHA)
+	// KS-074: approve writes the binding into the draft before digesting
+	// it, so the approved digest is the bound draft's, not init's
+	approvedSHA := strings.SplitN(out, "\n", 2)[0]
+	if approvedSHA == initSHA || len(approvedSHA) != 64 {
+		t.Fatalf("approve printed %s (init printed %s)", approvedSHA, initSHA)
 	}
+	if m, err := readDraftAt(repo); err != nil || m["binding_version"] == nil || m["routes"] == nil {
+		t.Fatalf("the draft carries no binding: %v", err)
+	} else if sha, _ := manifestSHA(m); sha != approvedSHA {
+		t.Fatalf("the approved digest %s is not the bound draft's %s", approvedSHA, sha)
+	}
+	initSHA = approvedSHA
 	lkRaw, err := os.ReadFile(filepath.Join(repo, cruiseLock))
 	if err != nil {
 		t.Fatal(err)
@@ -515,17 +599,39 @@ func TestCruiseInitApproveRun(t *testing.T) {
 	if err := json.Unmarshal(lkRaw, &lk); err != nil || lk.SHA256 != initSHA || lk.ApprovedAt == "" {
 		t.Fatalf("lock %s: %v", lkRaw, err)
 	}
-	if len(f.seen()) != 0 {
-		t.Fatalf("approve made requests: %v", f.seen())
+	// KS-074: approve reads the provider keys it binds, and nothing else
+	if got := f.seen(); len(got) != 2 || got[0] != "GET /api/v2/models" || got[1] != "GET /api/v2/keys" {
+		t.Fatalf("approve made requests: %v", got)
 	}
+	f.mu.Lock()
+	f.hits = nil
+	f.mu.Unlock()
+
+	// KS-029: a preflight blocker stops the run before any upload
+	f.mu.Lock()
+	f.pfBlock = true
+	f.mu.Unlock()
+	_, errs, code = ksIn(t, bin, cfg, repo, "cruise", "run")
+	if code != exitConflict || !strings.Contains(errs, "no enabled key") || !strings.Contains(errs, "nothing was uploaded") {
+		t.Fatalf("blocked run: exit %d\n%s", code, errs)
+	}
+	for _, h := range f.seen() {
+		if h == "POST /api/jobs" {
+			t.Fatal("a preflight blocker still created a job")
+		}
+	}
+	f.mu.Lock()
+	f.pfBlock, f.hits = false, nil
+	f.mu.Unlock()
 
 	// run: one POST, the manifest on the wire hashing to the approved digest
 	out, errs, code = ksIn(t, bin, cfg, repo, "cruise", "run")
 	if code != 0 {
 		t.Fatalf("run exit %d\n%s%s", code, out, errs)
 	}
-	if got := f.seen(); len(got) != 1 || got[0] != "POST /api/jobs" {
-		t.Fatalf("run made %v, want exactly POST /api/jobs", got)
+	// KS-029: the job preflight (an observation) and then exactly one job
+	if got := f.seen(); len(got) != 4 || got[0] != "GET /api/v2/keys" || got[1] != "GET /api/v2/models" || got[2] != "POST /api/v2/preflight" || got[3] != "POST /api/jobs" {
+		t.Fatalf("run made %v, want the route-key read, the catalog read, the preflight, then exactly one POST /api/jobs", got)
 	}
 	if strings.TrimSpace(out) != "job_0123456789ab" || !strings.Contains(errs, "$2.00") {
 		t.Errorf("run output: stdout %q stderr %q", out, errs)
@@ -593,10 +699,16 @@ func TestCruiseInitRefusesWithoutACheck(t *testing.T) {
 	if len(f.seen()) != 0 {
 		t.Errorf("init made requests: %v", f.seen())
 	}
-	// a named command is a check
+	// KS-072: the verifier runs pytest, go test or node --test and nothing
+	// else, so a named command outside them is refused here rather than at
+	// intake; a named pytest command over a repository with no tests is
+	// refused as the verifier would refuse it
 	out, errs, code = ksIn(t, bin, cfg, repo, "cruise", "init", "--tests", "make check")
-	if code != 0 || !strings.Contains(out, "make check (named with --tests)") || !strings.Contains(out, "make the check pass: make check") {
-		t.Errorf("--tests: exit %d\n%s%s", code, out, errs)
+	if code != 2 || !strings.Contains(errs, "--check pytest|go|node") {
+		t.Errorf("--tests make check: exit %d\n%s%s", code, out, errs)
+	}
+	if _, errs, code := ksIn(t, bin, cfg, repo, "cruise", "init", "--tests", "python3 -m pytest -q"); code != 2 || !strings.Contains(errs, "no check found") {
+		t.Errorf("--tests pytest, no tests: exit %d\n%s", code, errs)
 	}
 }
 
@@ -611,6 +723,9 @@ func TestCruiseRunRefusals(t *testing.T) {
 	if _, _, code := ksIn(t, bin, cfg, repo, "cruise", "approve"); code != 0 {
 		t.Fatal("approve")
 	}
+	f.mu.Lock()
+	f.hits = nil // approve reads the provider keys it binds (KS-074); the runs below must send nothing
+	f.mu.Unlock()
 	fp := filepath.Join(repo, "test_inventory.py")
 	orig, _ := os.ReadFile(fp)
 	if err := os.WriteFile(fp, append(orig, []byte("\ndef test_forged():\n    assert True\n")...), 0o644); err != nil {
@@ -721,8 +836,62 @@ func TestCruiseStatusAndLogsWords(t *testing.T) {
 		t.Errorf("resume: exit %d, posted %s", code, f.posted)
 	}
 	out, _, code = ksIn(t, bin, cfg, t.TempDir(), "cruise", "models")
-	if code != 0 || !strings.Contains(out, "anthropic (provider anthropic): claude-haiku-4-5-20251001, claude-sonnet-5") {
+	if code != 0 || !strings.Contains(out, "model catalog v2, served at 2026-09-26T10:00:00Z") || !strings.Contains(out, "claude-sonnet-5") {
 		t.Errorf("models: exit %d\n%s", code, out)
+	}
+}
+
+// KS-075: the catalog as the service states it -- exact ids, family, route,
+// rung, exercised/not_verified, price standing and this account's key
+// route; live availability said to be unchecked; a cached copy labelled as
+// such; and a ladder naming an unlisted model refused before any upload,
+// nothing substituted.
+func TestCruiseModelsCatalogAndLadderValidation(t *testing.T) {
+	f, bin, cfg := startFake(t)
+	out, errs, code := ksIn(t, bin, cfg, t.TempDir(), "cruise", "models")
+	if code != 0 {
+		t.Fatalf("models: %d\n%s", code, errs)
+	}
+	for _, want := range []string{"model catalog v2, served at 2026-09-26T10:00:00Z", "NOT checked", "claude-haiku-4-5-20251001", "anthropic", "exercised", "openai/gpt-4o-mini", "openrouter", "not_verified", "enabled (vlt_anthropic1)", "missing"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("models lacks %q:\n%s", want, out)
+		}
+	}
+	before := len(f.seen())
+	out, _, code = ksIn(t, bin, cfg, t.TempDir(), "cruise", "models", "--cached")
+	if code != 0 || !strings.Contains(out, "CACHED model catalog v2") || !strings.Contains(out, "not a live answer") || len(f.seen()) != before {
+		t.Fatalf("cached: %d\n%s", code, out)
+	}
+	// a model dropped from the catalog: approve refuses, nothing bound
+	repo := demoRepo(t)
+	if _, errs, code := ksIn(t, bin, cfg, repo, "cruise", "init"); code != 0 {
+		t.Fatalf("init: %s", errs)
+	}
+	f.mu.Lock()
+	f.dropped = "claude-sonnet-5"
+	f.mu.Unlock()
+	_, errs, code = ksIn(t, bin, cfg, repo, "cruise", "approve")
+	if code != exitConflict || !strings.Contains(errs, `model "claude-sonnet-5" (family anthropic) is not listed in catalog v2`) || !strings.Contains(errs, "nothing is substituted") {
+		t.Fatalf("approve with a dropped model: %d\n%s", code, errs)
+	}
+	// dropped after approval: run refuses before any upload
+	f.mu.Lock()
+	f.dropped = ""
+	f.mu.Unlock()
+	if _, errs, code := ksIn(t, bin, cfg, repo, "cruise", "approve"); code != 0 {
+		t.Fatalf("approve: %s", errs)
+	}
+	f.mu.Lock()
+	f.dropped, f.hits = "claude-haiku-4-5-20251001", nil
+	f.mu.Unlock()
+	_, errs, code = ksIn(t, bin, cfg, repo, "cruise", "run")
+	if code == 0 || !strings.Contains(errs, "claude-haiku-4-5-20251001") {
+		t.Fatalf("run with a dropped model: %d\n%s", code, errs)
+	}
+	for _, h := range f.seen() {
+		if h == "POST /api/jobs" || h == "POST /api/v2/preflight" {
+			t.Fatalf("a refused run sent %s", h)
+		}
 	}
 }
 

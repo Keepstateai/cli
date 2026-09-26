@@ -10,6 +10,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -297,20 +298,56 @@ func hostedPreflight(cr hostedCreds, inv *Invocation) {
 	if m := inv.Str("mode"); m != "" {
 		body["mode"] = m
 	}
+	// KS-029: what only this client can measure is measured here and sent;
+	// a quantity not sent is reported NOT CHECKED by the service, never passed
+	local := map[string]any{}
+	var localChecks []preflightCheck
+	if root, err := os.Getwd(); err == nil {
+		if _, sel, err := scanSelected(root, nil, readSelectionOverrides(root)); err == nil {
+			local = map[string]any{"files": sel.Files, "bytes": int64(sel.Bytes), "excluded": len(sel.Excluded), "selection_digest": sel.Digest}
+			body["workspace_bytes"], body["workspace_files"] = int64(sel.Bytes), int64(sel.Files)
+		} else {
+			local = map[string]any{"error": err.Error()}
+			localChecks = append(localChecks, preflightCheck{Check: "workspace", Status: "unavailable", Category: "setup",
+				Detail: "the workspace could not be read here, so its size was not sent: " + sanitize(err.Error())})
+		}
+	}
+	check, ladder := draftFacts()
+	if c := inv.Str("check"); c != "" {
+		check = c
+	}
+	if l := csvList(inv.Str("ladder")); len(l) > 0 {
+		ladder = l
+	}
+	if check != "" {
+		body["check_command"] = check
+	}
+	if len(ladder) > 0 {
+		body["ladder"] = ladder
+	}
 	var env struct {
 		Data map[string]any `json:"data"`
 	}
 	if err := hostedCall(cr, "POST", "/api/v2/preflight", body, &env); err != nil {
+		var te transportErr
+		if errors.As(err, &te) {
+			// the one category only the client can report
+			fail(&cliError{Code: exitTemporary, Kind: "network", Message: "preflight could not reach the control plane (category: network): " + sanitize(te.err.Error()) + "; readiness is not known and nothing was reserved"})
+		}
 		die(err)
 	}
 	d := env.Data
-	checks := preflightChecks(d)
-	// the workspace is checked here, locally, against the service's limit:
-	// preflight uploads nothing
-	local := map[string]any{}
-	if root, err := os.Getwd(); err == nil {
-		if _, sel, err := scanSelected(root, nil, readSelectionOverrides(root)); err == nil {
-			local = map[string]any{"files": sel.Files, "bytes": sel.Bytes, "excluded": len(sel.Excluded), "selection_digest": sel.Digest}
+	checks := append(preflightChecks(d), localChecks...)
+	// a service that predates KS-029 does not check the size it was sent;
+	// then it is checked here, against the limit it states
+	servedWorkspace := false
+	for _, c := range checks {
+		if c.Check == "workspace" {
+			servedWorkspace = true
+		}
+	}
+	if !servedWorkspace {
+		if b, ok := local["bytes"].(int64); ok {
 			limit := int64(0)
 			if l, ok := d["limits"].(map[string]any); ok {
 				if n, ok := l["workspace_bytes"].(float64); ok {
@@ -319,18 +356,25 @@ func hostedPreflight(cr hostedCreds, inv *Invocation) {
 			}
 			switch {
 			case limit <= 0:
-				checks = append(checks, preflightCheck{Check: "workspace", Status: "unavailable", Detail: "the service did not state its workspace limit, so the size could not be checked"})
-			case int64(sel.Bytes) > limit:
-				checks = append(checks, preflightCheck{Check: "workspace", Status: "block",
-					Detail:     fmt.Sprintf("the workspace selection is %d bytes, over the %d-byte limit", sel.Bytes, limit),
+				checks = append(checks, preflightCheck{Check: "workspace", Status: "unavailable", Category: "service", Detail: "the service did not state its workspace limit, so the size could not be checked"})
+			case b > limit:
+				checks = append(checks, preflightCheck{Check: "workspace", Status: "block", Category: "setup",
+					Detail:     fmt.Sprintf("the workspace selection is %d bytes, over the %d-byte limit", b, limit),
 					NextAction: "ks cruise preview (to see what is selected and exclude the largest files)"})
 			default:
-				checks = append(checks, preflightCheck{Check: "workspace", Status: "pass", Detail: fmt.Sprintf("%d files, %d bytes, within the limit", sel.Files, sel.Bytes)})
+				checks = append(checks, preflightCheck{Check: "workspace", Status: "pass", Detail: fmt.Sprintf("%v files, %d bytes, within the limit", local["files"], b)})
 			}
-		} else {
-			local = map[string]any{"error": err.Error()}
-			checks = append(checks, preflightCheck{Check: "workspace", Status: "unavailable", Detail: "the workspace could not be read here: " + sanitize(err.Error())})
 		}
+	}
+	notChecked := []string{}
+	if nc, ok := d["not_checked"].([]any); ok {
+		for _, x := range nc {
+			notChecked = append(notChecked, sanitize(fmt.Sprint(x)))
+		}
+	}
+	reservation := strOr(d["reservation"])
+	if reservation == "" {
+		reservation = "a preflight is an observation: it reserves nothing, and credit, keys and capacity can change before you start"
 	}
 	blocked, unknown := 0, 0
 	for _, c := range checks {
@@ -345,22 +389,30 @@ func hostedPreflight(cr hostedCreds, inv *Invocation) {
 	if r, ok := d["ready"].(bool); ok && !r {
 		ready = false
 	}
-	emit(map[string]any{"service": d, "workspace": local, "checks": checks, "ready": ready}, func() {
+	emit(map[string]any{"service": d, "workspace": local, "sent": body, "checks": checks, "not_checked": notChecked, "reservation": reservation, "ready": ready}, func() {
 		fmt.Printf("account %v (%v) · credit %s · registry %v\n", d["account_id"], d["cohort_state"], microdollars(d["credit_microusd"]), d["registry_version"])
 		for _, c := range checks {
-			line := fmt.Sprintf("%-12s %-11s %s", c.Check, strings.ToUpper(c.Status), c.Detail)
+			line := fmt.Sprintf("%-12s %-11s %s", c.Check, strings.ToUpper(c.Status), sanitize(c.Detail))
+			if c.Category != "" && c.Status != "pass" {
+				line += " [" + c.Category + "]"
+			}
 			if c.NextAction != "" && c.Status != "pass" {
-				line += " → " + c.NextAction
+				line += " → " + sanitize(c.NextAction)
 			}
 			fmt.Println(line)
 		}
-		if ready {
+		if len(notChecked) > 0 {
+			fmt.Println("not checked: " + strings.Join(notChecked, "; "))
+		}
+		switch {
+		case ready:
 			fmt.Println("ready")
-		} else if blocked > 0 {
+		case blocked > 0:
 			fmt.Println("not ready; clear the blockers above")
-		} else {
+		default:
 			fmt.Println("not ready; a check could not be made, so readiness is not known")
 		}
+		fmt.Println(sanitize(reservation) + " (a passing preflight reserves nothing)")
 	})
 	switch {
 	case blocked > 0:
@@ -370,11 +422,36 @@ func hostedPreflight(cr hostedCreds, inv *Invocation) {
 	}
 }
 
+// draftFacts reads what a Cruise job would run from the local draft, if
+// there is one: its acceptance check and the model families on its ladder.
+func draftFacts() (check string, ladder []string) {
+	m, err := readDraft()
+	if err != nil {
+		return "", nil
+	}
+	if v, ok := m["verifier"].(map[string]any); ok {
+		check, _ = v["command"].(string)
+	}
+	seen := map[string]bool{}
+	if l, ok := m["ladder"].([]any); ok {
+		for _, r := range l {
+			if rr, ok := r.(map[string]any); ok {
+				if f, _ := rr["family"].(string); f != "" && !seen[f] {
+					seen[f] = true
+					ladder = append(ladder, f)
+				}
+			}
+		}
+	}
+	return check, ladder
+}
+
 type preflightCheck struct {
 	Check      string `json:"check"`
 	Status     string `json:"status"`
 	Detail     string `json:"detail"`
 	NextAction string `json:"next_action,omitempty"`
+	Category   string `json:"category,omitempty"`
 }
 
 // preflightChecks reads the service's per-check answers; a control plane that
@@ -385,7 +462,7 @@ func preflightChecks(d map[string]any) []preflightCheck {
 		for _, it := range items {
 			if c, ok := it.(map[string]any); ok {
 				out = append(out, preflightCheck{Check: fmt.Sprint(c["check"]), Status: fmt.Sprint(c["status"]),
-					Detail: fmt.Sprint(c["detail"]), NextAction: strOr(c["next_action"])})
+					Detail: fmt.Sprint(c["detail"]), NextAction: strOr(c["next_action"]), Category: strOr(c["category"])})
 			}
 		}
 		return out

@@ -71,8 +71,8 @@ func TestSelectionPolicyExcludesAndExplains(t *testing.T) {
 		t.Fatalf("included:\n  %s\nwant\n  %s", got, want)
 	}
 	for p, prefix := range map[string]string{
-		".env": "sensitive:", "certs/server.pem": "sensitive:", ".aws": "sensitive:", "config/.env.production": "sensitive:", "node_modules": "ignored: .gitignore: node_modules/",
-		"debug.log": "ignored: .gitignore: *.log", "build": "ignored:", "deep/generated": "ignored: deep/.gitignore: generated/", ".git": "mandatory:", ".keepstate": "mandatory:",
+		".env": "sensitive:", "certs/server.pem": "sensitive:", ".aws": "sensitive:", "config/.env.production": "sensitive:", "node_modules": "dependency or tool tree: node_modules",
+		"debug.log": "ignored: .gitignore: *.log", "build": "dependency or tool tree: build", "deep/generated": "ignored: deep/.gitignore: generated/", ".git": "mandatory:", ".keepstate": "mandatory:",
 	} {
 		if r := excludedReason(sel, p); !strings.HasPrefix(r, prefix) {
 			t.Errorf("%s: reason %q, want prefix %q", p, r, prefix)

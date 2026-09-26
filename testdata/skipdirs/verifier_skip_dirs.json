@@ -1,0 +1,23 @@
+{
+ "what": "the Cruise verifier's SKIP_DIRS (judge/checks.py): directory names the verifier never reads. Upload policy ks-upload-policy/2 excludes the same trees, so what is uploaded is what is verified. Vendored unchanged; the drift guard compares it with the service's current set.",
+ "from": "judge/checks.py SKIP_DIRS",
+ "server_commit": "b989f9b68e84098805a66a92f60d295fa5a7ebe1",
+ "dirs": [
+  ".claude",
+  ".git",
+  ".hg",
+  ".keepstate",
+  ".mypy_cache",
+  ".nox",
+  ".pytest_cache",
+  ".ruff_cache",
+  ".svn",
+  ".tox",
+  ".venv",
+  "__pycache__",
+  "build",
+  "dist",
+  "node_modules",
+  "venv"
+ ]
+}

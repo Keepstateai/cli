@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func runDoctor() int {
@@ -81,6 +82,15 @@ func runDoctor() int {
 			note("ok", "capabilities", "capabilities: "+line)
 			for _, d := range disabled {
 				note("note", "capabilities", d)
+			}
+			if set.Protocol != nil {
+				note("ok", "protocol", fmt.Sprintf("protocol: this client speaks %d; the control plane speaks %d and serves clients from %d", clientProtocol, set.Protocol.Current, set.Protocol.MinimumClient))
+				if clientProtocol < set.Protocol.MinimumClient {
+					note("FAIL", "protocol", "this client is older than the control plane serves; run: ks update")
+				}
+			}
+			if u := unknownPublished(set); len(u) > 0 {
+				note("note", "states", "states the control plane publishes that this client does not know, shown as unknown (<word>) wherever they appear: "+strings.Join(u, ", "))
 			}
 		} else if errors.Is(err, errNoCapabilities) {
 			note("--", "capabilities", "capability registry: not published by this control plane; commands that need one are disabled")
