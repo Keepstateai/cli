@@ -149,6 +149,10 @@ func hostedAttach(cr hostedCreds, id string) error {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		var e struct{ Message, Error string }
 		if json.Unmarshal(raw, &e) == nil && e.Message != "" {
+			if e.Error != "" {
+				// a named refusal keeps its name (BACKLOG-170)
+				return hostedError("GET", "/api/sessions/"+id+"/attach", resp, raw)
+			}
 			return fmt.Errorf("%s", e.Message)
 		}
 		return fmt.Errorf("attach refused: %s", resp.Status)

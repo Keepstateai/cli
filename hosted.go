@@ -116,7 +116,9 @@ func hostedError(method, path string, resp *http.Response, raw []byte) error {
 	}
 	if json.Unmarshal(raw, &e) == nil {
 		if e.Message != "" {
-			return &hostedErr{Status: resp.StatusCode, Message: e.Message, Mutation: mut, Raw: raw}
+			var name string
+			_ = json.Unmarshal(e.Error, &name) // {"error": "ks_...", "message": ...}: the name is kept
+			return &hostedErr{Status: resp.StatusCode, Type: name, Message: e.Message, Mutation: mut, Raw: raw}
 		}
 		var typed struct{ Type, Message string }
 		if len(e.Error) > 0 && json.Unmarshal(e.Error, &typed) == nil && typed.Message != "" {
@@ -211,7 +213,7 @@ func hostedKill(cr hostedCreds, inv *Invocation) {
 		path += "?force=1"
 	}
 	if err := hostedMutate(cr, "DELETE", path, nil, nil); err != nil {
-		die(err)
+		die(legacyRefusal(err, id, "kill"))
 	}
 	emit(map[string]any{"session_id": id, "killed": true}, func() { fmt.Println("killed", id) })
 }
@@ -220,7 +222,7 @@ func hostedWake(cr hostedCreds, inv *Invocation) {
 	id := inv.Arg(0)
 	var sess map[string]any
 	if err := hostedMutate(cr, "POST", "/api/sessions/"+id+"/resume", nil, &sess); err != nil {
-		die(err)
+		die(legacyRefusal(err, id, "wake"))
 	}
 	emit(map[string]any{"session_id": id, "state": sess["state"]}, func() {
 		progress("hosted session %v resumed", id)
@@ -231,7 +233,7 @@ func hostedWake(cr hostedCreds, inv *Invocation) {
 func hostedCheckpoint(cr hostedCreds, inv *Invocation) {
 	id := inv.Arg(0)
 	if err := hostedMutate(cr, "POST", "/api/sessions/"+id+"/checkpoint", map[string]bool{"Stop": inv.Bool("stop")}, nil); err != nil {
-		die(err)
+		die(legacyRefusal(err, id, "checkpoint"))
 	}
 	emit(map[string]any{"session_id": id, "checkpointed": true, "stopped": inv.Bool("stop")}, func() { fmt.Println("checkpointed", id) })
 }
@@ -240,7 +242,7 @@ func hostedMeter(cr hostedCreds, inv *Invocation) {
 	id := inv.Arg(0)
 	var mtr map[string]any
 	if err := hostedCall(cr, "GET", "/api/sessions/"+id+"/meter", nil, &mtr); err != nil {
-		die(err)
+		die(legacyRefusal(err, id, "meter"))
 	}
 	// the meter is passed through as the control plane sent it: a figure it
 	// did not send is absent (null), never invented as zero
@@ -284,7 +286,7 @@ func hostedExec(cr hostedCreds, inv *Invocation) {
 	}
 	var res map[string]any
 	if err := hostedCall(cr, "POST", "/api/sessions/"+id+"/exec", map[string]string{"Cmd": cmd}, &res); err != nil {
-		die(err)
+		die(legacyRefusal(err, id, "exec"))
 	}
 	e, _ := res["error"].(string)
 	emit(map[string]any{"session_id": id, "output": res["output"], "error": res["error"]}, func() {
@@ -354,7 +356,7 @@ func hostedFork(cr hostedCreds, inv *Invocation) {
 	}
 	var children []map[string]any
 	if err := hostedMutate(cr, "POST", path, nil, &children); err != nil {
-		die(err)
+		die(legacyRefusal(err, id, "fork"))
 	}
 	emit(map[string]any{"session_id": id, "children": children}, func() {
 		for _, c := range children {
@@ -369,7 +371,7 @@ func hostedAttachCmd(cr hostedCreds, inv *Invocation) {
 		fail(&cliError{Code: exitUsage, Kind: "interactive", Message: "attach is an interactive terminal; it has no --json or --no-input form", NextAction: "ks exec <session> -- <command> for a scripted command"})
 	}
 	if err := hostedAttach(cr, inv.Arg(0)); err != nil {
-		die(err)
+		die(legacyRefusal(err, inv.Arg(0), "attach"))
 	}
 }
 
