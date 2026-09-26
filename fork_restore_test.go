@@ -97,4 +97,3 @@ func TestAForkIsPlannedThenExecutedByItsDigest(t *testing.T) {
 		t.Fatalf("stale: %d\n%s", code, errs)
 	}
 }
-

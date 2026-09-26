@@ -261,6 +261,17 @@ var registry = []*Command{
 		Effects:  "restores the session's last save on the fleet and its agents carry on: session time is metered again; while a previous save is still completing nothing is resumed, and this waits for that save to finish within the bound (--wait-timeout) and then resumes",
 		Examples: []string{"ks agent resume main --session 3f2a1c"},
 		Nothing:  "Nothing was resumed.", Run: hosted(hostedAgentResume)},
+	{Path: []string{"agent", "view"}, Summary: "the live window's model: header, runner, footer counts and the KS menu, as the service gives them, within 80x24", Surface: "hosted",
+		Args: []Arg{{Name: "name", Required: true}},
+		Flags: []Flag{
+			{Name: "session", Kind: flagString, Value: "ID", Summary: "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"},
+			{Name: "choose", Kind: flagInt, Positive: true, Value: "N", Summary: "perform menu item N through the request the service names for it"},
+			{Name: "confirm", Kind: flagString, Value: "CHOICE", Summary: "the dialog choice that performs an item that changes the session (never preselected, never implied by --yes)"},
+		},
+		Needs:    "agent.workspace",
+		Effects:  "reads the window's model; nothing changes. With --choose, performs one menu item exactly through the service request it names: reads for the read items, and for Save and pause or Take control only after --confirm names the dialog's confirming choice",
+		Examples: []string{"ks agent view main --session 3f2a1c", "ks agent view main --session 3f2a1c --choose 2", "ks agent view main --session 3f2a1c --choose 6 --confirm \"Save and pause\""},
+		Nothing:  "Nothing was done.", Run: hosted(hostedAgentView)},
 	{Path: []string{"agent", "logs"}, Summary: "the session's setup log and its agent's log from a cursor, safe to print; --follow polls until the service says it ends", Surface: "hosted",
 		Flags: []Flag{
 			{Name: "session", Kind: flagString, Value: "ID", Summary: "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"},

@@ -1387,6 +1387,28 @@
      "summary": "consent to the exact list of work the service said the restore affects"
     }
    ]
+  },
+  {
+   "verb": "agent view",
+   "aliases": [],
+   "usage": "ks agent view <name> [--session ID] [--choose N] [--confirm CHOICE]",
+   "summary": "the live window's model: header, runner, footer counts and the KS menu, as the service gives them, within 80x24",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--choose N",
+     "summary": "perform menu item N through the request the service names for it"
+    },
+    {
+     "flag": "--confirm CHOICE",
+     "summary": "the dialog choice that performs an item that changes the session (never preselected, never implied by --yes)"
+    }
+   ]
   }
  ]
 }
