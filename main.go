@@ -747,10 +747,12 @@ var registry = []*Command{
 		Effects:  "reads: the control plane health, your token, the latest release; nothing changes",
 		Examples: []string{"ks doctor"},
 		Run:      func(*Invocation) { os.Exit(runDoctor()) }},
-	{Path: []string{"update"}, Summary: "self-update (checksum-verified)", Surface: "client",
-		Effects:  "replaces this binary with the verified release; a checksum mismatch replaces nothing",
-		Examples: []string{"ks update"},
-		Nothing:  "Nothing was updated.", Run: func(*Invocation) {
+	{Path: []string{"update"}, Summary: "self-update (checksum-verified, provenance-checked with gh)", Surface: "client",
+		Flags:    []Flag{{Name: "require-provenance", Kind: flagBool, Summary: "replace nothing unless gh verifies the new binary's build provenance"}},
+		Effects:  "replaces this binary with the verified release; a checksum mismatch, or a provenance attestation gh rejects, replaces nothing. Without gh the provenance reads NOT verified and, unless --require-provenance, the checksum-verified binary is installed with that said",
+		Examples: []string{"ks update", "ks update --require-provenance"},
+		Nothing:  "Nothing was updated.", Run: func(inv *Invocation) {
+			requireProvenance = inv.Bool("require-provenance")
 			if err := runUpdate(); err != nil {
 				die(err)
 			}
@@ -767,10 +769,11 @@ var registry = []*Command{
 		Effects:  "prints the removal command; removes nothing itself",
 		Examples: []string{"ks uninstall"},
 		Run:      func(*Invocation) { runUninstall() }},
-	{Path: []string{"version"}, Summary: "print the version", Surface: "client",
-		Effects:  "nothing",
-		Examples: []string{"ks version"},
-		Run:      func(*Invocation) { emit(map[string]any{"version": version}, func() { fmt.Println("ks", version) }) }},
+	{Path: []string{"version"}, Summary: "print the version; with --verify, check this binary's build provenance", Surface: "client",
+		Flags:    []Flag{{Name: "verify", Kind: flagBool, Summary: "check this binary's GitHub build-provenance attestation with gh; without gh, or on any error, it reads NOT verified and exits non-zero"}},
+		Effects:  "prints the version; --verify runs gh attestation verify on this binary (a network read by gh) and changes nothing",
+		Examples: []string{"ks version", "ks version --verify"},
+		Run:      runVersion},
 }
 
 func main() {

@@ -316,10 +316,16 @@
   {
    "verb": "update",
    "aliases": [],
-   "usage": "ks update",
-   "summary": "self-update (checksum-verified)",
+   "usage": "ks update [--require-provenance]",
+   "summary": "self-update (checksum-verified, provenance-checked with gh)",
    "status": "available",
-   "surface": "client"
+   "surface": "client",
+   "flags": [
+    {
+     "flag": "--require-provenance",
+     "summary": "replace nothing unless gh verifies the new binary's build provenance"
+    }
+   ]
   },
   {
    "verb": "logout",
@@ -340,10 +346,16 @@
   {
    "verb": "version",
    "aliases": [],
-   "usage": "ks version",
-   "summary": "print the version",
+   "usage": "ks version [--verify]",
+   "summary": "print the version; with --verify, check this binary's build provenance",
    "status": "available",
-   "surface": "client"
+   "surface": "client",
+   "flags": [
+    {
+     "flag": "--verify",
+     "summary": "check this binary's GitHub build-provenance attestation with gh; without gh, or on any error, it reads NOT verified and exits non-zero"
+    }
+   ]
   },
   {
    "verb": "operation show",

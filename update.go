@@ -122,13 +122,29 @@ func runUpdate() error {
 	if err := os.WriteFile(tmp, bin, 0o755); err != nil {
 		return err
 	}
+	// KS-006: the build provenance, checked on the new binary BEFORE it
+	// replaces anything; a rejection replaces nothing
+	prov := verifyProvenance(tmp)
+	fmt.Println(provenanceLine(prov))
+	if !prov.Verified && (prov.Refused || requireProvenance) {
+		os.Remove(tmp)
+		return &cliError{Code: exitIntegrity, Kind: "provenance_not_verified",
+			Message: "the new binary's build provenance was not verified (" + prov.Reason + "); nothing was replaced and " + version + " still runs"}
+	}
 	if err := os.Rename(tmp, exe); err != nil {
 		os.Remove(tmp)
 		return err
 	}
-	fmt.Println("updated to", latest, "(checksum verified)")
+	how := "checksum verified, provenance verified"
+	if !prov.Verified {
+		how = "checksum verified, provenance NOT verified"
+	}
+	fmt.Println("updated to", latest, "("+how+")")
 	return nil
 }
+
+// requireProvenance refuses an update gh has not verified.
+var requireProvenance bool
 
 func tokenPath() string { return filepath.Join(configDir(), "token.json") }
 func configDir() string { return filepath.Join(configHome(), "keepstate") }
