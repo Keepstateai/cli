@@ -331,7 +331,7 @@ func writeCanonical(b *bytes.Buffer, v any) error {
 	case string:
 		return writeCanonicalString(b, x)
 	case json.Number:
-		// the shared rule (manifest-canonical-v1, BACKLOG-140): a canonical
+		// the shared rule (manifest-canonical-v1): a canonical
 		// integer literal, written verbatim at any size; a fraction, an
 		// exponent, a leading zero or -0 is refused, never normalized
 		if !canonicalInt.MatchString(string(x)) || string(x) == "-0" {

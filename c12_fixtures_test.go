@@ -1,6 +1,6 @@
 // KS-091 C12 fixtures, client half: the service's deterministic F03
 // hostile workspace and F04 archive/result attacks, vendored unchanged into
-// internal/c12 with their SOURCE.json, run against the client's upload
+// testdata/c12/builders with their SOURCE.json, run against the client's upload
 // selection (KS-026), result extraction (KS-056), artifact tree digest
 // (KS-078) and changeset apply (KS-057/078). Every row of each fixture's
 // expectation is asserted here or named as a deliberate difference.
@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/esrygrtc/cli/internal/c12"
+	"github.com/esrygrtc/cli/testdata/c12/builders"
 )
 
 func TestC12VendoredFixturesMatchTheirSource(t *testing.T) {

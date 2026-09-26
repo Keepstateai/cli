@@ -1,5 +1,5 @@
 // legacy_refusals.go: the named refusals the legacy per-session verbs can
-// now receive (BACKLOG-170). The legacy routes (/api/sessions/{id}...)
+// now receive (the legacy session routes). The legacy routes (/api/sessions/{id}...)
 // resolve a workspace session id, so `ks exec`, `ks attach` and the other
 // legacy verbs addressed by a session_... id may be refused by name:
 //
@@ -57,7 +57,7 @@ func legacyRefusal(err error, id, verb string) error {
 }
 
 // ---------------------------------------------------------------------
-// BACKLOG-171: a legacy lifecycle verb on an AGENT session
+// Legacy lifecycle on agent sessions: a legacy lifecycle verb on an AGENT session
 // ---------------------------------------------------------------------
 
 // useV2Pointer answers the workspace session id and the v2 request the

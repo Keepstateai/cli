@@ -1,4 +1,4 @@
-// BACKLOG-150: a session the funds interlock parked reads, on every
+// The funds park: a session the funds interlock parked reads, on every
 // surface, "paused: out of credit — add credit (console), then resume" and
 // never running. The fake control plane serves exactly the fields the
 // service added: the session record's park_reason, the agent's and the

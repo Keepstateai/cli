@@ -1,2 +1,0 @@
-ok  	github.com/esrygrtc/cli	213.147s
-?   	github.com/esrygrtc/cli/internal/c12	[no test files]

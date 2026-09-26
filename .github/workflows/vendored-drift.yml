@@ -1,9 +1,9 @@
-name: ks072-golden
+name: vendored-drift
 # Drift guard for what this client vendors from the service: the KS-072
 # golden layouts (testdata/ks072), the KS-074 manifest-canonical vectors
 # (testdata/vectors) and the KS-091 C12 fixture builders and F11 matrix
-# (internal/c12, testdata/c12) and the verifier's SKIP_DIRS for upload
-# policy v2 (verifier_skip_dirs.json, testdata/skipdirs), each with a SOURCE.json of its origin and
+# (testdata/c12) and the verifier's SKIP_DIRS for upload
+# policy v2 (testdata/skipdirs), each with a SOURCE.json of its origin and
 # sha256.
 #
 # Always: the vendored files must hash to what testdata/ks072/SOURCE.json
@@ -39,7 +39,7 @@ jobs:
       - name: Server comparison NOT CONFIGURED
         if: ${{ env.KS_SERVER_REPO == '' || env.TOKEN_SET != 'true' }}
         run: |
-          echo "::notice title=ks072-golden::server comparison NOT CONFIGURED: KS_SERVER_REPO (variable) and KS_SERVER_READ_TOKEN (secret) are not set, so the vendored golden was checked against SOURCE.json only, NOT against the service's current golden"
+          echo "::notice title=vendored-drift::server comparison NOT CONFIGURED: KS_SERVER_REPO (variable) and KS_SERVER_READ_TOKEN (secret) are not set, so the vendored golden was checked against SOURCE.json only, NOT against the service's current golden"
       - uses: actions/checkout@v4
         if: ${{ env.KS_SERVER_REPO != '' && env.TOKEN_SET == 'true' }}
         with:

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/esrygrtc/cli/internal/c12"
+	"github.com/esrygrtc/cli/testdata/c12/builders"
 )
 
 // selectionWithin runs buildSelection, failing the test if it takes long:

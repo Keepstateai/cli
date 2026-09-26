@@ -1,4 +1,4 @@
-// BACKLOG-130: both models are shown as recorded; a difference is said, and
+// The runner models: both models are shown as recorded; a difference is said, and
 // an absent one reads not recorded, never inferred.
 package main
 

@@ -29,8 +29,20 @@ func TestVerifierSkipDirsVendoredAndUnchanged(t *testing.T) {
 	if err := json.Unmarshal(b, &src); err != nil {
 		t.Fatal(err)
 	}
-	if got := fileSHA(t, "verifier_skip_dirs.json"); got != src.Files["verifier_skip_dirs.json"].SHA256 {
-		t.Fatalf("verifier_skip_dirs.json is %s, SOURCE.json records %s: the vendored list was edited", got, src.Files["verifier_skip_dirs.json"].SHA256)
+	rec := "testdata/skipdirs/verifier_skip_dirs.json"
+	if got := fileSHA(t, rec); got != src.Files[rec].SHA256 {
+		t.Fatalf("%s is %s, SOURCE.json records %s: the vendored list was edited", rec, got, src.Files[rec].SHA256)
+	}
+	// the list compiled into the binary is exactly the vendored record
+	var doc struct {
+		Dirs []string `json:"dirs"`
+	}
+	rb, _ := os.ReadFile(rec)
+	if err := json.Unmarshal(rb, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(doc.Dirs, ",") != strings.Join(verifierSkipDirList, ",") {
+		t.Fatalf("skipdirs.go lists %v, the vendored record %v", verifierSkipDirList, doc.Dirs)
 	}
 	// the discovery port and the upload policy read the same set
 	for d := range verifierSkipDirs {

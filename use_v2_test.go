@@ -1,4 +1,4 @@
-// BACKLOG-171 client: legacy kill, wake and fork on an AGENT session are
+// Legacy lifecycle on agent sessions (client): legacy kill, wake and fork on an AGENT session are
 // refused by the service (409 ks_agent_session_use_v2, the engine never
 // asked); the client shows that refusal first, by name, then follows the
 // pointer to the workspace verb. A kill never becomes a deletion: it

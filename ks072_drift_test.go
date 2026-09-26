@@ -1,7 +1,7 @@
 // KS-072 drift guard: the vendored golden is exactly the file recorded in
 // testdata/ks072/SOURCE.json (server commit and sha256), and -- wherever a
 // checkout of the service repository is given in KS_SERVER_CHECKOUT, as the
-// ks072-golden CI workflow gives it -- the service's current golden has the
+// vendored-drift CI workflow gives it -- the service's current golden has the
 // same sha256. A server change to the golden therefore fails this client's
 // CI until the golden is re-vendored and the port re-checked.
 package main
@@ -47,7 +47,7 @@ func TestKS072VendoredGoldenMatchesItsSourceAndTheServer(t *testing.T) {
 	}
 	server := os.Getenv("KS_SERVER_CHECKOUT")
 	if server == "" {
-		t.Skip("KS_SERVER_CHECKOUT not set: the comparison with the service's current golden runs in the ks072-golden CI workflow")
+		t.Skip("KS_SERVER_CHECKOUT not set: the comparison with the service's current golden runs in the vendored-drift CI workflow")
 	}
 	golden := src.Files["discovery.json"]
 	if got := fileSHA(t, filepath.Join(server, golden.From)); got != golden.SHA256 {

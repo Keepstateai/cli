@@ -117,7 +117,7 @@ func taskListLine(t taskRow) string {
 
 // taskListLineIn is one instruction's row with its session's runtime: an
 // instruction still to move in a session that is not running reads paused
-// (funds park) or not moving, never running (BACKLOG-150).
+// (funds park) or not moving, never running (the funds park).
 func taskListLineIn(t taskRow, rt *sessionRuntimeDoc) string {
 	if t.SessionRuntime != nil {
 		rt = t.SessionRuntime
@@ -240,7 +240,7 @@ type taskQueue struct {
 	Tasks      []taskRow `json:"tasks"`
 	Unreadable string    `json:"unreadable,omitempty"`
 	// SessionRuntime is the agent's session when it is not running
-	// (BACKLOG-150), as the agent read carries it
+	// (the funds park), as the agent read carries it
 	SessionRuntime *sessionRuntimeDoc `json:"session_runtime,omitempty"`
 }
 
@@ -372,7 +372,7 @@ func hostedTaskShow(cr hostedCreds, inv *Invocation) {
 			fmt.Printf("  agent          %s\n", t.AgentID)
 		}
 		if rt := t.SessionRuntime; rt != nil {
-			// BACKLOG-150: the instruction is still to move and its session
+			// The funds park: the instruction is still to move and its session
 			// is not running; the pause is the state, the task's own word is
 			// frozen history
 			resume := ""

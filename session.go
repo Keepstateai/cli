@@ -40,7 +40,7 @@ type inventoryRow struct {
 	TaskState        string `json:"task_state"`
 	KeyAlias         string `json:"key_alias"`
 	ObservedAt       string `json:"observed_at"`
-	// BACKLOG-150: why the session is parked when no person parked it
+	// The funds park: why the session is parked when no person parked it
 	// (funds_interlock: the account's credits ran out). The fleet inventory
 	// does not carry it, so it is read from the session's record, whose own
 	// runtime state is kept beside it.
@@ -151,7 +151,7 @@ func renderInventory(rows []inventoryRow, width int) string {
 
 // invState, invAgent and invTask are a row's cells. A funds-parked session
 // reads paused, its agent's frozen word reads frozen, and a task that last
-// read running reads paused: none of them is moving (BACKLOG-150).
+// read running reads paused: none of them is moving (the funds park).
 func invState(r inventoryRow) string {
 	if rowFundsParked(r) {
 		return "paused"

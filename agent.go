@@ -61,11 +61,11 @@ type agentRow struct {
 	// the agent could take a consultation now, as the service reads them
 	Controller   string `json:"controller,omitempty"`
 	Consultation string `json:"consultation,omitempty"`
-	// BACKLOG-130: the model the supervisor started the runner with, and the
+	// The runner models: the model the supervisor started the runner with, and the
 	// one the runner itself named; both are shown, neither inferred
 	RunnerModel         string `json:"runner_model,omitempty"`
 	RunnerReportedModel string `json:"runner_reported_model,omitempty"`
-	// BACKLOG-150: present whenever the agent's session is NOT running; its
+	// The funds park: present whenever the agent's session is NOT running; its
 	// activity is then the last word before the pause, frozen
 	SessionRuntime *sessionRuntimeDoc `json:"session_runtime,omitempty"`
 }
@@ -142,7 +142,7 @@ type taskRow struct {
 	// where the stop stands against C04's interrupt wait and, once that has
 	// passed, the explicit recovery actions (KS-044). Read, never inferred.
 	CancelRecovery *cancelRecovery `json:"cancel_recovery,omitempty"`
-	// SessionRuntime (BACKLOG-150) is present on the task read while the
+	// SessionRuntime (the funds park) is present on the task read while the
 	// instruction is still to move (queued, claimed, running, cancelling)
 	// and its session is not running: why it is not moving
 	SessionRuntime *sessionRuntimeDoc `json:"session_runtime,omitempty"`
@@ -492,7 +492,7 @@ func hostedAgentStatus(cr hostedCreds, inv *Invocation) {
 		}
 		emit(doc, func() {
 			fmt.Printf("agent %s (%s) in session %s\n", a.Name, a.ID, sess.ShortID)
-			// BACKLOG-150: a session that is not running comes FIRST, and
+			// The funds park: a session that is not running comes FIRST, and
 			// the agent's own word is then its last before the pause
 			for _, l := range runtimeLines(a.SessionRuntime, "ks agent resume "+a.Name+" --session "+sess.ShortID) {
 				fmt.Println(l)
@@ -833,7 +833,7 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 			}
 			emit(map[string]any{"session": sess.ID, "agent": w.Agent, "runtime": w.Runtime, "recovery": w.Recovery, "woken": false, "session_runtime": a.SessionRuntime}, func() {
 				if a.SessionRuntime.funds() {
-					// BACKLOG-150: the pause and its cause come first
+					// The funds park: the pause and its cause come first
 					fmt.Printf("agent %s (%s) in session %s: %s\n", a.Name, a.ID, sess.ShortID, fundsPausedLine)
 					for _, l := range runtimeLines(a.SessionRuntime, "ks agent open "+a.Name+" --session "+sess.ShortID+" --resume") {
 						fmt.Println(l)
@@ -870,7 +870,7 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 	}
 	if rt := w.Agent.SessionRuntime; rt != nil {
 		// the agent read says its session is not running: its word above is
-		// frozen, whatever the window's own open answered (BACKLOG-150)
+		// frozen, whatever the window's own open answered (the funds park)
 		if rt.funds() {
 			progress("%s; the status above is frozen at the saved point", fundsPausedLine)
 		} else {
@@ -1249,7 +1249,7 @@ func agentEventLine(e journalEvent) string {
 		}
 		_ = json.Unmarshal(e.Payload, &p)
 		if fundsParked(p.State, p.Reason) {
-			// BACKLOG-150: the window must not go quiet over a funds park
+			// The funds park: the window must not go quiet over a funds park
 			return sanitize("!! " + head + " " + fundsPausedLine + " (saved and paused, never killed; the agent is frozen and nothing is charged)")
 		}
 	}

@@ -3,7 +3,7 @@
 // (docs/upgrade/vectors/manifest-canonical-v1.json, vendored with its
 // source recorded in testdata/vectors/SOURCE.json), and a drift guard
 // compares the vendored copy with the service's when KS_SERVER_CHECKOUT is
-// given (the ks072-golden workflow gives it).
+// given (the vendored-drift workflow gives it).
 package main
 
 import (
@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 )
 
@@ -72,8 +73,9 @@ func TestKS074VendoredVectorsMatchTheirSourceAndTheServer(t *testing.T) {
 	var src struct {
 		ServerCommit string `json:"server_commit"`
 		Files        map[string]struct {
-			From   string `json:"from"`
-			SHA256 string `json:"sha256"`
+			From     string `json:"from"`
+			SHA256   string `json:"sha256"`
+			Vendored string `json:"vendored_sha256"`
 		} `json:"files"`
 	}
 	b, err := os.ReadFile("testdata/vectors/SOURCE.json")
@@ -81,8 +83,8 @@ func TestKS074VendoredVectorsMatchTheirSourceAndTheServer(t *testing.T) {
 		t.Fatalf("SOURCE.json: %v", err)
 	}
 	for name, f := range src.Files {
-		if got := fileSHA(t, filepath.Join("testdata/vectors", name)); got != f.SHA256 {
-			t.Errorf("testdata/vectors/%s is %s, SOURCE.json records %s", name, got, f.SHA256)
+		if got := fileSHA(t, filepath.Join("testdata/vectors", name)); got != f.Vendored {
+			t.Errorf("testdata/vectors/%s is %s, SOURCE.json records %s", name, got, f.Vendored)
 		}
 	}
 	server := os.Getenv("KS_SERVER_CHECKOUT")
@@ -90,9 +92,22 @@ func TestKS074VendoredVectorsMatchTheirSourceAndTheServer(t *testing.T) {
 		t.Skip("KS_SERVER_CHECKOUT not set: the comparison with the service runs in CI")
 	}
 	for name, f := range src.Files {
-		if got := fileSHA(t, filepath.Join(server, f.From)); got != f.SHA256 {
-			t.Fatalf("DRIFT: the service's %s is now %s, but this client vendored %s (%s) from commit %s; re-vendor and re-run the vectors",
-				f.From, got, f.SHA256, name, src.ServerCommit)
+		raw, err := os.ReadFile(filepath.Join(server, f.From))
+		if err != nil {
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256(publicScrub(raw))
+		if got := hex.EncodeToString(sum[:]); got != f.Vendored {
+			t.Fatalf("DRIFT: the service's %s, scrubbed for the public repository, is now %s, but this client vendored %s (%s) from commit %s; re-vendor and re-run the vectors",
+				f.From, got, f.Vendored, name, src.ServerCommit)
 		}
 	}
+}
+
+// publicScrub is the one transform applied to a vendored service file: the
+// public repository carries no private governance ids, so every
+// " (BACKLOG-n)" reference is removed, and any other is replaced.
+func publicScrub(b []byte) []byte {
+	b = regexp.MustCompile(` ?\(BACKLOG-\d+\)`).ReplaceAll(b, nil)
+	return regexp.MustCompile(`\bBACKLOG-\d+\b`).ReplaceAll(b, []byte("an internal item"))
 }

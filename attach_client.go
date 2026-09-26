@@ -150,7 +150,7 @@ func hostedAttach(cr hostedCreds, id string) error {
 		var e struct{ Message, Error string }
 		if json.Unmarshal(raw, &e) == nil && e.Message != "" {
 			if e.Error != "" {
-				// a named refusal keeps its name (BACKLOG-170)
+				// a named refusal keeps its name (the legacy session routes)
 				return hostedError("GET", "/api/sessions/"+id+"/attach", resp, raw)
 			}
 			return fmt.Errorf("%s", e.Message)

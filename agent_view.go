@@ -58,7 +58,7 @@ type liveViewDoc struct {
 		ObservedAt   string   `json:"observed_at"`
 		KeyRoutes    []string `json:"key_routes"`
 		LastSavedAt  string   `json:"last_saved_at,omitempty"`
-		// BACKLOG-150: why the session is parked when no person parked it
+		// The funds park: why the session is parked when no person parked it
 		ParkReason string `json:"park_reason,omitempty"`
 	} `json:"header"`
 	Runner struct {
@@ -288,7 +288,7 @@ func performMenuItem(cr hostedCreds, sess inventoryRow, a agentRow, it viewPalet
 // stale notice past the threshold; the runtime beside it.
 func statusLine(v liveViewDoc) string {
 	if fundsParked(v.Header.RuntimeState, v.Header.ParkReason) {
-		// BACKLOG-150: the pause is the status; the agent's word is frozen
+		// The funds park: the pause is the status; the agent's word is frozen
 		return "PAUSED: out of credit — add credit (console), then resume"
 	}
 	rt := "runtime " + stateLabel("session_runtime", v.Header.RuntimeState)

@@ -1,7 +1,7 @@
 {
  "name": "ks-manifest-canonical",
  "version": 1,
- "rule": "json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=True) over the parsed JSON; UTF-8 bytes; no trailing newline; sha256 over those bytes. Numbers must be canonical integer literals -?(0|[1-9][0-9]*) and never -0: any other number literal is refused (BACKLOG-140).",
+ "rule": "json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=True) over the parsed JSON; UTF-8 bytes; no trailing newline; sha256 over those bytes. Numbers must be canonical integer literals -?(0|[1-9][0-9]*) and never -0: any other number literal is refused.",
  "consumers": [
   "ctl canonicalJSON (ctl/jobs.go)",
   "judge manifest.canonical / jobrun.canonical_ctl",

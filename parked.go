@@ -1,4 +1,4 @@
-// parked.go: BACKLOG-150. When the account's credits run out, the funds
+// parked.go: the funds park. When the account's credits run out, the funds
 // interlock saves the session and pauses it (it is never killed). The
 // service now says so on every read: the session record's park_reason, the
 // agent's and the task's session_runtime, and the live view's

@@ -1,28 +1,17 @@
-// skipdirs.go: the verifier's SKIP_DIRS, vendored (verifier_skip_dirs.json,
-// with testdata/skipdirs/SOURCE.json and a drift guard). One list serves
-// the KS-072 discovery port and upload policy ks-upload-policy/2, so what
-// is uploaded, what is discovered and what the verifier reads cannot
-// diverge.
+// skipdirs.go: the verifier's SKIP_DIRS (judge/checks.py), the directory
+// names the verifier never reads. One list serves the discovery port and
+// upload policy ks-upload-policy/2, so what is uploaded, what is discovered
+// and what the verifier reads cannot diverge. The vendored record is
+// testdata/skipdirs/verifier_skip_dirs.json (with SOURCE.json); a test keeps
+// this list equal to it, and a drift guard compares both with the service.
 package main
 
-import (
-	_ "embed"
-	"encoding/json"
-)
+var verifierSkipDirList = []string{".claude", ".git", ".hg", ".keepstate", ".mypy_cache", ".nox", ".pytest_cache", ".ruff_cache", ".svn", ".tox", ".venv", "__pycache__", "build", "dist", "node_modules", "venv"}
 
-//go:embed verifier_skip_dirs.json
-var verifierSkipDirsJSON []byte
-
-// verifierSkipDirs is the vendored set.
+// verifierSkipDirs is the list as a set.
 var verifierSkipDirs = func() map[string]bool {
-	var doc struct {
-		Dirs []string `json:"dirs"`
-	}
-	if err := json.Unmarshal(verifierSkipDirsJSON, &doc); err != nil || len(doc.Dirs) == 0 {
-		panic("verifier_skip_dirs.json is unreadable: the upload policy cannot be built")
-	}
 	m := map[string]bool{}
-	for _, d := range doc.Dirs {
+	for _, d := range verifierSkipDirList {
 		m[d] = true
 	}
 	return m
