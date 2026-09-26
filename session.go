@@ -40,6 +40,12 @@ type inventoryRow struct {
 	TaskState        string `json:"task_state"`
 	KeyAlias         string `json:"key_alias"`
 	ObservedAt       string `json:"observed_at"`
+	// BACKLOG-150: why the session is parked when no person parked it
+	// (funds_interlock: the account's credits ran out). The fleet inventory
+	// does not carry it, so it is read from the session's record, whose own
+	// runtime state is kept beside it.
+	ParkReason  string `json:"park_reason,omitempty"`
+	RecordState string `json:"record_runtime_state,omitempty"`
 }
 
 // fetchInventory reads every page: a filter answers the complete
@@ -123,7 +129,7 @@ func renderInventory(rows []inventoryRow, width int) string {
 	if wide {
 		fmt.Fprintf(&b, "%-14s %-16s %-8s %-10s %-11s %-16s %-16s %-16s\n", "SESSION", "NAME", "STATE", "AGENT", "TASK", "LAST ACTIVITY", "LAST SAVE", "KEY")
 		for _, r := range rows {
-			fmt.Fprintf(&b, "%-14s %-16s %-8s %-10s %-11s %-16s %-16s %-16s\n", clip(r.ShortID, 14), clip(r.Name, 16), clip(stateCell("session_runtime", r.RuntimeState), 8), clip(stateCell("agent_activity", r.AgentActivity), 10), clip(r.TaskState, 11), ago(r.LastActivityAt), ago(r.LastCheckpointAt), clip(r.KeyAlias, 16))
+			fmt.Fprintf(&b, "%-14s %-16s %-8s %-10s %-11s %-16s %-16s %-16s\n", clip(r.ShortID, 14), clip(r.Name, 16), clip(invState(r), 8), clip(invAgent(r), 10), clip(invTask(r), 11), ago(r.LastActivityAt), ago(r.LastCheckpointAt), clip(r.KeyAlias, 16))
 		}
 	} else {
 		fmt.Fprintf(&b, "%-14s %-8s %-11s %-11s %-16s %s\n", "SESSION", "STATE", "AGENT", "TASK", "LAST ACTIVITY", "SAVED")
@@ -132,10 +138,39 @@ func renderInventory(rows []inventoryRow, width int) string {
 			if r.LastCheckpointID != "" {
 				saved = "yes"
 			}
-			fmt.Fprintf(&b, "%-14s %-8s %-11s %-11s %-16s %s\n", clip(r.ShortID, 14), clip(stateCell("session_runtime", r.RuntimeState), 8), clip(stateCell("agent_activity", r.AgentActivity), 11), clip(r.TaskState, 11), ago(r.LastActivityAt), saved)
+			fmt.Fprintf(&b, "%-14s %-8s %-11s %-11s %-16s %s\n", clip(r.ShortID, 14), clip(invState(r), 8), clip(invAgent(r), 11), clip(invTask(r), 11), ago(r.LastActivityAt), saved)
+		}
+	}
+	for _, r := range rows {
+		if rowFundsParked(r) {
+			fmt.Fprintf(&b, "%s %s; its agent's last word and task are frozen at the saved point; nothing runs or is charged\n", clip(r.ShortID, 14), fundsPausedLine)
 		}
 	}
 	return b.String()
+}
+
+// invState, invAgent and invTask are a row's cells. A funds-parked session
+// reads paused, its agent's frozen word reads frozen, and a task that last
+// read running reads paused: none of them is moving (BACKLOG-150).
+func invState(r inventoryRow) string {
+	if rowFundsParked(r) {
+		return "paused"
+	}
+	return stateCell("session_runtime", r.RuntimeState)
+}
+
+func invAgent(r inventoryRow) string {
+	if rowFundsParked(r) {
+		return "frozen"
+	}
+	return stateCell("agent_activity", r.AgentActivity)
+}
+
+func invTask(r inventoryRow) string {
+	if rowFundsParked(r) && frozenTask(r.TaskState) {
+		return "paused"
+	}
+	return r.TaskState
 }
 
 func hostedSessionList(cr hostedCreds, inv *Invocation) {
@@ -147,7 +182,12 @@ func hostedSessionList(cr hostedCreds, inv *Invocation) {
 	if err != nil {
 		die(err)
 	}
-	emit(map[string]any{"sessions": rows, "count": len(rows), "state_filter": state, "all": inv.Bool("all")}, func() {
+	rows, parkProblem := withParkReasons(cr, rows)
+	doc := map[string]any{"sessions": rows, "count": len(rows), "state_filter": state, "all": inv.Bool("all")}
+	if parkProblem != "" {
+		doc["park_reasons_unreadable"] = parkProblem
+	}
+	emit(doc, func() {
 		if len(rows) == 0 {
 			if state != "" {
 				fmt.Printf("No %s sessions.\n", state)
@@ -157,6 +197,9 @@ func hostedSessionList(cr hostedCreds, inv *Invocation) {
 			return
 		}
 		fmt.Print(renderInventory(rows, termColumns()))
+		if parkProblem != "" {
+			fmt.Println(parkProblem)
+		}
 		fmt.Printf("%d session(s); details: ks session show <session>\n", len(rows))
 	})
 }
@@ -200,16 +243,37 @@ func hostedSessionShow(cr hostedCreds, inv *Invocation) {
 	if err != nil {
 		die(err)
 	}
-	emit(r, func() {
+	rs, parkProblem := withParkReasons(cr, []inventoryRow{r})
+	r = rs[0]
+	var doc any = r
+	if parkProblem != "" {
+		doc = map[string]any{"session": r, "park_reasons_unreadable": parkProblem}
+	}
+	emit(doc, func() {
 		fmt.Printf("session %s (%s)\n", r.ID, r.ShortID)
 		fmt.Printf("  name           %s\n", r.Name)
-		if r.FleetState != "" {
-			fmt.Printf("  state          %s (fleet: %s)\n", r.RuntimeState, r.FleetState)
-		} else {
-			fmt.Printf("  state          %s\n", stateLabel("session_runtime", r.RuntimeState))
+		if rowFundsParked(r) {
+			fmt.Printf("  state          %s\n", fundsPausedLine)
+			fmt.Printf("  why            the account's credits ran out, so the funds interlock saved this session and paused it (it was never killed); nothing runs and nothing is charged while it is parked\n")
+			fmt.Printf("  fleet state    %s\n", stateLabel("session_runtime", r.RuntimeState))
+			fmt.Printf("  agent          %s (frozen at the saved point; not current)\n", stateLabel("agent_activity", r.AgentActivity))
+			fmt.Printf("  task           %s (frozen; nothing is moving)\n", r.TaskState)
+			fmt.Printf("  then resume    ks wake %s (after adding credit)\n", r.ShortID)
+		} else if parkProblem != "" {
+			fmt.Printf("  park reason    %s\n", parkProblem)
 		}
-		fmt.Printf("  agent          %s\n", stateLabel("agent_activity", r.AgentActivity))
-		fmt.Printf("  task           %s\n", r.TaskState)
+		if !rowFundsParked(r) {
+			if r.FleetState != "" {
+				fmt.Printf("  state          %s (fleet: %s)\n", r.RuntimeState, r.FleetState)
+			} else {
+				fmt.Printf("  state          %s\n", stateLabel("session_runtime", r.RuntimeState))
+			}
+			if r.ParkReason != "" {
+				fmt.Printf("  park reason    %s\n", sanitize(r.ParkReason))
+			}
+			fmt.Printf("  agent          %s\n", stateLabel("agent_activity", r.AgentActivity))
+			fmt.Printf("  task           %s\n", r.TaskState)
+		}
 		fmt.Printf("  key            %s\n", r.KeyAlias)
 		fmt.Printf("  image          %s\n", r.Image)
 		fmt.Printf("  budget         %d tokens\n", r.BudgetTokens)

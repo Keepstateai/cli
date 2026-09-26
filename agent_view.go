@@ -59,6 +59,8 @@ type liveViewDoc struct {
 		ObservedAt   string   `json:"observed_at"`
 		KeyRoutes    []string `json:"key_routes"`
 		LastSavedAt  string   `json:"last_saved_at,omitempty"`
+		// BACKLOG-150: why the session is parked when no person parked it
+		ParkReason string `json:"park_reason,omitempty"`
 	} `json:"header"`
 	Runner struct {
 		Label         string `json:"label"`
@@ -82,6 +84,7 @@ type liveViewDoc struct {
 		AgeSeconds  *int64 `json:"age_seconds"`
 		Stale       bool   `json:"stale"`
 		StaleAfterS int    `json:"stale_after_seconds"`
+		Note        string `json:"note,omitempty"`
 	} `json:"status"`
 	CurrentTask *viewTaskRow `json:"current_task"`
 	LastTask    *viewTaskRow `json:"last_task"`
@@ -124,12 +127,21 @@ func viewLines(v liveViewDoc) []string {
 	lines := []string{
 		fmt.Sprintf("%s/%s%s · %s", h.SessionName, h.AgentName, proj, h.Controller),
 		statusLine(v),
+	}
+	if fundsParked(v.Header.RuntimeState, v.Header.ParkReason) {
+		word := stateLabel("agent_activity", v.Header.Activity)
+		if v.Status != nil && v.Status.Label != "" {
+			word = v.Status.Label
+		}
+		lines = append(lines, "frozen at the saved point: agent last said "+word+"; nothing runs or is charged")
+	}
+	lines = append(lines,
 		fmt.Sprintf("keys %s · last save %s", figure(strings.Join(h.KeyRoutes, ",")), figure(h.LastSavedAt)),
 		fmt.Sprintf("runner %s (%s)", figure(v.Runner.Label), figure(v.Runner.Certification)),
 		taskLine(v),
 		"",
 		"KS menu (no default):",
-	}
+	)
 	for i, it := range v.Palette {
 		mark := ""
 		if it.Destructive {
@@ -144,7 +156,10 @@ func viewLines(v liveViewDoc) []string {
 	lines = append(lines, "",
 		fmt.Sprintf("queued %s · held %s · approvals %s · advisers %s",
 			viewCount(v.Footer.Queued), viewCount(v.Footer.Held), viewCount(v.Footer.PendingApprovals), viewCount(v.Footer.Advisers)), spend)
-	if v.NextAction != nil && v.NextAction.Label != "" {
+	switch {
+	case v.NextAction != nil && v.NextAction.Action == "add_credits":
+		lines = append(lines, "next: add credit in the console ("+v.NextAction.Request+"), then resume")
+	case v.NextAction != nil && v.NextAction.Label != "":
 		lines = append(lines, "next: "+v.NextAction.Label+" — "+v.NextAction.Request)
 	}
 	if len(lines) > 24 {
@@ -271,6 +286,10 @@ func performMenuItem(cr hostedCreds, sess inventoryRow, a agentRow, it viewPalet
 // statusLine is the header's status: the service's label and its age, and a
 // stale notice past the threshold; the runtime beside it.
 func statusLine(v liveViewDoc) string {
+	if fundsParked(v.Header.RuntimeState, v.Header.ParkReason) {
+		// BACKLOG-150: the pause is the status; the agent's word is frozen
+		return "PAUSED: out of credit — add credit (console), then resume"
+	}
 	rt := "runtime " + stateLabel("session_runtime", v.Header.RuntimeState)
 	if v.Status == nil {
 		return rt + " · " + stateLabel("agent_activity", v.Header.Activity) + " (observed " + figure(v.Header.ObservedAt) + ")"
@@ -290,6 +309,9 @@ func taskLine(v liveViewDoc) string {
 	cur, last := "none", "none"
 	if v.CurrentTask != nil {
 		cur = v.CurrentTask.ID + " " + v.CurrentTask.Label
+		if fundsParked(v.Header.RuntimeState, v.Header.ParkReason) {
+			cur = v.CurrentTask.ID + " paused (frozen)"
+		}
 	}
 	if v.LastTask != nil {
 		last = v.LastTask.ID + " " + v.LastTask.Label

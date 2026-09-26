@@ -65,6 +65,9 @@ type agentRow struct {
 	// one the runner itself named; both are shown, neither inferred
 	RunnerModel         string `json:"runner_model,omitempty"`
 	RunnerReportedModel string `json:"runner_reported_model,omitempty"`
+	// BACKLOG-150: present whenever the agent's session is NOT running; its
+	// activity is then the last word before the pause, frozen
+	SessionRuntime *sessionRuntimeDoc `json:"session_runtime,omitempty"`
 }
 
 // runnerModelLine shows both models as the service recorded them.
@@ -139,6 +142,10 @@ type taskRow struct {
 	// where the stop stands against C04's interrupt wait and, once that has
 	// passed, the explicit recovery actions (KS-044). Read, never inferred.
 	CancelRecovery *cancelRecovery `json:"cancel_recovery,omitempty"`
+	// SessionRuntime (BACKLOG-150) is present on the task read while the
+	// instruction is still to move (queued, claimed, running, cancelling)
+	// and its session is not running: why it is not moving
+	SessionRuntime *sessionRuntimeDoc `json:"session_runtime,omitempty"`
 }
 
 // submittedTask is a task as the submission route answers it: the task,
@@ -414,9 +421,19 @@ func agentLine(a agentRow) string {
 	if task == "" {
 		task = "none"
 	}
-	line := fmt.Sprintf("%-16s %-16s %-11s %-8s %s", clip(a.Name, 16), clip(a.ID, 16), clip(stateCell("agent_activity", a.Activity), 11), agentRole(a), task)
+	activity := stateCell("agent_activity", a.Activity)
+	if a.SessionRuntime != nil {
+		activity = "frozen"
+	}
+	line := fmt.Sprintf("%-16s %-16s %-11s %-8s %s", clip(a.Name, 16), clip(a.ID, 16), clip(activity, 11), agentRole(a), task)
 	if a.Controller != "" || a.Consultation != "" {
 		line += fmt.Sprintf("  control %s · advice %s", figure(a.Controller), figure(a.Consultation))
+	}
+	switch rt := a.SessionRuntime; {
+	case rt.funds():
+		line += "  " + fundsPausedLine
+	case rt != nil:
+		line += "  session " + sanitize(stateLabel("session_runtime", rt.State)) + ": not running"
 	}
 	return line
 }
@@ -459,14 +476,25 @@ func hostedAgentStatus(cr hostedCreds, inv *Invocation) {
 		age, stale := observedAge(a.ObservedAt, time.Now())
 		emit(map[string]any{"session": sess.ID, "agent": a, "queue_depth": waiting, "current_task": current, "tasks": len(tasks), "observed_age": age, "stale": stale}, func() {
 			fmt.Printf("agent %s (%s) in session %s\n", a.Name, a.ID, sess.ShortID)
-			fmt.Printf("  activity       %s (%s)\n", stateLabel("agent_activity", a.Activity), age)
-			if stale {
+			// BACKLOG-150: a session that is not running comes FIRST, and
+			// the agent's own word is then its last before the pause
+			for _, l := range runtimeLines(a.SessionRuntime, "ks agent resume "+a.Name+" --session "+sess.ShortID) {
+				fmt.Println(l)
+			}
+			if a.SessionRuntime != nil {
+				fmt.Printf("  activity       FROZEN at %s (%s): the last word before the session stopped, not current\n", stateLabel("agent_activity", a.Activity), age)
+			} else {
+				fmt.Printf("  activity       %s (%s)\n", stateLabel("agent_activity", a.Activity), age)
+			}
+			if stale && a.SessionRuntime == nil {
 				fmt.Printf("  STALE          no observation for more than %s: this is the last known state, not the current one\n", staleAfter)
 			}
 			fmt.Printf("  role           %s\n", agentRole(a))
 			fmt.Printf("  runner model   %s\n", runnerModelLine(a))
 			fmt.Printf("  queue          %d waiting\n", waiting)
-			if current != nil {
+			if current != nil && a.SessionRuntime != nil {
+				fmt.Printf("  current task   %s at queue position %d: NOT moving, the session is not running (last recorded %s)\n", current.ID, current.QueueSeq, stateLabel("task_state", current.State))
+			} else if current != nil {
 				fmt.Printf("  current task   %s (%s) at queue position %d\n", current.ID, stateLabel("task_state", current.State), current.QueueSeq)
 			} else {
 				fmt.Printf("  current task   none\n")
@@ -776,7 +804,14 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 			if inv.Bool("resume") {
 				fail(&cliError{Code: exitConflict, Kind: "not_resumable", Message: fmt.Sprintf("session %s is %s and cannot be resumed: %s", sess.ShortID, stateLabel("session_runtime", w.Runtime.State), sanitize(w.Runtime.Note))})
 			}
-			emit(map[string]any{"session": sess.ID, "agent": w.Agent, "runtime": w.Runtime, "recovery": w.Recovery, "woken": false}, func() {
+			emit(map[string]any{"session": sess.ID, "agent": w.Agent, "runtime": w.Runtime, "recovery": w.Recovery, "woken": false, "session_runtime": a.SessionRuntime}, func() {
+				if a.SessionRuntime.funds() {
+					// BACKLOG-150: the pause and its cause come first
+					fmt.Printf("agent %s (%s) in session %s: %s\n", a.Name, a.ID, sess.ShortID, fundsPausedLine)
+					for _, l := range runtimeLines(a.SessionRuntime, "ks agent open "+a.Name+" --session "+sess.ShortID+" --resume") {
+						fmt.Println(l)
+					}
+				}
 				fmt.Printf("agent %s (%s) in session %s: the session is %s and was NOT woken\n", a.Name, a.ID, sess.ShortID, stateLabel("session_runtime", w.Runtime.State))
 				fmt.Printf("  %s\n", sanitize(w.Runtime.Note))
 				if w.Runtime.LastSavedAt != "" {
@@ -805,6 +840,15 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 		a.Name, a.ID, sess.ShortID, stateLabel("agent_activity", w.Agent.Activity), age, joined, controlLine(w), w.QueueDepth)
 	if stale {
 		progress("STALE: no observation of this agent for more than %s; the status above is the last known one", staleAfter)
+	}
+	if rt := w.Agent.SessionRuntime; rt != nil {
+		// the agent read says its session is not running: its word above is
+		// frozen, whatever the window's own open answered (BACKLOG-150)
+		if rt.funds() {
+			progress("%s; the status above is frozen at the saved point", fundsPausedLine)
+		} else {
+			progress("the session is %s: %s", stateLabel("session_runtime", rt.State), sanitize(rt.Note))
+		}
 	}
 
 	// WHETHER THE QUEUE IS MOVING. A window showing "3 queued" beside an
@@ -1153,6 +1197,17 @@ func agentEventLine(e journalEvent) string {
 	head := fmt.Sprintf("%-6d %s", e.StreamSeq, clock(e.ObservedAt))
 	if t := transcriptOf(e); t != nil {
 		return sanitize(head + " " + transcriptLine(*t))
+	}
+	if e.kind() == "session.parked" {
+		var p struct {
+			Reason string `json:"reason"`
+			State  string `json:"runtime_state"`
+		}
+		_ = json.Unmarshal(e.Payload, &p)
+		if fundsParked(p.State, p.Reason) {
+			// BACKLOG-150: the window must not go quiet over a funds park
+			return sanitize("!! " + head + " " + fundsPausedLine + " (saved and paused, never killed; the agent is frozen and nothing is charged)")
+		}
 	}
 	line := fmt.Sprintf("%s %s %s", head, figure(e.SubjectType), figure(e.SubjectID))
 	if d := compactPayload(e.Payload); d != "" {

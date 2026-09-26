@@ -112,8 +112,26 @@ func attemptLine(t taskRow) string {
 }
 
 func taskListLine(t taskRow) string {
+	return taskListLineIn(t, nil)
+}
+
+// taskListLineIn is one instruction's row with its session's runtime: an
+// instruction still to move in a session that is not running reads paused
+// (funds park) or not moving, never running (BACKLOG-150).
+func taskListLineIn(t taskRow, rt *sessionRuntimeDoc) string {
+	if t.SessionRuntime != nil {
+		rt = t.SessionRuntime
+	}
+	state := stateCell("task_state", t.State)
+	if rt != nil && (frozenTask(t.State) || t.State == "queued") {
+		if rt.funds() {
+			state = "paused"
+		} else {
+			state = "not moving"
+		}
+	}
 	return fmt.Sprintf("%-26s %4d %-12s %-9s %-10s %s",
-		clip(t.ID, 26), t.QueueSeq, clip(stateCell("task_state", t.State), 12), clip(figure(t.Origin), 9),
+		clip(t.ID, 26), t.QueueSeq, clip(state, 12), clip(figure(t.Origin), 9),
 		clip(taskAuthor(t), 10), figure(t.CreatedAt))
 }
 
@@ -171,7 +189,7 @@ func hostedTaskList(cr hostedCreds, inv *Invocation) {
 		}
 		sortTasks(ts)
 		total += len(ts)
-		out = append(out, taskQueue{Agent: a.Name, AgentID: a.ID, Tasks: ts})
+		out = append(out, taskQueue{Agent: a.Name, AgentID: a.ID, Tasks: ts, SessionRuntime: a.SessionRuntime})
 	}
 	// An incomplete listing is ONE answer, not a document followed by an
 	// error: --json must never print two envelopes, and nobody must be shown
@@ -191,6 +209,9 @@ func hostedTaskList(cr hostedCreds, inv *Invocation) {
 		}
 		for _, q := range out {
 			fmt.Printf("agent %s (%s)\n", q.Agent, q.AgentID)
+			for _, l := range runtimeLines(q.SessionRuntime, "ks agent resume "+q.Agent+" --session "+sess.ShortID) {
+				fmt.Println(l)
+			}
 			if q.Unreadable != "" {
 				fmt.Printf("  this queue could not be READ, so it is not shown; it is not known to be empty: %s\n", q.Unreadable)
 				continue
@@ -201,7 +222,7 @@ func hostedTaskList(cr hostedCreds, inv *Invocation) {
 			}
 			fmt.Printf("  %-26s %4s %-12s %-9s %-10s %s\n", "INSTRUCTION", "POS", "STATE", "ORIGIN", "AUTHOR", "SUBMITTED")
 			for _, t := range q.Tasks {
-				fmt.Printf("  %s\n", taskListLine(t))
+				fmt.Printf("  %s\n", taskListLineIn(t, q.SessionRuntime))
 			}
 		}
 		fmt.Printf("%d instruction(s) across %d agent(s); one in full: ks task show <instruction> --session %s\n",
@@ -218,6 +239,9 @@ type taskQueue struct {
 	AgentID    string    `json:"agent_id"`
 	Tasks      []taskRow `json:"tasks"`
 	Unreadable string    `json:"unreadable,omitempty"`
+	// SessionRuntime is the agent's session when it is not running
+	// (BACKLOG-150), as the agent read carries it
+	SessionRuntime *sessionRuntimeDoc `json:"session_runtime,omitempty"`
 }
 
 // partialQueues is what an incomplete listing carries as FIELDS: what was
@@ -340,7 +364,28 @@ func hostedTaskShow(cr hostedCreds, inv *Invocation) {
 		} else {
 			fmt.Printf("  agent          %s\n", t.AgentID)
 		}
-		fmt.Printf("  state          %s\n", stateLabel("task_state", t.State))
+		if rt := t.SessionRuntime; rt != nil {
+			// BACKLOG-150: the instruction is still to move and its session
+			// is not running; the pause is the state, the task's own word is
+			// frozen history
+			resume := ""
+			if agentName != "" {
+				resume = "ks agent resume " + agentName + " --session " + sessionShort
+			} else {
+				resume = "ks agent resume <agent> --session <session>"
+			}
+			if rt.funds() {
+				fmt.Printf("  state          %s\n", fundsPausedLine)
+			} else {
+				fmt.Printf("  state          NOT moving: the session is %s\n", sanitize(stateLabel("session_runtime", rt.State)))
+			}
+			fmt.Printf("  last recorded  %s (frozen; nothing is moving while the session is not running)\n", stateLabel("task_state", t.State))
+			for _, l := range runtimeLines(rt, resume) {
+				fmt.Println(l)
+			}
+		} else {
+			fmt.Printf("  state          %s\n", stateLabel("task_state", t.State))
+		}
 		if t.CancelRecovery != nil {
 			printCancelRecovery(t.CancelRecovery, cancelRecoveryHints(t.ID, agentName, sessionShort))
 		}
