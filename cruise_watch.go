@@ -92,6 +92,8 @@ type jobLiveStatus struct {
 	// KS-077: present only in review, and only once cancelled
 	Review  *liveReview  `json:"review"`
 	Cleanup *liveCleanup `json:"cleanup"`
+	// KS-078: present only once accepted
+	Result *liveResult `json:"result"`
 }
 
 type jobEventRow struct {

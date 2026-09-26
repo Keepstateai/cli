@@ -1548,41 +1548,31 @@ func cruiseArtifact(inv *Invocation) error {
 	if inv.Set("out") {
 		dest = inv.Str("out")
 	}
-	if _, err := os.Stat(dest); err == nil {
-		return fmt.Errorf("%s exists; choose another name with --out", dest)
+	// KS-078: where the control plane serves the result, a verified one is
+	// also re-checked against the candidate tree the receipt verified, and
+	// the badge is shown exactly as served; elsewhere, the sha256 check only
+	badge, candidate := "", ""
+	if st, err := fetchJobStatus(c, id); err == nil && st.Result != nil {
+		badge = st.Result.Badge
+		if badge == badgeVerified {
+			candidate, _ = st.Result.Provenance["candidate_digest"].(string)
+			if candidate == "" {
+				return &cliError{Code: exitIntegrity, Kind: "candidate_missing", Message: "the result reads verified but names no candidate digest to re-check the bytes against; nothing written"}
+			}
+		}
 	}
-	resp, err := hostedDo(c, "GET", "/api/jobs/"+id+"/artifact", "", nil)
+	n, err := safeDownload(c, id, dest, want, candidate)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		return hostedError("GET", "/api/jobs/"+id+"/artifact", resp, raw)
-	}
-	// downloaded next to the target, verified, then renamed into place:
-	// the named file exists only once its sha256 matches the job's record
-	dir := filepath.Dir(dest)
-	tmp, err := os.CreateTemp(dir, ".ks-artifact-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	h := sha256.New()
-	n, err := io.Copy(io.MultiWriter(tmp, h), resp.Body)
-	tmp.Close()
-	if err != nil {
-		return fmt.Errorf("download interrupted: %w", err)
-	}
-	got := hex.EncodeToString(h.Sum(nil))
-	if got != want {
-		return fmt.Errorf("artifact refused: sha256 %s does not match the job's record %s (nothing written)", short(got), short(want))
-	}
-	if err := os.Rename(tmp.Name(), dest); err != nil {
-		return err
-	}
-	emit(map[string]any{"job_id": id, "path": dest, "bytes": n, "sha256": want}, func() {
-		progress("artifact %s: %s bytes, sha256 %s verified", id, commas(n), short(want))
+	emit(map[string]any{"job_id": id, "path": dest, "bytes": n, "sha256": want, "badge": badge}, func() {
+		progress("artifact %s: %s bytes, sha256 %s matches the job's record", id, commas(n), short(want))
+		switch badge {
+		case "":
+			progress("provenance: not read from this control plane; this download is not shown as verified (ks cruise result %s)", id)
+		default:
+			progress("badge: %s", badgeLine(badge))
+		}
 		fmt.Println(dest)
 	})
 	return nil

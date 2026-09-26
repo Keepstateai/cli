@@ -315,7 +315,8 @@
     }
    ],
    "safety": "Verifies the download's sha256 against the job's artifact_sha before the named file exists; a mismatch is refused and nothing is written.",
-   "safetyMeasured": "2026-09-16, cruise_test.go (TestCruiseArtifactVerifiesBeforeWriting) against a control plane serving a tampered artifact."
+   "safetyMeasured": "2026-09-16, cruise_test.go (TestCruiseArtifactVerifiesBeforeWriting) against a control plane serving a tampered artifact.",
+   "note": "Against a control plane that serves the job status (not yet deployed), a verified result is also re-checked against its candidate tree and the badge is shown as served; against the deployed one, only the sha256 check applies and the download is not shown as verified."
   },
   {
    "verb": "cruise models",
@@ -1684,6 +1685,25 @@
    "status": "planned",
    "surface": "hosted",
    "note": "Reads GET /api/jobs/{id}/status, which the deployed control plane does not serve yet; until it does, the verb says so and changes nothing."
+  },
+  {
+   "verb": "cruise result",
+   "aliases": [],
+   "usage": "ks cruise result <job> [--download] [--out FILE]",
+   "summary": "an accepted job's result: the badge exactly as served, the provenance chain, and every limitation",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--download",
+     "summary": "also download the artifact: its sha256 and, for a verified result, the tree it holds are checked against the candidate the receipt verified before anything is written"
+    },
+    {
+     "flag": "--out FILE",
+     "summary": "where --download writes; default JOB.tar.gz; an existing file is never written over"
+    }
+   ],
+   "note": "Reads the result from GET /api/jobs/{id}/status, which the deployed control plane does not serve yet; until it does, the verb says so and writes nothing (ks cruise artifact still downloads with its sha256 check)."
   }
  ]
 }
