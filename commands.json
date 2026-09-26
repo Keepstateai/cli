@@ -1663,7 +1663,7 @@
    "summary": "every consultation one instruction raised: who was asked, who replied, who is pending or unavailable (named), whether the set is complete, current or history",
    "status": "planned",
    "surface": "hosted",
-   "note": "Gated on the registry's advisers.advice row; while the registry publishes none, the agent.workspace row decides (unavailable today) and the verb refuses with its reason."
+   "note": "Gated on the registry's advisers.advice row, which reads unavailable today; the verb refuses with that row's reason. The agent.workspace row decides only for an older registry that has no advisers.advice row."
   },
   {
    "verb": "advice show",
@@ -1672,7 +1672,7 @@
    "summary": "one consultation in full: who asked whom, when it was asked, taken up and answered, the context it was asked with, and the adviser's own words",
    "status": "planned",
    "surface": "hosted",
-   "note": "Gated on the registry's advisers.advice row; while the registry publishes none, the agent.workspace row decides (unavailable today) and the verb refuses with its reason."
+   "note": "Gated on the registry's advisers.advice row, which reads unavailable today; the verb refuses with that row's reason. The agent.workspace row decides only for an older registry that has no advisers.advice row."
   }
  ]
 }

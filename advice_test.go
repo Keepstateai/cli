@@ -262,3 +262,25 @@ func TestTaskShowCarriesTheAdviceSummary(t *testing.T) {
 		t.Errorf("an unreadable advice set is not said:\n%s", out)
 	}
 }
+
+// The registry's own advisers.advice row decides, unavailable today, even
+// where agent.workspace would read available: refused with that row's
+// reason, and nothing is read.
+func TestAdviceReadsItsOwnRegistryRow(t *testing.T) {
+	c := &adviceCtl{scenario: "disagree", caps: `,{"id":"agent.workspace","availability":"available","summary":"s","surface":"api"}` +
+		`,{"id":"advisers.advice","availability":"unavailable","summary":"s","surface":"api","since_protocol":2,"unavailable_reason":"advice reading needs a certified runner"}`}
+	bin, cfg := adviceFixture(t, c)
+	for _, args := range [][]string{{"advice", "list", "tsk_q"}, {"advice", "show", "csl_b"}} {
+		_, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), args...)
+		if code != exitFailed || !strings.Contains(errs, "advisers.advice") || !strings.Contains(errs, "advice reading needs a certified runner") || strings.Contains(errs, "agent.workspace") {
+			t.Errorf("%v: exit %d\n%s", args, code, errs)
+		}
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, r := range c.requests {
+		if strings.Contains(r, "/advice") || strings.Contains(r, "/consultations/") {
+			t.Errorf("a refused verb still read %s", r)
+		}
+	}
+}
