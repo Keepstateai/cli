@@ -1,0 +1,140 @@
+{
+ "name": "ks-manifest-canonical",
+ "version": 1,
+ "rule": "json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=True) over the parsed JSON; UTF-8 bytes; no trailing newline; sha256 over those bytes. Numbers must be canonical integer literals -?(0|[1-9][0-9]*) and never -0: any other number literal is refused (BACKLOG-140).",
+ "consumers": [
+  "ctl canonicalJSON (ctl/jobs.go)",
+  "judge manifest.canonical / jobrun.canonical_ctl",
+  "the client (keepstate-cli), Agent C"
+ ],
+ "cases": [
+  {
+   "name": "key-order-and-whitespace",
+   "input": "{ \"b\" : 1,\n  \"a\": [ 1, 2 ] }\n",
+   "canonical": "{\"a\":[1,2],\"b\":1}",
+   "sha256": "94a786c3662bc7beeb598efa7d8cb58d7bea25d6c275ea9785a0230ff1f8c2ba"
+  },
+  {
+   "name": "nested-objects-sorted",
+   "input": "{\"z\":{\"y\":{\"b\":true,\"a\":false}},\"a\":null}",
+   "canonical": "{\"a\":null,\"z\":{\"y\":{\"a\":false,\"b\":true}}}",
+   "sha256": "75c9f17e87c1692e41bf41b4f47e12e99a16a62ec8743271d8d6cb0a1751f06a"
+  },
+  {
+   "name": "indent-and-tabs",
+   "input": "{\n\t\"goal\":\t\"fix it\",\n\t\"version\": 1\n}",
+   "canonical": "{\"goal\":\"fix it\",\"version\":1}",
+   "sha256": "fb9d50ea55f6ab59f5c7d1adba718a86b44fb0a043330215b8399a58239c045b"
+  },
+  {
+   "name": "crlf-line-endings",
+   "input": "{\r\n  \"a\": 1,\r\n  \"b\": 2\r\n}\r\n",
+   "canonical": "{\"a\":1,\"b\":2}",
+   "sha256": "43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777"
+  },
+  {
+   "name": "empty-containers",
+   "input": "{\"a\":{},\"b\":[],\"c\":\"\"}",
+   "canonical": "{\"a\":{},\"b\":[],\"c\":\"\"}",
+   "sha256": "e052004170cc85d084722ffe760c499548014bfdbdf5275548b688255770dfc2"
+  },
+  {
+   "name": "non-ascii-literal",
+   "input": "{\"goal\":\"café ☕ 𝄞\"}",
+   "canonical": "{\"goal\":\"caf\\u00e9 \\u2615 \\ud834\\udd1e\"}",
+   "sha256": "8288d7abb28cbeddf4e51f89709cb9995c7931721ae6ceb236cb76dc869fc585"
+  },
+  {
+   "name": "non-ascii-escaped-same-meaning",
+   "input": "{\"goal\":\"caf\\u00e9 \\u2615 \\ud834\\udd1e\"}",
+   "canonical": "{\"goal\":\"caf\\u00e9 \\u2615 \\ud834\\udd1e\"}",
+   "sha256": "8288d7abb28cbeddf4e51f89709cb9995c7931721ae6ceb236cb76dc869fc585"
+  },
+  {
+   "name": "short-escapes",
+   "input": "{\"s\":\"tab\\tnl\\ncr\\rbs\\\\q\\\"bk\\bff\\f\"}",
+   "canonical": "{\"s\":\"tab\\tnl\\ncr\\rbs\\\\q\\\"bk\\bff\\f\"}",
+   "sha256": "4e7d08a9c7aad9a9205dc377dc78bd4365b1cf3f4d4e420d4f789c3e261e3b6f"
+  },
+  {
+   "name": "control-and-del",
+   "input": "{\"s\":\"\\u0001\\u001f\\u007f\"}",
+   "canonical": "{\"s\":\"\\u0001\\u001f\\u007f\"}",
+   "sha256": "c8c6a3428954c433eecbc6e325b485f610597b71f35e89effadcecfc3eed65c0"
+  },
+  {
+   "name": "html-and-slash-not-escaped",
+   "input": "{\"s\":\"<a href=\\\"/x\\\">&amp;</a>\",\"t\":\"a\\/b\"}",
+   "canonical": "{\"s\":\"<a href=\\\"/x\\\">&amp;</a>\",\"t\":\"a/b\"}",
+   "sha256": "b8a9adc3e50980d952f2144723592b0575c8ff19db327cb7b38e1461883f95e0"
+  },
+  {
+   "name": "unicode-separators",
+   "input": "{\"s\":\"\\u2028\\u2029\"}",
+   "canonical": "{\"s\":\"\\u2028\\u2029\"}",
+   "sha256": "0696bba90b235d8c332209ed97c9ce862c11fdb33af41998ff1bb01ce6a3b01d"
+  },
+  {
+   "name": "key-with-unicode",
+   "input": "{\"é\":1,\"e\":2,\"z\":3}",
+   "canonical": "{\"e\":2,\"z\":3,\"\\u00e9\":1}",
+   "sha256": "9aa18ca81a4328b3fb079f6e3860473145b9f6be88829bb3040c01acb38eb480"
+  },
+  {
+   "name": "integers",
+   "input": "{\"a\":0,\"b\":-1,\"c\":1234567890123,\"d\":12345678901234567890}",
+   "canonical": "{\"a\":0,\"b\":-1,\"c\":1234567890123,\"d\":12345678901234567890}",
+   "sha256": "f86431cf8c1350a8250cf9bcd4d5482b4778eeaab831a1296b99930cd6e538d2"
+  },
+  {
+   "name": "duplicate-key-last-wins",
+   "input": "{\"a\":1,\"a\":2}",
+   "canonical": "{\"a\":2}",
+   "sha256": "7e8059f495589fcd981232cc11d00b00da3802c01d688fa1cf1f6bed6e5bb33c"
+  },
+  {
+   "name": "array-order-kept",
+   "input": "{\"ladder\":[{\"model\":\"b\",\"family\":\"x\"},{\"model\":\"a\",\"family\":\"x\"}]}",
+   "canonical": "{\"ladder\":[{\"family\":\"x\",\"model\":\"b\"},{\"family\":\"x\",\"model\":\"a\"}]}",
+   "sha256": "946578a9a249d39c79cbfb0111a25919b0d0ece95bc59c1a0a525edbc41aa0e7"
+  },
+  {
+   "name": "booleans-null",
+   "input": "[true,false,null]",
+   "canonical": "[true,false,null]",
+   "sha256": "4d0f18de2133118249c26acc481838d4f6bb6bc1de882d99abbd19ae9397e8df"
+  }
+ ],
+ "refused": [
+  {
+   "name": "fraction",
+   "input": "{\"n\":1.50}",
+   "reason": "non-canonical number literal"
+  },
+  {
+   "name": "fraction-zero",
+   "input": "{\"n\":1.0}",
+   "reason": "non-canonical number literal"
+  },
+  {
+   "name": "exponent",
+   "input": "{\"n\":1e3}",
+   "reason": "non-canonical number literal"
+  },
+  {
+   "name": "exponent-upper-signed",
+   "input": "{\"n\":1E+2}",
+   "reason": "non-canonical number literal"
+  },
+  {
+   "name": "negative-zero",
+   "input": "{\"n\":-0}",
+   "reason": "non-canonical number literal"
+  },
+  {
+   "name": "small-fraction",
+   "input": "{\"n\":0.5}",
+   "reason": "non-canonical number literal"
+  }
+ ]
+}

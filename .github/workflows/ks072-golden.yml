@@ -1,6 +1,7 @@
 name: ks072-golden
-# KS-072 drift guard: the client's Cruise test discovery is a port of the
-# service's, held to the service's golden layouts (testdata/ks072).
+# Drift guard for what this client vendors from the service: the KS-072
+# golden layouts (testdata/ks072) and the KS-074 manifest-canonical vectors
+# (testdata/vectors), each with a SOURCE.json of its origin and sha256.
 #
 # Always: the vendored files must hash to what testdata/ks072/SOURCE.json
 # records (no secret needed), and the port must reproduce the golden.
@@ -30,8 +31,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Vendored golden against SOURCE.json, and the port against the golden
-        run: go test -count=1 -run 'TestKS072' ./...
+      - name: Vendored files against SOURCE.json, the port against the golden, the canonical form against the vectors
+        run: go test -count=1 -run 'TestKS072|TestKS074' ./...
       - name: Server comparison NOT CONFIGURED
         if: ${{ env.KS_SERVER_REPO == '' || env.TOKEN_SET != 'true' }}
         run: |
@@ -42,7 +43,9 @@ jobs:
           repository: ${{ vars.KS_SERVER_REPO }}
           token: ${{ secrets.KS_SERVER_READ_TOKEN }}
           path: server
-          sparse-checkout: judge/tests/golden
-      - name: Vendored golden against the service's current golden
+          sparse-checkout: |
+            judge/tests/golden
+            docs/upgrade/vectors
+      - name: Vendored files against the service's current ones
         if: ${{ env.KS_SERVER_REPO != '' && env.TOKEN_SET == 'true' }}
-        run: KS_SERVER_CHECKOUT="$GITHUB_WORKSPACE/server" go test -count=1 -run 'TestKS072VendoredGolden' -v ./...
+        run: KS_SERVER_CHECKOUT="$GITHUB_WORKSPACE/server" go test -count=1 -run 'TestKS072VendoredGolden|TestKS074VendoredVectors' -v ./...

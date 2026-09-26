@@ -1,0 +1,7 @@
+{
+ "what": "the shared manifest-canonical-v1 test vectors (KS-074 VER-074-1), vendored unchanged from the service repository",
+ "server_commit": "fe2cab32a00db5ef8daef99529fca55dd27d0998",
+ "files": {
+  "manifest-canonical-v1.json": {"from": "docs/upgrade/vectors/manifest-canonical-v1.json", "sha256": "a0a709fa0ab5410fc7648ac4e547371e10384e7d844109df4068b1d5182bab39"}
+ }
+}

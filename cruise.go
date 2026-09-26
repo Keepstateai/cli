@@ -25,6 +25,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -301,6 +302,8 @@ func testsDigest(root string, files []wsFile, isTest func(rel string) bool) (str
 // and null as words; no trailing newline. For a manifest whose text is
 // plain ASCII this is exactly json.Marshal over sorted keys with HTML
 // escaping off and no trailing newline.
+var canonicalInt = regexp.MustCompile(`^-?(0|[1-9][0-9]*)$`)
+
 func canonicalJSON(v any) ([]byte, error) {
 	var b bytes.Buffer
 	if err := writeCanonical(&b, v); err != nil {
@@ -322,11 +325,13 @@ func writeCanonical(b *bytes.Buffer, v any) error {
 	case string:
 		return writeCanonicalString(b, x)
 	case json.Number:
-		n, err := strconv.ParseInt(string(x), 10, 64)
-		if err != nil {
-			return fmt.Errorf("number %q is not a whole number; the manifest carries whole numbers only", x)
+		// the shared rule (manifest-canonical-v1, BACKLOG-140): a canonical
+		// integer literal, written verbatim at any size; a fraction, an
+		// exponent, a leading zero or -0 is refused, never normalized
+		if !canonicalInt.MatchString(string(x)) || string(x) == "-0" {
+			return fmt.Errorf("number %q is not a canonical whole number; the manifest carries canonical integers only", x)
 		}
-		b.WriteString(strconv.FormatInt(n, 10))
+		b.WriteString(string(x))
 	case int:
 		b.WriteString(strconv.FormatInt(int64(x), 10))
 	case int64:
