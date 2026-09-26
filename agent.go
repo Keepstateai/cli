@@ -57,6 +57,10 @@ type agentRow struct {
 	QueueRevision int64  `json:"queue_revision"`
 	Revision      int64  `json:"revision"`
 	CreatedAt     string `json:"created_at"`
+	// KS-038: whether a window holds control ("held" or "none") and whether
+	// the agent could take a consultation now, as the service reads them
+	Controller   string `json:"controller,omitempty"`
+	Consultation string `json:"consultation,omitempty"`
 }
 
 // agentLease is the control lease of one window: the authority to steer
@@ -380,7 +384,11 @@ func agentLine(a agentRow) string {
 	if task == "" {
 		task = "none"
 	}
-	return fmt.Sprintf("%-16s %-16s %-11s %-8s %s", clip(a.Name, 16), clip(a.ID, 16), clip(stateCell("agent_activity", a.Activity), 11), agentRole(a), task)
+	line := fmt.Sprintf("%-16s %-16s %-11s %-8s %s", clip(a.Name, 16), clip(a.ID, 16), clip(stateCell("agent_activity", a.Activity), 11), agentRole(a), task)
+	if a.Controller != "" || a.Consultation != "" {
+		line += fmt.Sprintf("  control %s · advice %s", figure(a.Controller), figure(a.Consultation))
+	}
+	return line
 }
 
 func hostedAgentList(cr hostedCreds, inv *Invocation) {

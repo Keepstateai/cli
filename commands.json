@@ -1431,6 +1431,42 @@
      "summary": "why, recorded with the stop"
     }
    ]
+  },
+  {
+   "verb": "agent create",
+   "aliases": [],
+   "usage": "ks agent create <name> [--session ID]",
+   "summary": "create the primary agent of a session that has none",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    }
+   ]
+  },
+  {
+   "verb": "agent remove",
+   "aliases": [],
+   "usage": "ks agent remove <name> [--session ID] [--plan] [--execute PLAN]",
+   "summary": "remove an agent through a plan: what it cancels and keeps, then the removal naming that plan",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--plan",
+     "summary": "plan only: what removal would cancel, release and keep; changes nothing"
+    },
+    {
+     "flag": "--execute PLAN",
+     "summary": "remove the agent by this plan"
+    }
+   ]
   }
  ]
 }
