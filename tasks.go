@@ -341,6 +341,9 @@ func hostedTaskShow(cr hostedCreds, inv *Invocation) {
 			fmt.Printf("  agent          %s\n", t.AgentID)
 		}
 		fmt.Printf("  state          %s\n", figure(t.State))
+		if t.CancelRecovery != nil {
+			printCancelRecovery(t.CancelRecovery, cancelRecoveryHints(t.ID, agentName, sessionShort))
+		}
 		fmt.Printf("  queue position %d\n", t.QueueSeq)
 		fmt.Printf("  author         %s\n", taskAuthor(t))
 		fmt.Printf("  origin         %s\n", figure(t.Origin))
@@ -565,6 +568,11 @@ func hostedTaskCancel(cr hostedCreds, inv *Invocation) {
 			Replayed       bool     `json:"replayed"`
 			Note           string   `json:"note"`
 			SignalDeadline string   `json:"signal_deadline"`
+			// Recovery is where an unconfirmed stop stands against C04's
+			// 10 s interrupt wait, and once that has passed, the explicit
+			// actions a person may choose between. Printed as the service
+			// wrote them: this client takes none of them on its own.
+			Recovery *cancelRecovery `json:"recovery"`
 		} `json:"data"`
 	}
 	// Bound to the revision that was read and the generation it was prepared
@@ -587,8 +595,8 @@ func hostedTaskCancel(cr hostedCreds, inv *Invocation) {
 	}
 	emit(map[string]any{"task": got, "requested": env.Data.Requested,
 		"replayed": env.Data.Replayed, "note": env.Data.Note,
-		"signal_deadline": env.Data.SignalDeadline,
-		"agent":           a.Name, "session": sess.ID}, func() {
+		"signal_deadline": env.Data.SignalDeadline, "recovery": env.Data.Recovery,
+		"agent": a.Name, "session": sess.ID}, func() {
 		switch state {
 		case "cancelling":
 			fmt.Printf("instruction %s now reads %s\n", t.ID, figure(state))
@@ -602,6 +610,7 @@ func hostedTaskCancel(cr hostedCreds, inv *Invocation) {
 				fmt.Printf("  by             %s the worker has either been handed the request or no\n", env.Data.SignalDeadline)
 				fmt.Printf("                 longer supervises this agent\n")
 			}
+			printCancelRecovery(env.Data.Recovery, cancelRecoveryHints(t.ID, a.Name, sess.ShortID))
 		case "cancelled":
 			fmt.Printf("instruction %s now reads %s\n", t.ID, figure(state))
 			fmt.Printf("  it will not run. Its identity, content and history are kept.\n")
@@ -1041,4 +1050,71 @@ func (b boundaryChoices) detailLines() []string {
 		lines = append(lines, "  "+checkpointLine(c))
 	}
 	return lines
+}
+
+// cancelRecoveryHints names the ks command for each recovery action.
+func cancelRecoveryHints(taskID, agentName, sessionShort string) map[string]string {
+	if sessionShort == "" {
+		return nil
+	}
+	return map[string]string{
+		"wait":           fmt.Sprintf("ks task show %s --session %s", taskID, sessionShort),
+		"stop_runtime":   fmt.Sprintf("ks agent pause %s --session %s", agentName, sessionShort),
+		"record_unknown": fmt.Sprintf("ks task reconcile %s --session %s --finding \"what you established\"", taskID, sessionShort),
+	}
+}
+
+// cancelRecovery is the service's account of an unconfirmed stop (KS-044
+// QA-044-2): when it was requested, C04's interrupt wait, whether that has
+// passed, and -- once it has -- the explicit actions on offer.
+type cancelRecovery struct {
+	RequestedAt          string `json:"requested_at"`
+	InterruptWaitSeconds int    `json:"interrupt_wait_seconds"`
+	OverdueAt            string `json:"overdue_at"`
+	Overdue              bool   `json:"overdue"`
+	Note                 string `json:"note"`
+	Options              []struct {
+		Action  string `json:"action"`
+		Request string `json:"request"`
+		Effect  string `json:"effect"`
+		DoesNot string `json:"does_not"`
+	} `json:"options"`
+}
+
+// printCancelRecovery says where an unconfirmed stop stands. Inside the
+// interrupt wait it says the stop is still pending; after it, it lists the
+// service's recovery actions verbatim, each with what it does and what it
+// does not do, and takes none of them.
+//
+// hints maps an action to the ks command that takes it, where the caller
+// knows the session and agent; each is printed beside the service's request.
+func printCancelRecovery(r *cancelRecovery, hints map[string]string) {
+	if r == nil {
+		return
+	}
+	if !r.Overdue {
+		if r.OverdueAt != "" {
+			fmt.Printf("  interrupt wait %d s: if the stop is not confirmed by %s, recovery actions are offered\n", r.InterruptWaitSeconds, r.OverdueAt)
+		} else if r.Note != "" {
+			fmt.Printf("  interrupt wait %s\n", r.Note)
+		}
+		return
+	}
+	fmt.Printf("  NOT STOPPED: the stop was not confirmed within the %d s interrupt wait.\n", r.InterruptWaitSeconds)
+	if r.Note != "" {
+		fmt.Printf("  note           %s\n", r.Note)
+	}
+	if len(r.Options) == 0 {
+		fmt.Printf("  the service named no recovery action; nothing was taken\n")
+		return
+	}
+	fmt.Printf("  choose one; none is taken for you:\n")
+	for _, o := range r.Options {
+		fmt.Printf("    %-15s %s\n", o.Action, o.Request)
+		fmt.Printf("    %-15s does: %s\n", "", o.Effect)
+		fmt.Printf("    %-15s does not: %s\n", "", o.DoesNot)
+		if h := hints[o.Action]; h != "" {
+			fmt.Printf("    %-15s ks: %s\n", "", h)
+		}
+	}
 }

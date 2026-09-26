@@ -113,6 +113,10 @@ type taskRow struct {
 	// service records none" and is never rendered as attempt zero.
 	CurrentAttempt string `json:"current_attempt_id"`
 	ContentHash    string `json:"content_hash"`
+	// CancelRecovery is present on an instruction that reads cancelling:
+	// where the stop stands against C04's interrupt wait and, once that has
+	// passed, the explicit recovery actions (KS-044). Read, never inferred.
+	CancelRecovery *cancelRecovery `json:"cancel_recovery,omitempty"`
 }
 
 // submittedTask is a task as the submission route answers it: the task,

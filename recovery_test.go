@@ -65,15 +65,18 @@ type recoveryCtl struct {
 	// one truthful answer -- requested-but-not-yet-stopped, terminal, and
 	// "you lost the race to a real completion" -- and the client has to
 	// word all three differently, so the fixture can produce each.
-	cancelState   string
-	cancelUnknown []string
-	attempts      []map[string]any
-	refusedCloses int    // task.finish_refused events the journal carries
-	eventsFault   string // the typed refusal the journal route answers with
-	holdsFault    string // the typed refusal the queue-hold route answers with
-	backlog       int    // conversation entries the journal already carries
-	cancelled     bool   // one instruction was cancelled while the queue was held
-	retryOffered  bool   // a later service that DOES offer a new attempt
+	cancelState    string
+	cancelUnknown  []string
+	cancelRecovery map[string]any // the `recovery` object a cancel is answered with, when set
+	taskRecovery   map[string]any // the `cancel_recovery` a task read carries, when set
+	notStuck       bool           // /reconcile answers ks_task_not_stuck (inside the interrupt wait)
+	attempts       []map[string]any
+	refusedCloses  int    // task.finish_refused events the journal carries
+	eventsFault    string // the typed refusal the journal route answers with
+	holdsFault     string // the typed refusal the queue-hold route answers with
+	backlog        int    // conversation entries the journal already carries
+	cancelled      bool   // one instruction was cancelled while the queue was held
+	retryOffered   bool   // a later service that DOES offer a new attempt
 }
 
 func newRecoveryCtl() *recoveryCtl {
@@ -336,8 +339,20 @@ func (c *recoveryCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"media_type": "text/plain; charset=utf-8", "bytes": len(text), "text": text})
 	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/v2/tasks/"):
 		id := strings.TrimPrefix(r.URL.Path, "/api/v2/tasks/")
+		c.mu.Lock()
+		tr := c.taskRecovery
+		c.mu.Unlock()
 		for _, t := range recoveryTaskRows {
 			if t["id"] == id {
+				if tr != nil && id == recoveryBlocking {
+					row := map[string]any{"cancel_recovery": tr}
+					for k, v := range t {
+						row[k] = v
+					}
+					row["state"] = "cancelling"
+					env(200, row)
+					return
+				}
 				env(200, t)
 				return
 			}
@@ -428,6 +443,7 @@ func (c *recoveryCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		c.mu.Lock()
 		c.cancels = append(c.cancels, string(raw))
 		st, unknown := c.cancelState, append([]string(nil), c.cancelUnknown...)
+		rec := c.cancelRecovery
 		c.mu.Unlock()
 		if st == "" {
 			st = "cancelled"
@@ -447,6 +463,9 @@ func (c *recoveryCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// the declared bound, present only for work a worker is executing
 			out["signal_deadline"] = unknown[0]
 		}
+		if rec != nil {
+			out["recovery"] = rec
+		}
 		env(200, out)
 	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/reconcile") && strings.HasPrefix(r.URL.Path, "/api/v2/tasks/"):
 		raw, _ := readAllBody(r)
@@ -457,6 +476,13 @@ func (c *recoveryCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = json.Unmarshal(raw, &body)
 		if strings.TrimSpace(fmt.Sprint(body["finding"])) == "" {
 			fault(422, "ks_finding_required", "a finding is required")
+			return
+		}
+		c.mu.Lock()
+		ns := c.notStuck
+		c.mu.Unlock()
+		if ns {
+			fault(409, "ks_task_not_stuck", "a stop was requested and the 10 s interrupt wait has not passed; the runner may still confirm it. Nothing was recorded")
 			return
 		}
 		row := map[string]any{}

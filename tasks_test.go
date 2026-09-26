@@ -636,3 +636,103 @@ func TestTaskCancelRefusesWithoutAnInstructionAndSendsNothing(t *testing.T) {
 		t.Errorf("it sent %d cancellation(s) without an instruction", got)
 	}
 }
+
+// KS-044 QA-044-2: a runner that ignores the interrupt. Once C04's interrupt
+// wait has passed the service answers with explicit recovery actions, and
+// the client must print every one of them -- and must still not say the work
+// stopped, nor take any action on its own.
+func TestTaskCancelPrintsTheRecoveryActionsForAnUnconfirmedStop(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	c.mu.Lock()
+	c.cancelState = "cancelling"
+	c.cancelRecovery = map[string]any{
+		"requested_at": "2026-09-26T10:00:00Z", "interrupt_wait_seconds": 10,
+		"overdue_at": "2026-09-26T10:00:10Z", "overdue": true,
+		"note": "the stop has not been confirmed within the 10 s interrupt wait; it is NOT stopped",
+		"options": []map[string]any{
+			{"action": "wait", "request": "GET /api/v2/tasks/" + recoveryBlocking, "effect": "keeps the stop request standing", "does_not": "does not claim anything stopped"},
+			{"action": "stop_runtime", "request": "POST /api/v2/sessions/s/pause", "effect": "stops the machine", "does_not": "does not delete the session"},
+			{"action": "record_unknown", "request": "POST /api/v2/tasks/" + recoveryBlocking + "/reconcile", "effect": "records reconciliation_required", "does_not": "does not record cancelled"},
+		},
+	}
+	c.mu.Unlock()
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg),
+		"task", "cancel", recoveryBlocking, "--session", agentSessionShort)
+	if code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	for _, want := range []string{"NOT STOPPED", "10 s interrupt wait", "none is taken for you",
+		"wait", "GET /api/v2/tasks/" + recoveryBlocking,
+		"stop_runtime", "POST /api/v2/sessions/s/pause",
+		"record_unknown", "POST /api/v2/tasks/" + recoveryBlocking + "/reconcile",
+		"does not: does not record cancelled"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the recovery was not printed (%q missing):\n%s", want, out)
+		}
+	}
+	if n := len(c.reconciles); n != 0 {
+		t.Errorf("the client took a recovery action on its own: %d reconcile calls", n)
+	}
+	// and machine output carries the whole object
+	jout, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg),
+		"task", "cancel", recoveryBlocking, "--session", agentSessionShort, "--json")
+	if code != 0 {
+		t.Fatalf("--json exit %d\n%s%s", code, jout, errs)
+	}
+	if !strings.Contains(jout, `"record_unknown"`) || !strings.Contains(jout, `"overdue":true`) {
+		t.Errorf("--json does not carry the recovery object:\n%s", jout)
+	}
+}
+
+// Inside the wait there is nothing to choose yet, and the client must not
+// invent a menu.
+func TestTaskCancelOffersNothingInsideTheInterruptWait(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	c.mu.Lock()
+	c.cancelState = "cancelling"
+	c.cancelRecovery = map[string]any{"requested_at": "2026-09-26T10:00:00Z", "interrupt_wait_seconds": 10,
+		"overdue_at": "2026-09-26T10:00:10Z", "overdue": false, "note": "pending", "options": []any{}}
+	c.mu.Unlock()
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg),
+		"task", "cancel", recoveryBlocking, "--session", agentSessionShort)
+	if code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	if !strings.Contains(out, "2026-09-26T10:00:10Z") || strings.Contains(out, "NOT STOPPED") || strings.Contains(out, "choose one") {
+		t.Errorf("inside the interrupt wait the client must name the deadline and offer nothing:\n%s", out)
+	}
+}
+
+// KS-044: the same recovery, read back later through ks task show (GET
+// /api/v2/tasks/{id} carries cancel_recovery), with the ks command for each
+// action; and recording the outcome unknown inside the interrupt wait is
+// refused by the service and recorded nowhere (exit 5).
+func TestTaskShowCarriesTheCancelRecoveryAndReconcileWaitsOutTheInterrupt(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	c.mu.Lock()
+	c.taskRecovery = map[string]any{
+		"requested_at": "2026-09-26T10:00:00Z", "interrupt_wait_seconds": 10, "overdue_at": "2026-09-26T10:00:10Z", "overdue": true,
+		"note": "the stop has not been confirmed within the 10 s interrupt wait",
+		"options": []map[string]any{
+			{"action": "stop_runtime", "request": "POST /api/v2/sessions/s/pause", "effect": "stops the machine", "does_not": "does not delete the session"},
+			{"action": "record_unknown", "request": "POST /api/v2/tasks/" + recoveryBlocking + "/reconcile", "effect": "records reconciliation_required", "does_not": "does not record cancelled"},
+		},
+	}
+	c.mu.Unlock()
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "task", "show", recoveryBlocking, "--session", agentSessionShort)
+	if code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	for _, want := range []string{"NOT STOPPED", "ks: ks agent pause", "ks: ks task reconcile " + recoveryBlocking + " --session " + agentSessionShort} {
+		if !strings.Contains(out, want) {
+			t.Errorf("task show does not carry %q:\n%s", want, out)
+		}
+	}
+	c.mu.Lock()
+	c.notStuck = true
+	c.mu.Unlock()
+	_, errs, code = auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "task", "reconcile", recoveryBlocking, "--session", agentSessionShort, "--finding", "checked the registry")
+	if code != exitConflict || !strings.Contains(errs, "interrupt wait has not passed") {
+		t.Fatalf("reconcile inside the wait: exit %d\n%s", code, errs)
+	}
+}
