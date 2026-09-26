@@ -80,6 +80,7 @@ func (c *viewCtl) called(s string) bool {
 
 func TestTheLiveViewFitsAndPerformsWhatTheServiceNames(t *testing.T) {
 	c := &viewCtl{}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)

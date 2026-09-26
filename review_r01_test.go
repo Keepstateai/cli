@@ -64,6 +64,7 @@ func TestLegacyServerLostReplyCreatesAtMostOne(t *testing.T) {
 	for _, mode := range []string{"human", "json"} {
 		t.Run(mode, func(t *testing.T) {
 			ctl := &legacyCtl{dropFirst: true}
+			syncFixture(t, &ctl.mu)
 			srv := httptest.NewServer(ctl)
 			defer srv.Close()
 			bin, cfg := buildAndAuth(t, srv)
@@ -181,11 +182,13 @@ func TestAcceptedOperationSurvivesRouteRemoval(t *testing.T) {
 // Unknown outcome text and JSON agree: neither asserts that no work started.
 func TestUnknownOutcomeNeverSaysNoWorkStarted(t *testing.T) {
 	ctl := &legacyCtl{dropFirst: true}
+	syncFixture(t, &ctl.mu)
 	srv := httptest.NewServer(ctl)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)
 	_, human, _ := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "run")
 	ctl2 := &legacyCtl{dropFirst: true}
+	syncFixture(t, &ctl2.mu)
 	srv2 := httptest.NewServer(ctl2)
 	defer srv2.Close()
 	bin2, cfg2 := buildAndAuth(t, srv2)
@@ -265,6 +268,7 @@ func TestFollowupReviewFixtures(t *testing.T) {
 	for _, mode := range []string{"mixed_upgrade", "proxy_503", "postcommit_500", "truncated_success"} {
 		t.Run(mode, func(t *testing.T) {
 			ctl := &followupCtl{mode: mode, seen: map[string]string{}}
+			syncFixture(t, &ctl.mu)
 			srv := httptest.NewServer(ctl)
 			defer srv.Close()
 			bin, cfg := buildAndAuth(t, srv)

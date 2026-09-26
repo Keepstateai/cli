@@ -11,6 +11,7 @@ import (
 
 func TestSizeReportsAreDebouncedBoundedAndStopWithTheLease(t *testing.T) {
 	var mu sync.Mutex
+	syncFixture(t, &mu)
 	var sent [][2]int
 	size := [2]int{120, 40}
 	var refuse error

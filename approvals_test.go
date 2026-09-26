@@ -108,6 +108,7 @@ func (c *approvalCtl) decisionCount() int {
 
 func TestApprovalsAreListedWithTheirTaskWhatTheyTouchAndTheCost(t *testing.T) {
 	c := &approvalCtl{mode: "ok"}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)
@@ -140,6 +141,7 @@ func TestApprovalsAreListedWithTheirTaskWhatTheyTouchAndTheCost(t *testing.T) {
 
 func TestADecisionIsBoundToTheRevisionAndALostOneSaysWhatStands(t *testing.T) {
 	c := &approvalCtl{mode: "ok"}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)

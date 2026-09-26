@@ -88,6 +88,7 @@ func (c *keysCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func TestKeyVerbsNeverCarryTheSecret(t *testing.T) {
 	c := &keysCtl{keys: []map[string]any{{"id": "vlt_0123abcd", "provider": "anthropic", "alias": "prod", "last4": "TEST", "enabled": true, "revision": 1, "created_at": "t", "updated_at": "t"}}}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)
@@ -194,6 +195,7 @@ func TestPreflightShowsCreditInDollars(t *testing.T) {
 		{nil, "credit unavailable", "$"},
 	} {
 		c := &keysCtl{credit: tc.credit}
+		syncFixture(t, &c.mu)
 		srv := httptest.NewServer(c)
 		bin, cfg := buildAndAuth(t, srv)
 		out, _, _ := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "preflight")

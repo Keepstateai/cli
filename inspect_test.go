@@ -120,6 +120,7 @@ func (c *inspectCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func TestFileInspectionRefusesEscapesAndShowsSafely(t *testing.T) {
 	c := &inspectCtl{}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)
@@ -211,6 +212,7 @@ func TestFileInspectionRefusesEscapesAndShowsSafely(t *testing.T) {
 
 func TestLogsAreSafeAndFollowingEndsWithoutWaking(t *testing.T) {
 	c := &inspectCtl{}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)

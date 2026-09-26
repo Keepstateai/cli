@@ -45,6 +45,7 @@ func (c *gateCtl) reached() bool {
 
 func TestEachVerbIsGatedByItsOwnRow(t *testing.T) {
 	c := &gateCtl{}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)

@@ -15,6 +15,7 @@ import (
 
 func TestSessionDeletionReportsStopAndContentApart(t *testing.T) {
 	var mu sync.Mutex
+	syncFixture(t, &mu)
 	var deletes []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		env := func(code int, d any) {

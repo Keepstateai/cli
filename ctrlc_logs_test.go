@@ -17,6 +17,7 @@ import (
 
 func TestCtrlCWhileFollowingLogsStopsFollowing(t *testing.T) {
 	var mu sync.Mutex
+	syncFixture(t, &mu)
 	var calls []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()

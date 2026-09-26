@@ -87,6 +87,7 @@ func TestALostAcknowledgementIsResolvedNeverGuessed(t *testing.T) {
 		{"unreadable", exitTemporary, 1, "it was NOT sent again", false},
 	} {
 		c := &subCtl{mode: tc.mode, delivered: map[string]bool{}}
+		syncFixture(t, &c.mu)
 		srv := httptest.NewServer(c)
 		bin, cfg := buildAndAuth(t, srv)
 		out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "agent", "tell", "main", "run the tests", "--session", "fleetsub")

@@ -47,6 +47,7 @@ func (c *stopCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func TestAgentStopSaysChargesContinueAndNeverParks(t *testing.T) {
 	c := &stopCtl{}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)
