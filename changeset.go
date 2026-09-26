@@ -484,6 +484,13 @@ func hostedResultApply(cr hostedCreds, inv *Invocation) {
 	if inv.Arg(0) == "" {
 		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "name the changeset result to apply, or --recover"})
 	}
+	refuseIfInterrupted(root)
+	r, cs := fetchChangeset(cr, inv.Arg(0))
+	confirmAndApply(root, r.ID, r.SHA256, cs, inv, "ks result apply "+r.ID)
+}
+
+// refuseIfInterrupted stops any apply while an earlier one is unrecovered.
+func refuseIfInterrupted(root string) {
 	if j, _, err := readJournal(root); err != nil {
 		die(err)
 	} else if j != nil && j.State == "applying" {
@@ -499,7 +506,14 @@ func hostedResultApply(cr hostedCreds, inv *Invocation) {
 			Message:    fmt.Sprintf("an apply of %s was interrupted here and must be recovered first; the repair plan: %s", j.ResultID, strings.Join(lines, "; ")),
 			NextAction: "ks result apply --recover"})
 	}
-	r, cs := fetchChangeset(cr, inv.Arg(0))
+}
+
+// confirmAndApply is the apply itself, shared by ks result apply and ks cruise
+// apply: every file checked against its recorded before-state, the whole
+// changeset refused on any refusal or conflict, confirmed by its digest, then
+// applied transactionally. label names it in the journal; fullSHA is its
+// sha256; confirmCmd is what a non-interactive caller repeats with --confirm.
+func confirmAndApply(root, label, fullSHA string, cs *changeset, inv *Invocation, confirmCmd string) {
 	refusals, conflicts := planApply(root, cs)
 	if len(refusals) > 0 {
 		fail(integrity("changeset_refused", "the whole changeset is refused and nothing was changed: "+strings.Join(refusals, "; ")))
@@ -513,16 +527,16 @@ func hostedResultApply(cr hostedCreds, inv *Invocation) {
 	for _, c := range cs.Changes {
 		fmt.Fprintf(os.Stderr, "  %-6s %s\n", c.Op, visible(c.Path))
 	}
-	want := short(r.SHA256)
+	want := short(fullSHA)
 	given := strings.TrimSpace(inv.Str("confirm"))
 	switch {
 	case given != "":
-		if given != want && given != r.SHA256 {
+		if given != want && given != fullSHA {
 			fail(&cliError{Code: exitUsage, Kind: "confirmation_mismatch", Message: fmt.Sprintf("--confirm %q is not this changeset (%s); nothing was changed", given, want)})
 		}
 	case out.noInput || !stdinIsTerminal():
 		fail(&cliError{Code: exitUsage, Kind: "confirmation_required", Message: "applying changes files here and is confirmed by the changeset's digest; --yes does not confirm it, and nothing was changed",
-			NextAction: fmt.Sprintf("ks result apply %s --confirm %s", r.ID, want)})
+			NextAction: fmt.Sprintf("%s --confirm %s", confirmCmd, want)})
 	default:
 		fmt.Fprintf(os.Stderr, "type %s to apply, or anything else to stop: ", want)
 		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
@@ -530,12 +544,12 @@ func hostedResultApply(cr hostedCreds, inv *Invocation) {
 			fail(&cliError{Code: exitUsage, Kind: "confirmation_declined", Message: "not confirmed; nothing was changed"})
 		}
 	}
-	if err := applyChangeset(root, r.ID, cs); err != nil {
+	if err := applyChangeset(root, label, cs); err != nil {
 		fail(&cliError{Code: exitFailed, Kind: "apply_interrupted", WorkStarted: workYes,
 			Message: "the apply stopped part-way (" + sanitize(err.Error()) + "); every file it touched is backed up and journalled", NextAction: "ks result apply --recover"})
 	}
-	emit(map[string]any{"result": r.ID, "applied": len(cs.Changes), "backup": filepath.Join(applyDir(root), "backup")}, func() {
-		fmt.Printf("applied %d change(s) from %s and verified each against its recorded after-state; the previous files are backed up in %s\n", len(cs.Changes), r.ID, filepath.Join(applyDir(root), "backup"))
+	emit(map[string]any{"result": label, "applied": len(cs.Changes), "backup": filepath.Join(applyDir(root), "backup")}, func() {
+		fmt.Printf("applied %d change(s) from %s and verified each against its recorded after-state; the previous files are backed up in %s\n", len(cs.Changes), label, filepath.Join(applyDir(root), "backup"))
 		fmt.Println("nothing was committed, pushed or run")
 	})
 }

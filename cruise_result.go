@@ -46,6 +46,8 @@ type liveResult struct {
 	ManifestSHA     string         `json:"manifest_sha"`
 	ManifestVersion int64          `json:"manifest_version"`
 	Limitations     []string       `json:"limitations"`
+	// the per-file changeset against the approved workspace (QA-078-3)
+	Changeset *liveChangeset `json:"changeset"`
 }
 
 const badgeVerified = "verified"

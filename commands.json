@@ -1704,6 +1704,25 @@
     }
    ],
    "note": "Reads the result from GET /api/jobs/{id}/status, which the deployed control plane does not serve yet; until it does, the verb says so and writes nothing (ks cruise artifact still downloads with its sha256 check)."
+  },
+  {
+   "verb": "cruise apply",
+   "aliases": [],
+   "usage": "ks cruise apply <job> [--dir DIR] [--confirm DIGEST]",
+   "summary": "apply an accepted job's result to this project file by file, only onto the base each file was changed from, transactionally",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--dir DIR",
+     "summary": "the project root to apply to (default this project's root)"
+    },
+    {
+     "flag": "--confirm DIGEST",
+     "summary": "the changeset's digest (the 12 characters shown, or all of it); required without a terminal, never implied by --yes"
+    }
+   ],
+   "note": "Reads GET /api/jobs/{id}/status and GET /api/jobs/{id}/changeset, which the deployed control plane does not serve yet; until it does, the verb says so and changes nothing."
   }
  ]
 }
