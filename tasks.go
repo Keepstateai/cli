@@ -353,7 +353,14 @@ func hostedTaskShow(cr hostedCreds, inv *Invocation) {
 			refusalProblem = sanitize(rerr.Error())
 		}
 	}
+	// KS-066: the instruction's advice, collapsed; a failed read is said
+	advice, adviceErr := fetchTaskAdvice(cr, t.ID)
+	adviceProblemText := ""
+	if adviceErr != nil {
+		adviceProblemText = adviceProblem(adviceErr)
+	}
 	emit(map[string]any{"task": t, "agent": t.AgentID, "agent_name": agentName,
+		"advice": advice, "advice_unreadable": adviceProblemText,
 		"content": content, "content_unreadable": contentProblem,
 		"hold": holdState, "hold_unreadable": holdProblem,
 		"attempts": atts, "attempts_unreadable": errText(attErr),
@@ -443,6 +450,15 @@ func hostedTaskShow(cr hostedCreds, inv *Invocation) {
 			fmt.Printf("  queue hold     could not be read, so whether this instruction holds the queue is NOT stated: %s\n", holdProblem)
 		} else {
 			fmt.Printf("  queue hold     %s\n", holdState)
+		}
+		if adviceProblemText != "" {
+			fmt.Printf("  advice         %s\n", adviceProblemText)
+		} else if len(advice.Consultations) == 0 {
+			fmt.Printf("  advice         this instruction consulted nobody\n")
+		} else {
+			for _, l := range adviceSummaryLines(advice) {
+				fmt.Printf("  %s\n", l)
+			}
 		}
 		fmt.Printf("  instructions:\n")
 		if contentProblem != "" {

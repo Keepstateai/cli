@@ -1815,9 +1815,9 @@ func (win *liveWindow) legend() string {
 		return "this window reads nothing typed into it (--no-input); decide requests with ks agent approve <id> --session " + win.sess.ShortID
 	}
 	if _, held := win.hold(); !held {
-		return "type \"a <id>\" to approve a request or \"d <id>\" to deny it; this window is watching, so it queues no instruction (" + win.takeControlLine() + ")"
+		return "type \"a <id>\" to approve a request or \"d <id>\" to deny it, \"advice\" for the advice drawer; this window is watching, so it queues no instruction (" + win.takeControlLine() + ")"
 	}
-	return "type \"a <id>\" to approve a request, \"d <id>\" to deny it, anything else to send it to the agent as an instruction; Ctrl-C interrupts the instruction in flight; \"q\" leaves the window"
+	return "type \"a <id>\" to approve a request, \"d <id>\" to deny it, \"advice\" for the advice drawer, anything else to send it to the agent as an instruction; Ctrl-C interrupts the instruction in flight; \"q\" leaves the window"
 }
 
 // refuse prints one refusal inside a window that stays open. A window is
@@ -1851,6 +1851,8 @@ func (win *liveWindow) readInput(cr hostedCreds, restore func()) {
 			restore()
 			fmt.Fprintln(os.Stderr, "[left the window; the agent keeps working]")
 			os.Exit(exitOK)
+		case ok && word == "advice":
+			win.adviceDrawer(cr, arg)
 		case ok:
 			win.decide(cr, word, arg)
 		default:
@@ -1949,6 +1951,9 @@ func readWindowLine(line string) (word, arg string, ok bool) {
 			return "", "", false
 		}
 		return "detach", "", true
+	case "advice":
+		word = "advice" // KS-066: the advice drawer, a read
+
 	default:
 		return "", "", false
 	}
