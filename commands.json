@@ -1221,6 +1221,14 @@
      "summary": "why, recorded with the decline"
     }
    ]
+  },
+  {
+   "verb": "session usage",
+   "aliases": [],
+   "usage": "ks session usage <session>",
+   "summary": "a session's model use, runtime and storage, apart, with units, source and whether each figure is actual, estimated or unavailable",
+   "status": "available",
+   "surface": "hosted"
   }
  ]
 }
