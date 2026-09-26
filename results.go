@@ -361,6 +361,7 @@ func downloadVerified(cr hostedCreds, r resultRow, partial string, ttl time.Dura
 			return o, err
 		}
 		req.Header.Set("Authorization", "Bearer "+cr.Token)
+		req.Header.Set(protocolHeader, clientProtocolText)
 		req.Header.Set("X-KS-Grant", token)
 		if offset > 0 {
 			req.Header.Set("Range", "bytes="+strconv.FormatInt(offset, 10)+"-")

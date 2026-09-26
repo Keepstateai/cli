@@ -92,6 +92,7 @@ func hostedDo(cr hostedCreds, method, path, contentType string, body io.Reader) 
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+cr.Token)
+	req.Header.Set(protocolHeader, clientProtocolText)
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
@@ -147,6 +148,7 @@ func hostedCall(cr hostedCreds, method, path string, body any, out any) error {
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+cr.Token)
+	req.Header.Set(protocolHeader, clientProtocolText)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := ordinaryClient().Do(req)
 	if err != nil {

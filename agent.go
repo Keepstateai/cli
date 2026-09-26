@@ -376,7 +376,7 @@ func agentLine(a agentRow) string {
 	if task == "" {
 		task = "none"
 	}
-	return fmt.Sprintf("%-16s %-16s %-11s %-8s %s", clip(a.Name, 16), clip(a.ID, 16), clip(figure(a.Activity), 11), agentRole(a), task)
+	return fmt.Sprintf("%-16s %-16s %-11s %-8s %s", clip(a.Name, 16), clip(a.ID, 16), clip(stateCell("agent_activity", a.Activity), 11), agentRole(a), task)
 }
 
 func hostedAgentList(cr hostedCreds, inv *Invocation) {

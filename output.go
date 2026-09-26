@@ -170,6 +170,13 @@ func classify(err error) *cliError {
 		return &cliError{Code: exitTemporary, Kind: "unreachable", Message: "the control plane did not answer: " + sanitize(te.err.Error()), WorkStarted: ws}
 	}
 	var he *hostedErr
+	if errors.As(err, &he) && he.Type == "ks_client_too_old" {
+		// the service refused by name an operation newer than this client's
+		// declared protocol: nothing was done, and the message names the
+		// capability it belongs to
+		return &cliError{Code: exitFailed, Kind: he.Type, Message: sanitize(he.Message), HTTPStatus: he.Status, WorkStarted: workNo,
+			NextAction: "ks update (this client speaks protocol " + clientProtocolText + ")"}
+	}
 	if errors.As(err, &he) {
 		c := &cliError{Kind: he.Type, Message: sanitize(he.Message), HTTPStatus: he.Status, WorkStarted: workNo}
 		if c.Kind == "" {

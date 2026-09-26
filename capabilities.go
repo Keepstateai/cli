@@ -26,6 +26,19 @@ type capabilityRow struct {
 	Limits        map[string]any `json:"limits,omitempty"`
 	Evidence      []string       `json:"evidence,omitempty"`
 	Note          string         `json:"note,omitempty"`
+	// KS-010 negotiation: the protocol this capability's operations need,
+	// and, for anything not available, the reason the service gives for it,
+	// which is what a disabled command shows rather than words of its own.
+	SinceProtocol     int    `json:"since_protocol,omitempty"`
+	UnavailableReason string `json:"unavailable_reason,omitempty"`
+}
+
+// why is the service's own reason a capability is not available.
+func (r *capabilityRow) why() string {
+	if r.UnavailableReason != "" {
+		return r.UnavailableReason
+	}
+	return r.Note
 }
 
 type capabilitySet struct {
@@ -36,7 +49,15 @@ type capabilitySet struct {
 	Capabilities    []capabilityRow `json:"capabilities"`
 	Limits          map[string]any  `json:"limits"`
 	ControlPlane    string          `json:"control_plane"`
-	CachedAt        string          `json:"cached_at"`
+	// Protocol is the service's negotiation block and States its published
+	// state vocabulary per kind (KS-010).
+	Protocol *struct {
+		Current       int    `json:"current"`
+		MinimumClient int    `json:"minimum_client"`
+		Header        string `json:"header"`
+	} `json:"protocol,omitempty"`
+	States   map[string][]string `json:"states,omitempty"`
+	CachedAt string              `json:"cached_at"`
 }
 
 var errNoCapabilities = errors.New("this control plane publishes no capability registry (no GET /api/capabilities)")
@@ -112,10 +133,13 @@ func requireCapability(cr hostedCreds, c *Command) {
 	switch {
 	case row == nil:
 		fail(&cliError{Code: exitFailed, Kind: "capability_unsupported", Message: fmt.Sprintf("ks %s needs %s, which this control plane (registry %s, build %s) does not list; the command is disabled here", c.Name(), c.Needs, set.RegistryVersion, set.Build)})
+	case row.Availability == "available" && row.SinceProtocol > clientProtocol:
+		fail(&cliError{Code: exitFailed, Kind: "client_too_old", Message: fmt.Sprintf("ks %s needs %s, whose operations this control plane serves at protocol %d; this client speaks protocol %d and could not read their answers, so the command is disabled here", c.Name(), c.Needs, row.SinceProtocol, clientProtocol),
+			NextAction: "ks update"})
 	case row.Availability == "available":
 		return
 	case row.Availability == "unavailable" || row.Availability == "degraded":
-		fail(&cliError{Code: exitFailed, Kind: "capability_" + row.Availability, Message: fmt.Sprintf("ks %s needs %s, which the control plane reports %s: %s", c.Name(), c.Needs, row.Availability, row.Note)})
+		fail(&cliError{Code: exitFailed, Kind: "capability_" + row.Availability, Message: fmt.Sprintf("ks %s needs %s, which the control plane reports %s: %s", c.Name(), c.Needs, row.Availability, row.why())})
 	default:
 		fail(&cliError{Code: exitFailed, Kind: "capability_state_unsupported", Message: fmt.Sprintf("ks %s needs %s, which the control plane reports in a state this client does not understand (%q); update the client rather than guessing", c.Name(), c.Needs, row.Availability)})
 	}
@@ -144,7 +168,9 @@ func capabilitySummary(set *capabilitySet) (line string, disabled []string) {
 		case row == nil:
 			disabled = append(disabled, fmt.Sprintf("ks %s: disabled, %s is not listed by this control plane", c.Name(), c.Needs))
 		case row.Availability != "available":
-			disabled = append(disabled, fmt.Sprintf("ks %s: disabled, %s is %s (%s)", c.Name(), c.Needs, row.Availability, row.Note))
+			disabled = append(disabled, fmt.Sprintf("ks %s: disabled, %s is %s (%s)", c.Name(), c.Needs, row.Availability, row.why()))
+		case row.SinceProtocol > clientProtocol:
+			disabled = append(disabled, fmt.Sprintf("ks %s: disabled, %s needs protocol %d and this client speaks %d (ks update)", c.Name(), c.Needs, row.SinceProtocol, clientProtocol))
 		}
 	}
 	return line, disabled

@@ -123,7 +123,7 @@ func renderInventory(rows []inventoryRow, width int) string {
 	if wide {
 		fmt.Fprintf(&b, "%-14s %-16s %-8s %-10s %-11s %-16s %-16s %-16s\n", "SESSION", "NAME", "STATE", "AGENT", "TASK", "LAST ACTIVITY", "LAST SAVE", "KEY")
 		for _, r := range rows {
-			fmt.Fprintf(&b, "%-14s %-16s %-8s %-10s %-11s %-16s %-16s %-16s\n", clip(r.ShortID, 14), clip(r.Name, 16), clip(r.RuntimeState, 8), clip(r.AgentActivity, 10), clip(r.TaskState, 11), ago(r.LastActivityAt), ago(r.LastCheckpointAt), clip(r.KeyAlias, 16))
+			fmt.Fprintf(&b, "%-14s %-16s %-8s %-10s %-11s %-16s %-16s %-16s\n", clip(r.ShortID, 14), clip(r.Name, 16), clip(stateCell("session_runtime", r.RuntimeState), 8), clip(stateCell("agent_activity", r.AgentActivity), 10), clip(r.TaskState, 11), ago(r.LastActivityAt), ago(r.LastCheckpointAt), clip(r.KeyAlias, 16))
 		}
 	} else {
 		fmt.Fprintf(&b, "%-14s %-8s %-11s %-11s %-16s %s\n", "SESSION", "STATE", "AGENT", "TASK", "LAST ACTIVITY", "SAVED")
@@ -132,7 +132,7 @@ func renderInventory(rows []inventoryRow, width int) string {
 			if r.LastCheckpointID != "" {
 				saved = "yes"
 			}
-			fmt.Fprintf(&b, "%-14s %-8s %-11s %-11s %-16s %s\n", clip(r.ShortID, 14), clip(r.RuntimeState, 8), clip(r.AgentActivity, 11), clip(r.TaskState, 11), ago(r.LastActivityAt), saved)
+			fmt.Fprintf(&b, "%-14s %-8s %-11s %-11s %-16s %s\n", clip(r.ShortID, 14), clip(stateCell("session_runtime", r.RuntimeState), 8), clip(stateCell("agent_activity", r.AgentActivity), 11), clip(r.TaskState, 11), ago(r.LastActivityAt), saved)
 		}
 	}
 	return b.String()
@@ -206,9 +206,9 @@ func hostedSessionShow(cr hostedCreds, inv *Invocation) {
 		if r.FleetState != "" {
 			fmt.Printf("  state          %s (fleet: %s)\n", r.RuntimeState, r.FleetState)
 		} else {
-			fmt.Printf("  state          %s\n", r.RuntimeState)
+			fmt.Printf("  state          %s\n", stateLabel("session_runtime", r.RuntimeState))
 		}
-		fmt.Printf("  agent          %s\n", r.AgentActivity)
+		fmt.Printf("  agent          %s\n", stateLabel("agent_activity", r.AgentActivity))
 		fmt.Printf("  task           %s\n", r.TaskState)
 		fmt.Printf("  key            %s\n", r.KeyAlias)
 		fmt.Printf("  image          %s\n", r.Image)

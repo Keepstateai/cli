@@ -96,7 +96,7 @@ func verificationLine(t taskRow) string {
 	if strings.TrimSpace(t.Verification) == "" {
 		return "none: this instruction has no independent verification, so it reads finished and never verified"
 	}
-	return figure(t.Verification)
+	return stateLabel("verification_state", t.Verification)
 }
 
 // attemptLine states the attempt identity the service holds for this
@@ -113,7 +113,7 @@ func attemptLine(t taskRow) string {
 
 func taskListLine(t taskRow) string {
 	return fmt.Sprintf("%-26s %4d %-12s %-9s %-10s %s",
-		clip(t.ID, 26), t.QueueSeq, clip(figure(t.State), 12), clip(figure(t.Origin), 9),
+		clip(t.ID, 26), t.QueueSeq, clip(stateCell("task_state", t.State), 12), clip(figure(t.Origin), 9),
 		clip(taskAuthor(t), 10), figure(t.CreatedAt))
 }
 
@@ -340,7 +340,7 @@ func hostedTaskShow(cr hostedCreds, inv *Invocation) {
 		} else {
 			fmt.Printf("  agent          %s\n", t.AgentID)
 		}
-		fmt.Printf("  state          %s\n", figure(t.State))
+		fmt.Printf("  state          %s\n", stateLabel("task_state", t.State))
 		if t.CancelRecovery != nil {
 			printCancelRecovery(t.CancelRecovery, cancelRecoveryHints(t.ID, agentName, sessionShort))
 		}
@@ -366,7 +366,7 @@ func hostedTaskShow(cr hostedCreds, inv *Invocation) {
 					closed = "-"
 				}
 				fmt.Printf("    %-26s index %-3d generation %-3d %-11s closed %-24s worker %s\n",
-					at.ID, at.AttemptIndex, at.ExecutionEpoch, figure(at.State), closed, notRecorded(at.WorkerID))
+					at.ID, at.AttemptIndex, at.ExecutionEpoch, stateLabel("attempt_state", at.State), closed, notRecorded(at.WorkerID))
 				if at.RetryOf != "" || at.CheckpointID != "" || at.AuthorizedBy != "" {
 					fmt.Printf("      follows %s, from saved point %s, authorized by %s\n",
 						notRecorded(at.RetryOf), notRecorded(at.CheckpointID), notRecorded(at.AuthorizedBy))

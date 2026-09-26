@@ -165,6 +165,7 @@ func doBounded(cr hostedCreds, method, path string, headers map[string]string, b
 		return nil, nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+cr.Token)
+	req.Header.Set(protocolHeader, clientProtocolText)
 	req.Header.Set("Content-Type", "application/json")
 	for k, v := range headers {
 		req.Header.Set(k, v)
