@@ -83,6 +83,7 @@ func (c *checkCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func TestACheckRunsOnlyOverAnActionAPersonTrusted(t *testing.T) {
 	c := &checkCtl{runState: "approval_required"}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)

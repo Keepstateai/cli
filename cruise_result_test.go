@@ -131,6 +131,7 @@ func resultFixture(t *testing.T, c *acceptedCtl) (string, string) {
 
 func TestCruiseResultShowsTheBadgeTheChainAndEveryLimitation(t *testing.T) {
 	c := &acceptedCtl{artifact: tarOf(t, treeFiles), badge: "verified", cand: judgeTreeDigest}
+	syncFixture(t, &c.mu)
 	bin, cfg := resultFixture(t, c)
 	out := runOK(t, bin, cfg, "cruise", "result", "job_a")
 	for _, want := range []string{
@@ -157,6 +158,7 @@ func TestCruiseResultShowsTheBadgeTheChainAndEveryLimitation(t *testing.T) {
 
 func TestADownloadIsReverifiedAgainstTheCandidateAndNeverOverwrites(t *testing.T) {
 	c := &acceptedCtl{artifact: tarOf(t, treeFiles), badge: "verified", cand: judgeTreeDigest}
+	syncFixture(t, &c.mu)
 	bin, cfg := resultFixture(t, c)
 	dir := t.TempDir()
 	dest := filepath.Join(dir, "r.tar.gz")
@@ -212,6 +214,7 @@ func TestADownloadIsReverifiedAgainstTheCandidateAndNeverOverwrites(t *testing.T
 // verified, by the result or by a download.
 func TestAcceptedWithoutProvenanceIsNeverUpgraded(t *testing.T) {
 	c := &acceptedCtl{artifact: tarOf(t, treeFiles), badge: "accepted_without_provenance"}
+	syncFixture(t, &c.mu)
 	bin, cfg := resultFixture(t, c)
 	dir := t.TempDir()
 	out := runOK(t, bin, cfg, "cruise", "result", "job_a", "--download", "--out", filepath.Join(dir, "r.tgz"))
@@ -248,6 +251,7 @@ func TestAcceptedWithoutProvenanceIsNeverUpgraded(t *testing.T) {
 // download verified.
 func TestResultOnTheDeployedControlPlane(t *testing.T) {
 	c := &acceptedCtl{artifact: tarOf(t, treeFiles), badge: "verified", cand: judgeTreeDigest, noStatus: true}
+	syncFixture(t, &c.mu)
 	bin, cfg := resultFixture(t, c)
 	dir := t.TempDir()
 	_, errs, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "cruise", "result", "job_a")

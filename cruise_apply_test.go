@@ -74,6 +74,7 @@ func (c *applyCtl) served() []string {
 func TestCruiseApplyChecksTheChangesetThenAppliesOntoItsBase(t *testing.T) {
 	root, raw := changesetFixture(t)
 	c := &applyCtl{changeset: raw}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)

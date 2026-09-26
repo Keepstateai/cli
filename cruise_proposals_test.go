@@ -97,6 +97,7 @@ func TestAProposalRunsOnlyWhenItsRecomputedDigestIsConfirmed(t *testing.T) {
 		"ladder": []any{"claude-haiku", "claude-sonnet"}, "limits": map[string]any{"max_tokens": 200000}}
 	raw, sha := independentDigest(t, m)
 	c := &proposalCtl{manifest: raw, sha: sha, state: "proposed"}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)
@@ -132,6 +133,7 @@ func TestAProposalRunsOnlyWhenItsRecomputedDigestIsConfirmed(t *testing.T) {
 func TestAProposalWhoseDigestDoesNotMatchItsManifestIsRefused(t *testing.T) {
 	raw, _ := independentDigest(t, map[string]any{"goal": "g"})
 	c := &proposalCtl{manifest: raw, sha: strings.Repeat("a", 64), state: "proposed"}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)
@@ -144,6 +146,7 @@ func TestAProposalWhoseDigestDoesNotMatchItsManifestIsRefused(t *testing.T) {
 func TestADeclinedProposalNeverRunsAndUnavailableSaysSo(t *testing.T) {
 	raw, sha := independentDigest(t, map[string]any{"goal": "g"})
 	c := &proposalCtl{manifest: raw, sha: sha, state: "proposed"}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)

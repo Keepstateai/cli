@@ -141,6 +141,7 @@ var runningWord = regexp.MustCompile(`(?m)(^\s*(state|session|activity)\s+runnin
 
 func TestFundsParkReadsPausedOnEverySurface(t *testing.T) {
 	c := &parkCtl{reason: "funds_interlock", recordState: "stopping"}
+	syncFixture(t, &c.mu)
 	bin, cfg := parkFixture(t, c)
 	dir := t.TempDir()
 	run := func(args ...string) string {

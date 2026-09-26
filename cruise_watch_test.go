@@ -101,6 +101,7 @@ func watchEnv(cfg string) []string {
 
 func TestCruiseWatchFollowsReconnectsAndEnds(t *testing.T) {
 	c := &watchCtl{}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)
@@ -155,6 +156,7 @@ func TestCruiseWatchFollowsReconnectsAndEnds(t *testing.T) {
 
 func TestCruiseWatchCtrlCEndsOnlyTheWatch(t *testing.T) {
 	c := &watchCtl{endless: true}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)
@@ -205,6 +207,7 @@ func TestCruiseWatchCtrlCEndsOnlyTheWatch(t *testing.T) {
 
 func TestCruiseWatchOnAnOlderControlPlaneSaysSo(t *testing.T) {
 	c := &watchCtl{noRoute: true}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)

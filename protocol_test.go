@@ -53,6 +53,7 @@ func (c *protoCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func TestTheClientNegotiatesItsProtocolAndStates(t *testing.T) {
 	c := &protoCtl{since: 2, avail: "available", agentWord: "daydreaming"}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)

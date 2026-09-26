@@ -178,6 +178,7 @@ func calledAgents(calls []string) bool {
 // another control plane, ambiguous, and a binding whose session is gone.
 func TestTargetResolutionMatrix(t *testing.T) {
 	c := newBindCtl()
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)
@@ -265,6 +266,7 @@ func TestTargetResolutionMatrix(t *testing.T) {
 // project's .keepstate directory never travels in an upload.
 func TestARepositoryBindingIsNotTrusted(t *testing.T) {
 	c := newBindCtl()
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)
@@ -330,6 +332,7 @@ func TestARepositoryBindingIsNotTrusted(t *testing.T) {
 // the wrong role and an unavailable capability each rename nothing.
 func TestAgentRenameIsByIDAgainstTheRevisionRead(t *testing.T) {
 	c := newBindCtl()
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)
@@ -376,6 +379,7 @@ func TestAgentRenameIsByIDAgainstTheRevisionRead(t *testing.T) {
 
 func TestSessionRenameAgainstTheRevisionRead(t *testing.T) {
 	c := newBindCtl()
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)
@@ -397,6 +401,7 @@ func TestSessionRenameAgainstTheRevisionRead(t *testing.T) {
 // merged), and asks the service nothing extra where there is no binding.
 func TestStartingASecondSessionForABoundProjectWarns(t *testing.T) {
 	c := newBindCtl()
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)

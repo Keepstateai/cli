@@ -72,6 +72,7 @@ func (c *forkCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func TestAForkIsPlannedThenExecutedByItsDigest(t *testing.T) {
 	c := &forkCtl{}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)

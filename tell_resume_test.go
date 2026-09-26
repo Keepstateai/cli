@@ -55,6 +55,7 @@ func (c *tellCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func TestAnInstructionForAParkedSessionIsHeldAndOnlyResumeWakesIt(t *testing.T) {
 	c := &tellCtl{next: "POST /api/v2/sessions/session_1/resume"}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)

@@ -9,6 +9,7 @@ import (
 // KS-052: the continuation is printed exactly; unknown is never success.
 func TestARestorePrintsItsContinuationAndUnknownIsNeverSuccess(t *testing.T) {
 	c := &forkCtl{continuation: "exact_runtime"}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)
@@ -32,6 +33,7 @@ func TestARestorePrintsItsContinuationAndUnknownIsNeverSuccess(t *testing.T) {
 // incompatible with its named differences (refused, nothing restored).
 func TestARestoreSaysWhetherTheStackWasVerified(t *testing.T) {
 	c := &forkCtl{continuation: "exact_runtime", stack: "verified"}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)

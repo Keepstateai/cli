@@ -59,6 +59,7 @@ func (c *useV2Ctl) seen() []string {
 
 func TestLegacyLifecycleOnAnAgentSessionFollowsThePointer(t *testing.T) {
 	c := &useV2Ctl{}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)

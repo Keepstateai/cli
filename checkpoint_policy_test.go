@@ -16,6 +16,7 @@ import (
 func TestCheckpointPolicyAndFailedSavesInTheHistory(t *testing.T) {
 	var mu sync.Mutex
 	var puts []map[string]any
+	syncFixture(t, &mu)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		env := func(d any) { _ = json.NewEncoder(w).Encode(map[string]any{"schema_version": 2, "data": d}) }
 		switch r.URL.Path {

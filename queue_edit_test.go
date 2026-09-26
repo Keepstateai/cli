@@ -130,6 +130,7 @@ func (c *queueCtl) moveCount() int {
 
 func TestThePendingViewShowsFirstLinesOnlyWhenReturned(t *testing.T) {
 	c := &queueCtl{rev: "qrev_1", operator: true}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)
@@ -150,6 +151,7 @@ func TestThePendingViewShowsFirstLinesOnlyWhenReturned(t *testing.T) {
 
 func TestAMoveIsBoundToTheQueueRevisionAndNeverRetried(t *testing.T) {
 	c := &queueCtl{rev: "qrev_1", operator: true, moveMode: "ok"}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)
@@ -220,6 +222,7 @@ func TestAMoveIsBoundToTheQueueRevisionAndNeverRetried(t *testing.T) {
 // never replaced.
 func TestAReplacementIsBoundToTheQueueAndSubmittedOnce(t *testing.T) {
 	c := &queueCtl{rev: "qrev_1", operator: true, replaceMode: "ok"}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)
@@ -266,6 +269,7 @@ func TestAReplacementIsBoundToTheQueueAndSubmittedOnce(t *testing.T) {
 // current preview and nothing is retried; --yes confirms nothing.
 func TestBulkCancellationIsPreviewedAndConfirmedByRevision(t *testing.T) {
 	c := &queueCtl{rev: "qrev_1", operator: true, bulkMode: "ok"}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)

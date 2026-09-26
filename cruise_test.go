@@ -459,6 +459,7 @@ func gateJob() map[string]any {
 func startFake(t *testing.T) (*fakeCtl, string, string) {
 	t.Helper()
 	f := &fakeCtl{job: gateJob(), artifact: []byte("not-a-tarball-but-bytes")}
+	syncFixture(t, &f.mu)
 	srv := httptest.NewServer(f)
 	t.Cleanup(srv.Close)
 	bin, cfg := buildAndAuth(t, srv)
@@ -473,7 +474,9 @@ func ksIn(t *testing.T, bin, cfg, dir string, args ...string) (string, string, i
 	cmd.Env = append(os.Environ(), "XDG_CONFIG_HOME="+cfg)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
+	fixtureBarrier()
 	err := cmd.Run()
+	fixtureBarrier()
 	code := 0
 	if ee, ok := err.(*exec.ExitError); ok {
 		code = ee.ExitCode()

@@ -63,6 +63,7 @@ func (c *manageCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func TestAgentStandingAndRemovalThroughAPlan(t *testing.T) {
 	c := &manageCtl{}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)

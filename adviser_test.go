@@ -105,6 +105,22 @@ func (c *adviserCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// postAt answers a copy of the i-th grant body the fixture received, read
+// under the fixture's lock: the handler appends to c.posts on the server's
+// goroutine, so a test never reads the slice or its maps directly
+// (third-party review R01: -race rejected the unlocked read).
+func (c *adviserCtl) postAt(i int) map[string]any {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if i >= len(c.posts) {
+		return nil
+	}
+	b, _ := json.Marshal(c.posts[i])
+	var cp map[string]any
+	_ = json.Unmarshal(b, &cp)
+	return cp
+}
+
 func (c *adviserCtl) postCount() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -113,6 +129,7 @@ func (c *adviserCtl) postCount() int {
 
 func TestAConnectionIsGrantedOnlyAfterBothEndsAreShownAndTheAdviserIsConfirmed(t *testing.T) {
 	c := &adviserCtl{}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)
@@ -165,7 +182,10 @@ func TestAConnectionIsGrantedOnlyAfterBothEndsAreShownAndTheAdviserIsConfirmed(t
 	if !strings.Contains(errs, "reviewer/main") {
 		t.Fatalf("the display did not reach stderr under --json: %s", errs)
 	}
-	p := c.posts[0]
+	p := c.postAt(0)
+	if p == nil {
+		t.Fatal("no grant body was received")
+	}
 	lim, _ := p["limits"].(map[string]any)
 	if p["source_agent_id"] != "agent_src" || p["target_agent_id"] != "agent_rev" || p["context_policy"] != "question_only" ||
 		lim["max_consultations"] != float64(3) || lim["max_tokens_per_consultation"] != float64(16384) || p["expires_seconds"] != float64(7200) {
@@ -213,6 +233,7 @@ func TestAdviserListShowsLiveAndRevokedAndDisconnectSaysWhatStops(t *testing.T) 
 // so and sends nothing to the grant routes.
 func TestAdviserRefusalsWrongRoleAndCapabilityUnavailable(t *testing.T) {
 	c := &adviserCtl{forbid: true}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)
@@ -249,6 +270,7 @@ func TestAdviserRefusalsWrongRoleAndCapabilityUnavailable(t *testing.T) {
 // lost reply is recovered by reading the operation back, never by resending.
 func TestAdviserDisconnectCarriesAnIdempotencyKey(t *testing.T) {
 	c := &adviserCtl{}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)

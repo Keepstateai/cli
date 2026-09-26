@@ -135,6 +135,7 @@ func posts(c *reviewCtl) []string {
 
 func TestCruiseReviewScreenShowsEveryOptionAndNeverZeroForUnavailable(t *testing.T) {
 	c := &reviewCtl{state: "review"}
+	syncFixture(t, &c.mu)
 	bin, cfg := reviewFixture(t, c)
 	out := runOK(t, bin, cfg, "cruise", "review", "job_r")
 	for _, want := range []string{
@@ -166,6 +167,7 @@ func TestCruiseReviewScreenShowsEveryOptionAndNeverZeroForUnavailable(t *testing
 func TestCruiseResumeShowsItsEffectAndExtraSpendThenRecordsTheDecision(t *testing.T) {
 	rem := int64(1500000)
 	c := &reviewCtl{state: "review", remaining: &rem}
+	syncFixture(t, &c.mu)
 	bin, cfg := reviewFixture(t, c)
 	_, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "cruise", "resume", "job_r", "--ladder", "anthropic:claude-sonnet-5")
 	if code != 0 {
@@ -192,6 +194,7 @@ func TestCruiseResumeShowsItsEffectAndExtraSpendThenRecordsTheDecision(t *testin
 
 func TestCruiseResumeWithUnknownRemainingSaysSoAndOutsideReviewSendsNothing(t *testing.T) {
 	c := &reviewCtl{state: "review"}
+	syncFixture(t, &c.mu)
 	bin, cfg := reviewFixture(t, c)
 	_, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "cruise", "resume", "job_r")
 	if code != 0 || !strings.Contains(errs, "may spend      NOT KNOWN") || strings.Contains(errs, "$0.00") {
@@ -209,6 +212,7 @@ func TestCruiseResumeWithUnknownRemainingSaysSoAndOutsideReviewSendsNothing(t *t
 
 func TestCruiseCancelReportsCleanupApartFromAccounting(t *testing.T) {
 	c := &reviewCtl{state: "review"}
+	syncFixture(t, &c.mu)
 	bin, cfg := reviewFixture(t, c)
 	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "cruise", "cancel", "job_r")
 	if code != 0 || strings.TrimSpace(out) != "job_r" {

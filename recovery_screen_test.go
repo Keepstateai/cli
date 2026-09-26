@@ -123,6 +123,7 @@ func runOK(t *testing.T, bin, cfg string, args ...string) string {
 
 func TestAfterARunnerCrashTheRecoveryScreenShowsAndNothingReadsReadyOrFinished(t *testing.T) {
 	c := &crashCtl{activity: "recovery_required", ranIn: "conv-aaaa", certifiedLast: "conv-aaaa"}
+	syncFixture(t, &c.mu)
 	bin, cfg := crashFixture(t, c)
 
 	out := runOK(t, bin, cfg, "agent", "queue", "show", "main", "--session", agentSessionShort)

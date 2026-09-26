@@ -68,6 +68,7 @@ func (c *openCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func TestOpenResolvesByNameAndNeverWakesTheSession(t *testing.T) {
 	c := &openCtl{}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)

@@ -65,6 +65,7 @@ func (c *pf29Ctl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func TestPreflightSendsWhatOnlyTheClientMeasures(t *testing.T) {
 	c := &pf29Ctl{}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)
@@ -100,6 +101,7 @@ func TestPreflightSendsWhatOnlyTheClientMeasures(t *testing.T) {
 
 func TestPreflightNamesANetworkFailure(t *testing.T) {
 	c := &pf29Ctl{drop: true}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)

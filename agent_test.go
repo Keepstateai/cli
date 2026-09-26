@@ -541,6 +541,7 @@ func readAllBody(r *http.Request) ([]byte, error) {
 func agentFixture(t *testing.T) (*agentCtl, string, string) {
 	t.Helper()
 	c := newAgentCtl()
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	t.Cleanup(srv.Close)
 	bin, cfg := buildAndAuth(t, srv)

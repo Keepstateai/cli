@@ -127,6 +127,7 @@ func noAggregateKeys(t *testing.T, js string) {
 
 func TestQA0661AMissingOpinionIsNamed(t *testing.T) {
 	c := &adviceCtl{caps: adviceRow, scenario: "timeout"}
+	syncFixture(t, &c.mu)
 	bin, cfg := adviceFixture(t, c)
 	out := runOK(t, bin, cfg, "advice", "list", "tsk_q")
 	for _, want := range []string{
@@ -146,6 +147,7 @@ func TestQA0661AMissingOpinionIsNamed(t *testing.T) {
 
 func TestQA0662DisagreementIsKeptAndNoConsensusIsShown(t *testing.T) {
 	c := &adviceCtl{caps: adviceRow, scenario: "disagree"}
+	syncFixture(t, &c.mu)
 	bin, cfg := adviceFixture(t, c)
 	out := runOK(t, bin, cfg, "advice", "list", "tsk_q")
 	for _, want := range []string{"| yes: the down migration exists", "| no: it drops a column irreversibly",
@@ -165,6 +167,7 @@ func TestQA0662DisagreementIsKeptAndNoConsensusIsShown(t *testing.T) {
 
 func TestQA0663AdviceOnAnEndedInstructionIsHistory(t *testing.T) {
 	c := &adviceCtl{caps: adviceRow, scenario: "history"}
+	syncFixture(t, &c.mu)
 	bin, cfg := adviceFixture(t, c)
 	out := runOK(t, bin, cfg, "advice", "list", "tsk_q")
 	if !strings.Contains(out, "standing     HISTORY: the instruction that asked has ended; this is not current advice") ||
@@ -179,6 +182,7 @@ func TestQA0663AdviceOnAnEndedInstructionIsHistory(t *testing.T) {
 
 func TestAdviceShowTracesTheReplyToItsContext(t *testing.T) {
 	c := &adviceCtl{caps: adviceRow, scenario: "disagree"}
+	syncFixture(t, &c.mu)
 	bin, cfg := adviceFixture(t, c)
 	out := runOK(t, bin, cfg, "advice", "show", "csl_b")
 	for _, want := range []string{
@@ -203,6 +207,7 @@ func TestAdviceShowTracesTheReplyToItsContext(t *testing.T) {
 // unavailable today: refused with the reason, no advice read.
 func TestAdviceVerbsAreGated(t *testing.T) {
 	c := &adviceCtl{scenario: "disagree", caps: `,{"id":"agent.workspace","availability":"unavailable","summary":"s","surface":"api","unavailable_reason":"agent sessions are not available in this release"}`}
+	syncFixture(t, &c.mu)
 	bin, cfg := adviceFixture(t, c)
 	_, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "advice", "list", "tsk_q")
 	if code != exitFailed || !strings.Contains(errs, "agent sessions are not available") {
@@ -219,6 +224,7 @@ func TestAdviceVerbsAreGated(t *testing.T) {
 
 func TestAdviceSummaryAndDrawerCommand(t *testing.T) {
 	c := &adviceCtl{scenario: "timeout"}
+	syncFixture(t, &c.mu)
 	var a taskAdviceDoc
 	b, _ := json.Marshal(c.set())
 	if err := json.Unmarshal(b, &a); err != nil {
@@ -247,6 +253,7 @@ func TestAdviceSummaryAndDrawerCommand(t *testing.T) {
 
 func TestTaskShowCarriesTheAdviceSummary(t *testing.T) {
 	c := &adviceCtl{scenario: "timeout", caps: adviceRow + `,{"id":"agent.workspace","availability":"available","summary":"s","surface":"api"}`}
+	syncFixture(t, &c.mu)
 	bin, cfg := adviceFixture(t, c)
 	out := runOK(t, bin, cfg, "task", "show", "tsk_q")
 	for _, want := range []string{"UNAVAILABLE  bob (review, agt_rev2)", "full: ks advice show csl_a", "complete     NO"} {

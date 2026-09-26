@@ -110,6 +110,7 @@ func (c *migrateCtl) sent() []string {
 
 func TestSessionMigratePreviewConfirmApplyReadBack(t *testing.T) {
 	c := &migrateCtl{mode: "legacy"}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)
@@ -149,6 +150,7 @@ func TestSessionMigratePreviewConfirmApplyReadBack(t *testing.T) {
 
 func TestSessionMigrateRefusesBlockersAndReportsAFailure(t *testing.T) {
 	c := &migrateCtl{blocked: true, mode: "legacy"}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)
@@ -168,6 +170,7 @@ func TestSessionMigrateRefusesBlockersAndReportsAFailure(t *testing.T) {
 
 func TestKS090RefusalsAreNamedAndDefinite(t *testing.T) {
 	c := &migrateCtl{}
+	syncFixture(t, &c.mu)
 	srv := httptest.NewServer(c)
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)
