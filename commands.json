@@ -1467,6 +1467,42 @@
      "summary": "remove the agent by this plan"
     }
    ]
+  },
+  {
+   "verb": "result diff",
+   "aliases": [],
+   "usage": "ks result diff <result> [--content]",
+   "summary": "what an attempt's ks-changeset.json says it changed, against its recorded base, with every path escaped",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--content",
+     "summary": "also show the new text of each changed text file (escaped)"
+    }
+   ]
+  },
+  {
+   "verb": "result apply",
+   "aliases": [],
+   "usage": "ks result apply [result] [--dir DIR] [--confirm DIGEST] [--recover]",
+   "summary": "apply an attempt's changeset to this project, only onto the recorded base, transactionally",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--dir DIR",
+     "summary": "the project root to apply to (default this project's root)"
+    },
+    {
+     "flag": "--confirm DIGEST",
+     "summary": "the changeset's digest (the 12 characters shown, or all of it); required without a terminal, never implied by --yes"
+    },
+    {
+     "flag": "--recover",
+     "summary": "put every path an interrupted apply touched back as it was"
+    }
+   ]
   }
  ]
 }
