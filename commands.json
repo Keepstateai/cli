@@ -306,10 +306,16 @@
   {
    "verb": "cruise models",
    "aliases": [],
-   "usage": "ks cruise models",
-   "summary": "the model table the control plane serves: families, rungs, default ladder",
+   "usage": "ks cruise models [--cached]",
+   "summary": "the model catalog: exact ids, family, provider route, rung, runner compatibility as stated, price standing and your key route",
    "status": "available",
-   "surface": "hosted"
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--cached",
+     "summary": "show the last catalog read, labelled CACHED with its version and served_at; makes no request"
+    }
+   ]
   },
   {
    "verb": "doctor",

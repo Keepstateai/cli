@@ -312,6 +312,7 @@ type fakeCtl struct {
 	artifact []byte
 	pfBlock  bool   // the job preflight answers a blocker (KS-029)
 	keyAt    string // the anthropic key's created_at (KS-074: a rotation changes it)
+	dropped  string // a model the catalog no longer lists (KS-075)
 	keyOff   bool   // the anthropic key is disabled
 }
 
@@ -337,6 +338,25 @@ func (f *fakeCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == "GET" && r.URL.Path == "/api/models":
 		writeJSON(embeddedModels)
+	case r.Method == "GET" && r.URL.Path == "/api/v2/models":
+		f.mu.Lock()
+		dropped := f.dropped
+		f.mu.Unlock()
+		var models []any
+		for fam, mf := range embeddedModels.Families {
+			for i, id := range mf.Rungs {
+				if id == dropped {
+					continue
+				}
+				models = append(models, map[string]any{"id": id, "family": fam, "provider_route": mf.Provider, "rung": i + 1,
+					"runner_compatibility": map[string]any{"standing": map[bool]string{true: "exercised", false: "not_verified"}[fam == "anthropic"]},
+					"availability":         map[string]any{"standing": "listed", "catalog_version": "v2", "live": "not checked"},
+					"price":                map[string]any{"standing": "priced"},
+					"key_route":            map[string]any{"provider": mf.Provider, "standing": map[bool]string{true: "enabled", false: "missing"}[fam == "anthropic"], "key_id": map[bool]string{true: "vlt_anthropic1", false: ""}[fam == "anthropic"]}})
+			}
+		}
+		writeJSON(map[string]any{"schema_version": 2, "data": map[string]any{"catalog_version": "v2", "ratified": "2026-09-20", "served_at": "2026-09-26T10:00:00Z",
+			"default_ladder": embeddedModels.DefaultLadder, "models": models, "note": "catalog data, never a charge"}})
 	case r.Method == "GET" && r.URL.Path == "/api/v2/keys":
 		f.mu.Lock()
 		at, off := f.keyAt, f.keyOff
@@ -546,7 +566,7 @@ func TestCruiseInitApproveRun(t *testing.T) {
 		t.Fatalf("lock %s: %v", lkRaw, err)
 	}
 	// KS-074: approve reads the provider keys it binds, and nothing else
-	if got := f.seen(); len(got) != 1 || got[0] != "GET /api/v2/keys" {
+	if got := f.seen(); len(got) != 2 || got[0] != "GET /api/v2/models" || got[1] != "GET /api/v2/keys" {
 		t.Fatalf("approve made requests: %v", got)
 	}
 	f.mu.Lock()
@@ -576,8 +596,8 @@ func TestCruiseInitApproveRun(t *testing.T) {
 		t.Fatalf("run exit %d\n%s%s", code, out, errs)
 	}
 	// KS-029: the job preflight (an observation) and then exactly one job
-	if got := f.seen(); len(got) != 3 || got[0] != "GET /api/v2/keys" || got[1] != "POST /api/v2/preflight" || got[2] != "POST /api/jobs" {
-		t.Fatalf("run made %v, want the route-key read, the preflight, then exactly one POST /api/jobs", got)
+	if got := f.seen(); len(got) != 4 || got[0] != "GET /api/v2/keys" || got[1] != "GET /api/v2/models" || got[2] != "POST /api/v2/preflight" || got[3] != "POST /api/jobs" {
+		t.Fatalf("run made %v, want the route-key read, the catalog read, the preflight, then exactly one POST /api/jobs", got)
 	}
 	if strings.TrimSpace(out) != "job_0123456789ab" || !strings.Contains(errs, "$2.00") {
 		t.Errorf("run output: stdout %q stderr %q", out, errs)
@@ -782,8 +802,62 @@ func TestCruiseStatusAndLogsWords(t *testing.T) {
 		t.Errorf("resume: exit %d, posted %s", code, f.posted)
 	}
 	out, _, code = ksIn(t, bin, cfg, t.TempDir(), "cruise", "models")
-	if code != 0 || !strings.Contains(out, "anthropic (provider anthropic): claude-haiku-4-5-20251001, claude-sonnet-5") {
+	if code != 0 || !strings.Contains(out, "model catalog v2, served at 2026-09-26T10:00:00Z") || !strings.Contains(out, "claude-sonnet-5") {
 		t.Errorf("models: exit %d\n%s", code, out)
+	}
+}
+
+// KS-075: the catalog as the service states it -- exact ids, family, route,
+// rung, exercised/not_verified, price standing and this account's key
+// route; live availability said to be unchecked; a cached copy labelled as
+// such; and a ladder naming an unlisted model refused before any upload,
+// nothing substituted.
+func TestCruiseModelsCatalogAndLadderValidation(t *testing.T) {
+	f, bin, cfg := startFake(t)
+	out, errs, code := ksIn(t, bin, cfg, t.TempDir(), "cruise", "models")
+	if code != 0 {
+		t.Fatalf("models: %d\n%s", code, errs)
+	}
+	for _, want := range []string{"model catalog v2, served at 2026-09-26T10:00:00Z", "NOT checked", "claude-haiku-4-5-20251001", "anthropic", "exercised", "openai/gpt-4o-mini", "openrouter", "not_verified", "enabled (vlt_anthropic1)", "missing"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("models lacks %q:\n%s", want, out)
+		}
+	}
+	before := len(f.seen())
+	out, _, code = ksIn(t, bin, cfg, t.TempDir(), "cruise", "models", "--cached")
+	if code != 0 || !strings.Contains(out, "CACHED model catalog v2") || !strings.Contains(out, "not a live answer") || len(f.seen()) != before {
+		t.Fatalf("cached: %d\n%s", code, out)
+	}
+	// a model dropped from the catalog: approve refuses, nothing bound
+	repo := demoRepo(t)
+	if _, errs, code := ksIn(t, bin, cfg, repo, "cruise", "init"); code != 0 {
+		t.Fatalf("init: %s", errs)
+	}
+	f.mu.Lock()
+	f.dropped = "claude-sonnet-5"
+	f.mu.Unlock()
+	_, errs, code = ksIn(t, bin, cfg, repo, "cruise", "approve")
+	if code != exitConflict || !strings.Contains(errs, `model "claude-sonnet-5" (family anthropic) is not listed in catalog v2`) || !strings.Contains(errs, "nothing is substituted") {
+		t.Fatalf("approve with a dropped model: %d\n%s", code, errs)
+	}
+	// dropped after approval: run refuses before any upload
+	f.mu.Lock()
+	f.dropped = ""
+	f.mu.Unlock()
+	if _, errs, code := ksIn(t, bin, cfg, repo, "cruise", "approve"); code != 0 {
+		t.Fatalf("approve: %s", errs)
+	}
+	f.mu.Lock()
+	f.dropped, f.hits = "claude-haiku-4-5-20251001", nil
+	f.mu.Unlock()
+	_, errs, code = ksIn(t, bin, cfg, repo, "cruise", "run")
+	if code == 0 || !strings.Contains(errs, "claude-haiku-4-5-20251001") {
+		t.Fatalf("run with a dropped model: %d\n%s", code, errs)
+	}
+	for _, h := range f.seen() {
+		if h == "POST /api/jobs" || h == "POST /api/v2/preflight" {
+			t.Fatalf("a refused run sent %s", h)
+		}
 	}
 }
 

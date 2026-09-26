@@ -658,30 +658,6 @@ func ladderWords(ladder []rung) string {
 	return strings.Join(s, ", ")
 }
 
-func cruiseModels(inv *Invocation) {
-	c := mustCreds()
-	var t modelTable
-	if err := hostedCall(c, "GET", "/api/models", nil, &t); err != nil {
-		die(err)
-	}
-	if out.json {
-		emit(t, nil)
-		return
-	}
-	fmt.Printf("model table %s (from %s)\n", t.Version, c.CTL)
-	for _, f := range familyNames(t) {
-		fmt.Printf("  %s (provider %s): %s\n", f, t.Families[f].Provider, strings.Join(t.Families[f].Rungs, ", "))
-	}
-	if len(t.DefaultLadder) == 0 {
-		fmt.Println("default ladder: unavailable")
-	} else {
-		fmt.Printf("default ladder: %s\n", ladderWords(t.DefaultLadder))
-	}
-	if t.Version != embeddedModels.Version {
-		fmt.Printf("this client drafts from table %s; name rungs with --ladder family:model to use the live one\n", embeddedModels.Version)
-	}
-}
-
 // ---------------------------------------------------------------------
 // init
 // ---------------------------------------------------------------------
@@ -1049,6 +1025,10 @@ func cruiseApprove(inv *Invocation) {
 		die(&cliError{Code: exitUsage, Kind: "usage", Message: kerr.Error()})
 	}
 	c := mustCreds()
+	// KS-075: the ladder against the live catalog, before anything is bound
+	if err := checkLadderLive(c, m); err != nil {
+		die(err)
+	}
 	keys, err := fetchKeys(c)
 	if err != nil {
 		die(err)
@@ -1239,6 +1219,12 @@ func cruiseRun(inv *Invocation) error {
 	// the bytes sent ARE the approved bytes: their digest is the lock's
 	if sum := sha256.Sum256(manifestBytes); bound && hex.EncodeToString(sum[:]) != lk.SHA256 {
 		return fmt.Errorf("the manifest bytes are not the approved ones (%s, approved %s); nothing was sent", short(hex.EncodeToString(sum[:])), short(lk.SHA256))
+	}
+
+	// KS-075: the ladder against the live catalog; an unlisted model is
+	// refused here, before any upload, and nothing is substituted
+	if err := checkLadderLive(c, m); err != nil {
+		return err
 	}
 
 	// KS-029: the job-specific preflight, with what only this client
@@ -1529,6 +1515,14 @@ func cruiseResume(inv *Invocation) {
 			die(err)
 		}
 		req["ladder"] = ladder
+		// KS-075: a wider ladder is checked against the live catalog first
+		var la []any
+		for _, r := range ladder {
+			la = append(la, map[string]any{"family": r.Family, "model": r.Model})
+		}
+		if err := checkLadderLive(c, map[string]any{"ladder": la}); err != nil {
+			die(err)
+		}
 	}
 	var job map[string]any
 	if err := hostedMutate(c, "POST", "/api/jobs/"+id+"/resume", req, &job); err != nil {

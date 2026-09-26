@@ -741,9 +741,10 @@ var registry = []*Command{
 				die(err)
 			}
 		}},
-	{Path: []string{"cruise", "models"}, Summary: "the model table the control plane serves: families, rungs, default ladder", Surface: "hosted",
-		Effects:  "reads the table; nothing changes",
-		Examples: []string{"ks cruise models"},
+	{Path: []string{"cruise", "models"}, Summary: "the model catalog: exact ids, family, provider route, rung, runner compatibility as stated, price standing and your key route", Surface: "hosted",
+		Flags:    []Flag{{Name: "cached", Kind: flagBool, Summary: "show the last catalog read, labelled CACHED with its version and served_at; makes no request"}},
+		Effects:  "reads the catalog (and keeps a copy labelled with its version and served time); nothing changes. Live provider availability is not checked by the catalog",
+		Examples: []string{"ks cruise models", "ks cruise models --cached", "ks cruise models --json"},
 		Nothing:  "Nothing was read.", Run: cruiseModels},
 	{Path: []string{"operation"}, Group: true, Summary: "operation records", Surface: "hosted"},
 	{Path: []string{"operation", "show"}, Summary: "read an operation back by its id or key: state, result, timestamps", Surface: "hosted",
