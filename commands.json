@@ -1167,6 +1167,56 @@
      "summary": "why, recorded with the replacement"
     }
    ]
+  },
+  {
+   "verb": "cruise proposal list",
+   "aliases": [],
+   "usage": "ks cruise proposal list [--session ID]",
+   "summary": "a session's proposed Cruise jobs, newest first: state, goal, manifest digest and the job each became",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session whose agents proposed; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    }
+   ]
+  },
+  {
+   "verb": "cruise proposal show",
+   "aliases": [],
+   "usage": "ks cruise proposal show <proposal>",
+   "summary": "one proposed job: its manifest in full, the digest the service states and the digest computed here, and its job",
+   "status": "planned",
+   "surface": "hosted"
+  },
+  {
+   "verb": "cruise proposal approve",
+   "aliases": [],
+   "usage": "ks cruise proposal approve <proposal> [--confirm DIGEST]",
+   "summary": "run a proposed job by confirming the digest of the exact manifest shown",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--confirm DIGEST",
+     "summary": "the manifest digest you reviewed (all of it, or the 12 characters shown); required without a terminal, never implied by --yes"
+    }
+   ]
+  },
+  {
+   "verb": "cruise proposal decline",
+   "aliases": [],
+   "usage": "ks cruise proposal decline <proposal> [--reason TEXT]",
+   "summary": "decline a proposed job; it never runs",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--reason TEXT",
+     "summary": "why, recorded with the decline"
+    }
+   ]
   }
  ]
 }
