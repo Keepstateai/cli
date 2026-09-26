@@ -19,6 +19,8 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -333,5 +335,90 @@ func hostedAdviserDisconnect(cr hostedCreds, inv *Invocation) {
 			g.SourceSessionName, g.SourceAgentName, g.TargetSessionName, g.TargetAgentName, g.RevokedAt)
 		fmt.Println("stops: every future consultation over this connection, at once")
 		fmt.Println("not recalled: advice already delivered stays where it is")
+	})
+}
+
+// ---- discovery (KS-061) -------------------------------------------------------------
+
+type registryEntryRow struct {
+	AgentID       string `json:"agent_id"`
+	Name          string `json:"name"`
+	SessionID     string `json:"session_id"`
+	SessionName   string `json:"session_name"`
+	ProjectID     string `json:"project_id,omitempty"`
+	Selector      string `json:"selector"`
+	NameAmbiguous bool   `json:"name_ambiguous"`
+	RunnerMode    string `json:"runner_mode,omitempty"`
+	RunnerVersion string `json:"runner_version,omitempty"`
+	RunnerModel   string `json:"runner_model,omitempty"`
+	Activity      string `json:"activity"`
+	LastSeenAt    string `json:"last_seen_at,omitempty"`
+	Availability  string `json:"availability"`
+}
+
+// hostedAdviserDiscover lists the agents you may consult (GET
+// /api/v2/agent-registry). Discovery wakes and calls nothing, creates
+// nothing, and grants nothing: connecting is ks adviser connect.
+func hostedAdviserDiscover(cr hostedCreds, inv *Invocation) {
+	q := url.Values{}
+	if p := strings.TrimSpace(inv.Str("project")); p != "" {
+		q.Set("project_id", p)
+	}
+	if n := strings.TrimSpace(inv.Arg(0)); n != "" {
+		q.Set("name", n)
+	}
+	path := "/api/v2/agent-registry"
+	if enc := q.Encode(); enc != "" {
+		path += "?" + enc
+	}
+	var env struct {
+		Data struct {
+			Items []registryEntryRow `json:"items"`
+		} `json:"data"`
+	}
+	if err := hostedCall(cr, "GET", path, nil, &env); err != nil {
+		var he *hostedErr
+		if errors.As(err, &he) && he.Type == "ks_name_ambiguous" {
+			var e struct {
+				Error struct {
+					Candidates []struct {
+						AgentID      string `json:"agent_id"`
+						Selector     string `json:"selector"`
+						Availability string `json:"availability"`
+					} `json:"candidates"`
+				} `json:"error"`
+			}
+			_ = json.Unmarshal(he.Raw, &e)
+			var names []string
+			for _, c := range e.Error.Candidates {
+				names = append(names, fmt.Sprintf("%s (%s, %s)", visible(sanitize(c.Selector)), c.AgentID, c.Availability))
+			}
+			ce := classify(err)
+			ce.Code = exitUsage
+			ce.Message = fmt.Sprintf("%d agents answer to %q and none is chosen: %s", len(names), inv.Arg(0), strings.Join(names, "; "))
+			ce.NextAction = "name one by its session/agent selector or its id"
+			die(ce)
+		}
+		die(err)
+	}
+	items := env.Data.Items
+	emit(map[string]any{"agents": items, "count": len(items)}, func() {
+		if len(items) == 0 {
+			fmt.Println("no agents you may consult; discovery creates none")
+			return
+		}
+		fmt.Printf("%-28s %-12s %-32s %s\n", "SELECTOR", "AVAILABILITY", "RUNNER", "LAST SEEN")
+		for _, e := range items {
+			runner := strings.TrimSpace(strings.Join([]string{e.RunnerMode, e.RunnerVersion, e.RunnerModel}, " "))
+			if runner == "" {
+				runner = "not reported"
+			}
+			sel := visible(sanitize(e.Selector))
+			if e.NameAmbiguous {
+				sel += " *"
+			}
+			fmt.Printf("%-28s %-12s %-32s %s\n", clip(sel, 28), figure(e.Availability), clip(sanitize(runner), 32), figure(e.LastSeenAt))
+		}
+		fmt.Println("* the agent name is shared: use the selector or the id. Connect one: ks adviser connect <session>/<agent> --session <yours>")
 	})
 }

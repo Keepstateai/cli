@@ -1601,6 +1601,20 @@
      "summary": "the session's id, confirming the deletion (never implied by --yes)"
     }
    ]
+  },
+  {
+   "verb": "adviser discover",
+   "aliases": [],
+   "usage": "ks adviser discover [name] [--project ID]",
+   "summary": "the existing agents you may consult: selector, availability, the runner each reported, last seen; creates and grants nothing",
+   "status": "planned",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--project ID",
+     "summary": "one project you may read instead of your own account"
+    }
+   ]
   }
  ]
 }
