@@ -947,7 +947,7 @@
   {
    "verb": "result download",
    "aliases": [],
-   "usage": "ks result download <result> [--out FILE] [--force] [--extract DIR] [--task ID] [--grant-ttl DURATION]",
+   "usage": "ks result download <result> [--out FILE] [--force] [--extract DIR] [--task ID] [--grant-ttl DURATION] [--keep-partial]",
    "summary": "download a result, verify its size and sha256, and place it without replacing anything",
    "status": "planned",
    "surface": "hosted",
@@ -971,6 +971,10 @@
     {
      "flag": "--grant-ttl DURATION",
      "summary": "how long the download grant lives (1s to 1h; default the service's 10m)"
+    },
+    {
+     "flag": "--keep-partial",
+     "summary": "keep an interrupted download's incomplete bytes (.ks-partial-<result>) so the same command can resume; without it they are removed"
     }
    ]
   },

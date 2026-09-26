@@ -21,7 +21,9 @@
 //     leaves that partial file, named as incomplete, and the same command
 //     resumes it with Range and If-Range bound to the recorded sha256: a
 //     service that no longer holds those exact bytes answers the whole
-//     result and the partial file is started again.
+//     result and the partial file is started again. By default an
+//     interrupted download's partial file is REMOVED; --keep-partial keeps
+//     it so a later run can resume.
 //  4. The whole file is hashed from disk and compared, with its size, to the
 //     recorded values (and to the digest the service states on the
 //     response). A mismatch removes the partial file; nothing is written at
@@ -326,7 +328,7 @@ func integrity(kind, msg string) error {
 
 // downloadVerified brings the result's bytes to partial and verifies them.
 // On return with a nil error, partial holds exactly the recorded bytes.
-func downloadVerified(cr hostedCreds, r resultRow, partial string, ttl time.Duration) (downloadOutcome, error) {
+func downloadVerified(cr hostedCreds, r resultRow, partial string, ttl time.Duration, keepPartial bool) (downloadOutcome, error) {
 	var o downloadOutcome
 	f, offset, err := openPartial(partial)
 	if err != nil {
@@ -431,9 +433,17 @@ func downloadVerified(cr hostedCreds, r resultRow, partial string, ttl time.Dura
 			if err != nil {
 				cause = sanitize(err.Error())
 			}
+			if !keepPartial {
+				// the spec's default: an interrupted download is incomplete
+				// and its temporary file is removed
+				os.Remove(partial)
+				return o, &cliError{Code: exitTemporary, Kind: "download_interrupted",
+					Message:    fmt.Sprintf("the download stopped after %s of %s bytes (%s). Nothing was written at the target and the incomplete bytes were removed", commas(have), commas(r.Bytes), cause),
+					NextAction: "run the same command again; add --keep-partial to keep an interrupted download for resuming"}
+			}
 			return o, &cliError{Code: exitTemporary, Kind: "download_interrupted",
-				Message:    fmt.Sprintf("the download stopped after %s of %s bytes (%s). Nothing was written at the target; the incomplete bytes are kept at %s", commas(have), commas(r.Bytes), cause, partial),
-				NextAction: "run the same command again to resume, or delete " + partial}
+				Message:    fmt.Sprintf("the download stopped after %s of %s bytes (%s). Nothing was written at the target; with --keep-partial the incomplete bytes are kept at %s", commas(have), commas(r.Bytes), cause, partial),
+				NextAction: "run the same command again to resume (it resumes only if the service still holds the same bytes, and starts again otherwise), or delete " + partial}
 		}
 	}
 	closeF()
@@ -535,7 +545,7 @@ func hostedResultDownload(cr hostedCreds, inv *Invocation) {
 	}
 	partial := partialPath(dest, r.ID)
 	progress("downloading %s (%s bytes, sha256 %s) to %s", r.ID, commas(r.Bytes), short(r.SHA256), partial)
-	o, err := downloadVerified(cr, r, partial, ttl)
+	o, err := downloadVerified(cr, r, partial, ttl, inv.Bool("keep-partial"))
 	if err != nil {
 		// a partial file that holds nothing is not worth keeping
 		if fi, serr := os.Lstat(partial); serr == nil && fi.Mode().IsRegular() && fi.Size() == 0 {

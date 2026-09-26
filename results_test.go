@@ -118,7 +118,11 @@ func (c *resultCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			content = bytes.Repeat([]byte("X"), len(content))
 		}
 		w.Header().Set("X-KS-Sha256", shaOf(recorded))
-		w.Header().Set("ETag", `"sha256:`+shaOf(content)+`"`)
+		etag := `"sha256:` + shaOf(content) + `"`
+		if mode == "etag" {
+			etag = `"some-other-representation"` // what the client resumes against is no longer what is served
+		}
+		w.Header().Set("ETag", etag)
 		w.Header().Set("Content-Type", "application/octet-stream")
 		if mode == "cut" {
 			w.Header().Set("Content-Length", fmt.Sprint(len(content)))
@@ -235,11 +239,26 @@ func TestADownloadAppearsOnlyWhenVerifiedAndNeverOverwrites(t *testing.T) {
 	}
 	noPartials(t, dir)
 
-	// a partial download: nothing at the target, the incomplete bytes kept
-	// under a partial name; the same command resumes with Range + If-Range
+	// an interrupted download, by default: nothing at the target and the
+	// incomplete bytes removed (the spec's rule); the next run starts from 0
 	c.set(func(c *resultCtl) { c.mode = "cut" })
-	if _, errs, code := dl("--out", "resumed.txt"); code != exitTemporary || !strings.Contains(errs, "run the same command again to resume") {
+	if _, errs, code := dl("--out", "fresh-cut.txt"); code != exitTemporary || !strings.Contains(errs, "incomplete bytes were removed") || !strings.Contains(errs, "--keep-partial") {
 		t.Fatalf("cut: %d\n%s", code, errs)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "fresh-cut.txt")); err == nil {
+		t.Fatal("an interrupted download created its target")
+	}
+	noPartials(t, dir)
+	c.set(func(c *resultCtl) { c.mode = "ok"; c.ranges = nil })
+	if _, errs, code := dl("--out", "fresh-cut.txt"); code != 0 || readT(t, filepath.Join(dir, "fresh-cut.txt")) != string(content) || len(c.ranges) != 1 || c.ranges[0] != " | " {
+		t.Fatalf("after a removed partial: %d %v\n%s", code, c.ranges, errs)
+	}
+
+	// --keep-partial: the incomplete bytes are kept under a partial name, and
+	// the same command resumes with Range + If-Range
+	c.set(func(c *resultCtl) { c.mode = "cut" })
+	if _, errs, code := dl("--out", "resumed.txt", "--keep-partial"); code != exitTemporary || !strings.Contains(errs, "run the same command again to resume") {
+		t.Fatalf("cut --keep-partial: %d\n%s", code, errs)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "resumed.txt")); err == nil {
 		t.Fatal("an interrupted download created its target")
@@ -265,6 +284,22 @@ func TestADownloadAppearsOnlyWhenVerifiedAndNeverOverwrites(t *testing.T) {
 		t.Fatalf("the resume request: %v", c.ranges)
 	}
 	noPartials(t, dir)
+
+	// a kept partial whose If-Range no longer matches the service's ETag:
+	// the service answers the whole result, and the download restarts from 0
+	c.set(func(c *resultCtl) { c.mode = "cut" })
+	if _, _, code := dl("--out", "restarted.txt", "--keep-partial"); code != exitTemporary {
+		t.Fatalf("cut again: %d", code)
+	}
+	c.set(func(c *resultCtl) { c.mode = "etag"; c.ranges = nil })
+	out, errs, code = dl("--out", "restarted.txt", "--json")
+	_ = json.Unmarshal([]byte(out), &doc)
+	if code != 0 || readT(t, filepath.Join(dir, "restarted.txt")) != string(content) || doc.Data["resumed_from"] != float64(0) || !strings.Contains(errs, "starting again from byte 0") {
+		t.Fatalf("etag mismatch: %d %v\n%s%s", code, doc.Data, out, errs)
+	}
+	noPartials(t, dir)
+
+	c.set(func(c *resultCtl) { c.mode = "ok" })
 
 	// a partial file whose bytes are NOT a prefix of the result: the remainder
 	// is fetched, the whole fails verification, and it is removed; the next
