@@ -225,6 +225,11 @@ func hostedFileShow(cr hostedCreds, inv *Invocation) {
 		fail(integrity("digest_mismatch", "the bytes received do not match the size and sha256 the service stated for them; nothing is shown"))
 	}
 	if o := inv.Str("out"); o != "" {
+		// KNOWN: syscall.O_NOFOLLOW does not exist on Windows, so this line
+		// (and results.go's extraction) breaks the Windows build
+		// (GOOS=windows go vet: "undefined: syscall.O_NOFOLLOW"). Windows is
+		// not a release target today; the fix is a per-OS no-follow open
+		// (a build-tagged helper), deliberately not made yet.
 		f, err := os.OpenFile(o, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
 		if err != nil {
 			die(&cliError{Code: exitConflict, Kind: "target_exists", Message: fmt.Sprintf("%s could not be created without replacing anything (%v); nothing was written", o, err)})

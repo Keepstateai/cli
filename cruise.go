@@ -181,7 +181,13 @@ func scanWorkspace(root string, out io.Writer) ([]wsFile, error) {
 // when out is not nil, and returns the packed files (with digests) and the
 // selection (with its digest).
 func scanSelected(root string, out io.Writer, overrides []string) ([]wsFile, *selection, error) {
-	sel, err := buildSelection(root, overrides)
+	return scanSelectedUnder(root, out, overrides, selectionPolicyVersion)
+}
+
+// scanSelectedUnder packs the selection built under a named policy: run
+// uses the policy its approval recorded, so a v1 approval still verifies.
+func scanSelectedUnder(root string, out io.Writer, overrides []string, policy string) ([]wsFile, *selection, error) {
+	sel, err := buildSelectionUnder(root, overrides, policy)
 	if err != nil {
 		return nil, sel, err
 	}
@@ -1116,7 +1122,13 @@ func cruiseRun(inv *Invocation) error {
 	defer tmp.Close()
 	h := sha256.New()
 	cw := &capWriter{w: io.MultiWriter(tmp, h)}
-	files, sel, err := scanSelected(root, cw, readSelectionOverrides(root))
+	// the selection is rebuilt under the policy the approval recorded: a
+	// v1 approval is checked against a v1 selection, never re-judged by v2
+	policy := lk.PolicyVersion
+	if policy == "" {
+		policy = selectionPolicyVersion // no recorded policy: refused below by the empty digest
+	}
+	files, sel, err := scanSelectedUnder(root, cw, readSelectionOverrides(root), policy)
 	if err != nil {
 		return err
 	}

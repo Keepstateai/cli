@@ -98,20 +98,10 @@ func TestC12F03HostileWorkspaceAgainstTheUploadSelection(t *testing.T) {
 				t.Errorf("%s is not a mandatory exclusion: %q", p, reason)
 			}
 		case c12.KindIgnoredDep:
-			switch {
-			case strings.HasPrefix(p, "build/") || strings.HasSuffix(p, ".log"):
-				if included[p] || !strings.HasPrefix(reason, "ignored") {
-					t.Errorf("%s is not excluded by .gitignore: %q", p, reason)
-				}
-			default:
-				// DIFFERENCE, reported: policy ks-upload-policy/1 has no
-				// dependency-tree rule, so an un-ignored node_modules or
-				// .venv is uploaded; the fixture expects it excluded. A
-				// change of policy changes every approval digest and is
-				// an owner-visible decision, not made here.
-				if !included[p] {
-					t.Errorf("%s: the recorded difference changed (it is no longer uploaded: %q); update this test and the report", p, reason)
-				}
+			// under ks-upload-policy/2 a dependency or tool tree is excluded
+			// by the verifier's SKIP_DIRS, and ignored files by .gitignore
+			if included[p] || !(strings.HasPrefix(reason, "ignored") || strings.HasPrefix(reason, "dependency or tool tree")) {
+				t.Errorf("%s (ignored dependency) is not excluded: included %v, %q", p, included[p], reason)
 			}
 		}
 	}

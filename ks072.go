@@ -23,9 +23,7 @@ import (
 )
 
 var (
-	ks072SkipDirs = map[string]bool{".git": true, ".hg": true, ".svn": true, "node_modules": true, "__pycache__": true, ".pytest_cache": true,
-		".mypy_cache": true, ".ruff_cache": true, ".venv": true, "venv": true, ".tox": true, ".nox": true, ".keepstate": true, ".claude": true,
-		"dist": true, "build": true}
+	ks072SkipDirs    = verifierSkipDirs // the vendored judge/checks.py SKIP_DIRS
 	ks072TestDirs    = map[string]bool{"tests": true, "test": true, "__tests__": true}
 	ks072FixtureDirs = map[string]bool{"testdata": true, "test_data": true, "fixtures": true, "__fixtures__": true, "__snapshots__": true}
 

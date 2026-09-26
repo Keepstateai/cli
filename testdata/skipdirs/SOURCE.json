@@ -1,0 +1,10 @@
+{
+ "what": "the vendored verifier SKIP_DIRS",
+ "server_commit": "b989f9b68e84098805a66a92f60d295fa5a7ebe1",
+ "files": {
+  "verifier_skip_dirs.json": {
+   "from": "judge/checks.py SKIP_DIRS (sorted, as a JSON list)",
+   "sha256": "493f023890db279bf93099acdb5503af580bb895279272d97746bc6d6fa15ec5"
+  }
+ }
+}
