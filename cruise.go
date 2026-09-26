@@ -1235,24 +1235,61 @@ func cruiseRun(inv *Invocation) error {
 
 	// POST /api/jobs { manifest, manifest_sha, workspace_b64 }: the
 	// manifest goes over the wire as its canonical bytes, so what the
-	// control plane hashes is what the customer approved.
+	// control plane hashes is what the customer approved. With
+	// --separate-upload the workspace is left out and sent on its own
+	// route once the job exists.
+	separate := inv.Bool("separate-upload")
 	var body bytes.Buffer
 	body.WriteString(`{"manifest":`)
 	body.Write(manifestBytes)
-	body.WriteString(`,"manifest_sha":"` + sha + `","workspace_b64":"`)
-	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
-		return err
+	if separate {
+		body.WriteString(`,"manifest_sha":"` + sha + `"}`)
+	} else {
+		body.WriteString(`,"manifest_sha":"` + sha + `","workspace_b64":"`)
+		if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+			return err
+		}
+		b64 := base64.NewEncoder(base64.StdEncoding, &body)
+		if _, err := io.Copy(b64, tmp); err != nil {
+			return err
+		}
+		b64.Close()
+		body.WriteString(`"}`)
 	}
-	b64 := base64.NewEncoder(base64.StdEncoding, &body)
-	if _, err := io.Copy(b64, tmp); err != nil {
-		return err
-	}
-	b64.Close()
-	body.WriteString(`"}`)
 
 	var job map[string]any
 	if err := hostedMutate(c, "POST", "/api/jobs", body.Bytes(), &job); err != nil {
 		return err
+	}
+	if separate {
+		id := jstr(job, "id")
+		kept, kerr := keepArchive(tmp, id)
+		if kerr != nil {
+			return &cliError{Code: exitFailed, Kind: "archive_not_kept",
+				Message:    fmt.Sprintf("job %s was created without its workspace, and the packed archive could not be kept for its upload (%v); the job cannot start. Nothing was uploaded", id, kerr),
+				NextAction: "ks cruise cancel " + id + ", then ks cruise run again"}
+		}
+		if job["manifest"] == nil {
+			job["manifest"] = m
+		}
+		after, uerr := uploadKept(c, job, kept, true)
+		if uerr != nil {
+			progress("job %s exists and is queued WITHOUT its workspace; it cannot start until the upload is stored. The archive is kept at %s", id, kept)
+			var ce *cliError
+			if errors.As(uerr, &ce) && ce.NextAction == "" {
+				ce.NextAction = "ks cruise upload " + id
+			}
+			var he *hostedErr
+			if errors.As(uerr, &he) {
+				return &cliError{Code: classify(he).Code, Kind: "upload_refused", Message: fmt.Sprintf("the workspace upload for job %s was refused: %s", id, sanitize(he.Message)), NextAction: "ks cruise upload " + id + " (or ks cruise cancel " + id + ")"}
+			}
+			return uerr
+		}
+		for _, k := range []string{"state", "workspace_sha", "workspace_bytes"} {
+			if v, ok := after[k]; ok {
+				job[k] = v
+			}
+		}
 	}
 	ceiling := "unavailable"
 	if n, ok := jnum(job, "spend_ceiling_microusd"); ok {
@@ -1443,6 +1480,9 @@ func printJob(job map[string]any) {
 	}
 	if n, ok := jnum(job, "spend_ceiling_microusd"); ok {
 		ceiling = dollars(n)
+	}
+	if l := workspaceLine(job); l != "" {
+		fmt.Println(l)
 	}
 	fmt.Printf("spent %s of %s ceiling\n", spent, ceiling)
 	fmt.Printf("verdict: %s\n", jstr(job, "verdict"))

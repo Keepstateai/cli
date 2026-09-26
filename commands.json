@@ -241,12 +241,18 @@
   {
    "verb": "cruise run",
    "aliases": [],
-   "usage": "ks cruise run",
+   "usage": "ks cruise run [--separate-upload]",
    "summary": "upload the workspace and the locked manifest; start the job",
    "status": "available",
    "surface": "hosted",
    "safety": "Refuses, before any request: a draft without a lock (run `ks cruise approve`), a workspace over 50 MiB (.git and .keepstate excluded), a test file changed since approve (the tests_digest differs), a draft changed since approve, and a workspace changed since approve.",
-   "safetyMeasured": "2026-09-16, cruise_test.go (TestCruiseRunRefusals) against a recording control plane: each refusal exits non-zero with zero requests."
+   "safetyMeasured": "2026-09-16, cruise_test.go (TestCruiseRunRefusals) against a recording control plane: each refusal exits non-zero with zero requests.",
+   "flags": [
+    {
+     "flag": "--separate-upload",
+     "summary": "create the job without its workspace, then send the packed archive's raw bytes as its own upload (PUT /api/jobs/{id}/workspace); the job cannot start until the upload is stored, and the archive is kept until it is, so ks cruise upload JOB can send it again"
+    }
+   ]
   },
   {
    "verb": "cruise status",
@@ -1625,6 +1631,22 @@
     {
      "flag": "--project ID",
      "summary": "one project you may read instead of your own account"
+    }
+   ]
+  },
+  {
+   "verb": "cruise upload",
+   "aliases": [],
+   "usage": "ks cruise upload <job> [--from FILE]",
+   "summary": "send a queued job's workspace as its own upload, from the archive kept when the job was created (or --from FILE), checked against the job's manifest first",
+   "status": "available",
+   "surface": "hosted",
+   "safety": "Refuses, before any upload: a job that is not queued, a job whose workspace is already stored (nothing is sent), no kept archive and no --from (it never re-packs), and an archive whose sha256 or size differs from the job's manifest.",
+   "safetyMeasured": "2026-09-26, cruise_upload_test.go (TestCruiseUploadRefusalsSendNothing) against a recording control plane: each local refusal sends no PUT; the service's 403 exits 3 and its 409 exits 5.",
+   "flags": [
+    {
+     "flag": "--from FILE",
+     "summary": "the archive to send instead of the kept one; it must be the exact archive the job's manifest names (sha256 and size), or nothing is sent"
     }
    ]
   }

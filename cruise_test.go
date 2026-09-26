@@ -314,6 +314,9 @@ type fakeCtl struct {
 	keyAt    string // the anthropic key's created_at (KS-074: a rotation changes it)
 	dropped  string // a model the catalog no longer lists (KS-075)
 	keyOff   bool   // the anthropic key is disabled
+	put      []byte // the last PUT /api/jobs/{id}/workspace body (KS-001 workspace PUT)
+	puts     int
+	putFault string // "state", "mismatch", "role": the upload route's typed refusal
 }
 
 func (f *fakeCtl) seen() []string {
@@ -335,6 +338,7 @@ func (f *fakeCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
 	writeJSON := func(v any) { _ = json.NewEncoder(w).Encode(v) }
+	fault := ""
 	switch {
 	case r.Method == "GET" && r.URL.Path == "/api/models":
 		writeJSON(embeddedModels)
@@ -394,6 +398,33 @@ func (f *fakeCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == "GET" && r.URL.Path == "/api/jobs/job_0123456789ab/artifact":
 		w.Header().Set("Content-Type", "application/octet-stream")
 		_, _ = w.Write(artifact)
+	case r.Method == "PUT" && r.URL.Path == "/api/jobs/job_0123456789ab/workspace":
+		b, _ := io.ReadAll(r.Body)
+		f.mu.Lock()
+		f.put, fault = b, f.putFault
+		f.puts++
+		f.mu.Unlock()
+		switch fault {
+		case "state":
+			w.WriteHeader(409)
+			writeJSON(map[string]any{"error": map[string]any{"type": "ks_job_state", "message": "the workspace can be uploaded only while the job is queued (state: running)"}})
+			return
+		case "mismatch":
+			w.WriteHeader(409)
+			writeJSON(map[string]any{"error": map[string]any{"type": "ks_workspace_mismatch", "message": "the upload does not match the manifest's workspace"}})
+			return
+		case "role":
+			w.WriteHeader(403)
+			writeJSON(map[string]any{"error": map[string]any{"type": "ks_forbidden", "message": "your role on this account cannot upload"}})
+			return
+		}
+		if r.Header.Get("Content-Type") != "application/octet-stream" {
+			w.WriteHeader(400)
+			writeJSON(map[string]any{"error": map[string]any{"type": "ks_workspace_mismatch", "message": "not octet-stream"}})
+			return
+		}
+		sum := sha256.Sum256(b)
+		writeJSON(map[string]any{"id": "job_0123456789ab", "state": "queued", "workspace_sha": hex.EncodeToString(sum[:]), "workspace_bytes": len(b)})
 	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/cancel"):
 		writeJSON(map[string]any{"id": "job_0123456789ab", "state": "cancelled"})
 	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/resume"):

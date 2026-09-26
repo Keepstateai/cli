@@ -676,13 +676,20 @@ var registry = []*Command{
 		Examples: []string{"ks cruise approve", "ks cruise approve --key anthropic=vlt_0123abcd"},
 		Nothing:  "Nothing was approved.", Run: cruiseApprove},
 	{Path: []string{"cruise", "run"}, Summary: "upload the workspace and the locked manifest; start the job", Surface: "hosted",
+		Flags:    []Flag{{Name: "separate-upload", Kind: flagBool, Summary: "create the job without its workspace, then send the packed archive's raw bytes as its own upload (PUT /api/jobs/{id}/workspace); the job cannot start until the upload is stored, and the archive is kept until it is, so ks cruise upload JOB can send it again"}},
 		Effects:  "uploads the packed workspace and starts a job that bills as the sessions it runs, up to the approved spend ceiling",
-		Examples: []string{"ks cruise run"},
+		Examples: []string{"ks cruise run", "ks cruise run --separate-upload"},
 		Nothing:  "No job was started.", Run: func(inv *Invocation) {
 			if err := cruiseRun(inv); err != nil {
 				die(err)
 			}
 		}},
+	{Path: []string{"cruise", "upload"}, Summary: "send a queued job's workspace as its own upload, from the archive kept when the job was created (or --from FILE), checked against the job's manifest first", Surface: "hosted",
+		Flags:    []Flag{{Name: "from", Kind: flagString, Value: "FILE", Summary: "the archive to send instead of the kept one; it must be the exact archive the job's manifest names (sha256 and size), or nothing is sent"}},
+		Effects:  "sends the archive's bytes on PUT /api/jobs/{id}/workspace, only while the job is queued; sending the same bytes again is safe. A job whose workspace is already stored is left alone. It never re-packs the workspace, because a re-pack need not produce the bytes the job's manifest names",
+		Examples: []string{"ks cruise upload job_0123456789ab", "ks cruise upload job_0123456789ab --from ./workspace.tar.gz"},
+		Args:     []Arg{{Name: "job", Required: true}},
+		Nothing:  "Nothing was uploaded.", Run: cruiseUpload},
 	{Path: []string{"cruise", "proposal"}, Group: true, Summary: "Cruise jobs your agents proposed: nothing runs until you approve the exact manifest", Surface: "hosted"},
 	{Path: []string{"cruise", "proposal", "list"}, Summary: "a session's proposed Cruise jobs, newest first: state, goal, manifest digest and the job each became", Surface: "hosted",
 		Flags: []Flag{{Name: "session", Kind: flagString, Value: "ID", Summary: "the session whose agents proposed; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"}},
