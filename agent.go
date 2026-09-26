@@ -61,6 +61,20 @@ type agentRow struct {
 	// the agent could take a consultation now, as the service reads them
 	Controller   string `json:"controller,omitempty"`
 	Consultation string `json:"consultation,omitempty"`
+	// BACKLOG-130: the model the supervisor started the runner with, and the
+	// one the runner itself named; both are shown, neither inferred
+	RunnerModel         string `json:"runner_model,omitempty"`
+	RunnerReportedModel string `json:"runner_reported_model,omitempty"`
+}
+
+// runnerModelLine shows both models as the service recorded them.
+func runnerModelLine(a agentRow) string {
+	started, reported := notRecorded(a.RunnerModel), notRecorded(a.RunnerReportedModel)
+	line := "started with " + started + "; the runner reported " + reported
+	if a.RunnerModel != "" && a.RunnerReportedModel != "" && a.RunnerModel != a.RunnerReportedModel {
+		line += " (THESE DIFFER)"
+	}
+	return sanitize(line)
 }
 
 // agentLease is the control lease of one window: the authority to steer
@@ -450,6 +464,7 @@ func hostedAgentStatus(cr hostedCreds, inv *Invocation) {
 				fmt.Printf("  STALE          no observation for more than %s: this is the last known state, not the current one\n", staleAfter)
 			}
 			fmt.Printf("  role           %s\n", agentRole(a))
+			fmt.Printf("  runner model   %s\n", runnerModelLine(a))
 			fmt.Printf("  queue          %d waiting\n", waiting)
 			if current != nil {
 				fmt.Printf("  current task   %s (%s) at queue position %d\n", current.ID, stateLabel("task_state", current.State), current.QueueSeq)
