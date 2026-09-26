@@ -1152,7 +1152,13 @@ func hostedAgentTell(cr hostedCreds, inv *Invocation) {
 	var env struct {
 		Data submittedTask `json:"data"`
 	}
-	if err := hostedMutate(cr, "POST", path, map[string]any{"submission_id": sid, "text": text}, &env); err != nil {
+	var err2 error
+	var resolved bool
+	env.Data, resolved, err2 = sendInstruction(cr, a.ID, sid, map[string]any{"submission_id": sid, "text": text})
+	if resolved {
+		progress("accepted: the service holds submission %s (resolved after a lost acknowledgement)", sid)
+	}
+	if err := err2; err != nil {
 		var he *hostedErr
 		if errors.As(err, &he) {
 			switch he.Type {
@@ -1761,7 +1767,8 @@ func (win *liveWindow) submit(cr hostedCreds, text string) {
 	var env struct {
 		Data submittedTask `json:"data"`
 	}
-	if err := hostedMutate(cr, "POST", path, body, &env); err != nil {
+	env.Data, _, err = sendInstruction(cr, win.agent.ID, sid, body)
+	if err != nil {
 		var he *hostedErr
 		if errors.As(err, &he) && he.Type == "ks_controller_stale" {
 			win.displaced(sanitize(he.Message))
