@@ -213,7 +213,10 @@ func hostedKill(cr hostedCreds, inv *Invocation) {
 		path += "?force=1"
 	}
 	if err := hostedMutate(cr, "DELETE", path, nil, nil); err != nil {
-		die(legacyRefusal(err, id, "kill"))
+		if !followUseV2(cr, err, "kill", inv) {
+			die(legacyRefusal(err, id, "kill"))
+		}
+		return
 	}
 	emit(map[string]any{"session_id": id, "killed": true}, func() { fmt.Println("killed", id) })
 }
@@ -222,7 +225,10 @@ func hostedWake(cr hostedCreds, inv *Invocation) {
 	id := inv.Arg(0)
 	var sess map[string]any
 	if err := hostedMutate(cr, "POST", "/api/sessions/"+id+"/resume", nil, &sess); err != nil {
-		die(legacyRefusal(err, id, "wake"))
+		if !followUseV2(cr, err, "wake", inv) {
+			die(legacyRefusal(err, id, "wake"))
+		}
+		return
 	}
 	emit(map[string]any{"session_id": id, "state": sess["state"]}, func() {
 		progress("hosted session %v resumed", id)
@@ -356,7 +362,10 @@ func hostedFork(cr hostedCreds, inv *Invocation) {
 	}
 	var children []map[string]any
 	if err := hostedMutate(cr, "POST", path, nil, &children); err != nil {
-		die(legacyRefusal(err, id, "fork"))
+		if !followUseV2(cr, err, "fork", inv) {
+			die(legacyRefusal(err, id, "fork"))
+		}
+		return
 	}
 	emit(map[string]any{"session_id": id, "children": children}, func() {
 		for _, c := range children {
