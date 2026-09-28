@@ -13,7 +13,7 @@ package main
 //     provider; none or several is refused before anything is created
 //  4. provisioning: a machine, the agent started in it, and supervised once
 //     its supervisor reports (a new agent reports Ready only after its first
-//     instruction, BACKLOG-189); a setup that does not complete is cleaned up
+//     instruction); a setup that does not complete is cleaned up
 //     by the service and said so here
 //  5. optionally a first task (--task), and the agent's window (--open),
 //     both once the agent is supervised
