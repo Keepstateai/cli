@@ -20,6 +20,15 @@ type runCtl struct {
 	workspace string // agent.workspace availability
 	blockers  []string
 	prov      map[string]any // the provisioning answer
+	keys      []any          // the account's keys; nil means one enabled anthropic key
+	bindings  []string       // the bodies the bindings route received
+}
+
+func (c *runCtl) keyList() []any {
+	if c.keys != nil {
+		return c.keys
+	}
+	return []any{map[string]any{"id": "vlt_one1", "provider": "anthropic", "last4": "abcd", "enabled": true, "revision": 1}}
 }
 
 func (c *runCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -43,6 +52,16 @@ func (c *runCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			b = append(b, x)
 		}
 		env(200, map[string]any{"account_id": "acct_t", "blockers": b, "ready": len(b) == 0})
+	case r.Method == "GET" && r.URL.Path == "/api/v2/keys":
+		env(200, map[string]any{"items": c.keyList(), "next_cursor": ""})
+	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/bindings"):
+		var b map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&b)
+		raw, _ := json.Marshal(b)
+		c.mu.Lock()
+		c.bindings = append(c.bindings, string(raw))
+		c.mu.Unlock()
+		env(200, map[string]any{"session_id": "session_abc123", "keys": b["keys"], "revision": 2})
 	case r.Method == "POST" && r.URL.Path == "/api/v2/sessions":
 		env(201, map[string]any{"id": "session_abc123", "revision": 1, "primary_agent_id": "agent_main1"})
 	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/provision"):
@@ -227,5 +246,108 @@ func TestRunFlagsThatBelongToAgentModeAreRefusedWithoutIt(t *testing.T) {
 	}
 	if c.asked("POST /api/v2/sessions") || c.asked("POST /api/sessions") {
 		t.Fatalf("a refused command line created a session: %v", c.requests)
+	}
+}
+
+func supervisedAnswer() map[string]any {
+	return map[string]any{"session_id": "session_abc123", "agent_id": "agent_main1", "ready": false, "supervised": true, "agent_activity": "starting", "cleaned_up": false,
+		"note":   "the agent is running and supervised, waiting for its first instruction; it reports Ready after that instruction, when its runner has started. No model call has been made. Session time is billed from now until the session is parked or killed",
+		"phases": []any{map[string]any{"phase": "create_guest", "done": true, "detail": "a machine was created"}, map[string]any{"phase": "start_agent", "done": true, "detail": "running"}}}
+}
+
+// BACKLOG-189: a new agent reports Ready only after its first instruction, so
+// `ks run --agent --task` must submit the task to a SUPERVISED agent -- and
+// never print Ready for it.
+func TestRunAgentSubmitsTheFirstTaskToASupervisedAgent(t *testing.T) {
+	c := &runCtl{workspace: "available", prov: supervisedAnswer()}
+	syncFixture(t, &c.mu)
+	bin, cfg := runAgentEnv(t, c)
+	out, errOut, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "run", "--agent", "--task", "run the tests")
+	if code != 0 {
+		t.Fatalf("exit %d\n%s\n%s", code, out, errOut)
+	}
+	if !c.asked("POST /api/v2/agents/agent_main1/tasks") {
+		t.Fatal("the first task was not submitted to the supervised agent")
+	}
+	if strings.Contains(out+errOut, "is Ready") {
+		t.Fatalf("Ready was printed for an agent that only reported supervision:\n%s\n%s", out, errOut)
+	}
+	if !strings.Contains(out, "supervised and waiting for its first instruction") {
+		t.Fatalf("the output does not say what the agent is:\n%s", out)
+	}
+}
+
+// The key the agent calls with is bound to the session BEFORE its machine is
+// started: that key is used or nothing is.
+func TestRunAgentBindsItsKeyBeforeTheMachineStarts(t *testing.T) {
+	c := &runCtl{workspace: "available", prov: supervisedAnswer()}
+	syncFixture(t, &c.mu)
+	bin, cfg := runAgentEnv(t, c)
+	if _, errOut, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "run", "--agent"); code != 0 {
+		t.Fatalf("exit %d\n%s", code, errOut)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	bind, prov := -1, -1
+	for i, r := range c.requests {
+		if strings.HasSuffix(r, "/bindings") && bind < 0 {
+			bind = i
+		}
+		if strings.HasSuffix(r, "/provision") && prov < 0 {
+			prov = i
+		}
+	}
+	if bind < 0 || prov < 0 || bind > prov {
+		t.Fatalf("bindings at %d, provision at %d: the key must be bound before the machine starts (%v)", bind, prov, c.requests)
+	}
+	if len(c.bindings) != 1 || !strings.Contains(c.bindings[0], `"anthropic":"vlt_one1"`) {
+		t.Fatalf("bound %v", c.bindings)
+	}
+}
+
+// No usable key, several, or a named key the agent cannot call with: refused
+// before anything is created, and a key is never guessed.
+func TestRunAgentRefusesAKeyItWouldHaveToGuess(t *testing.T) {
+	two := []any{
+		map[string]any{"id": "vlt_a", "provider": "anthropic", "last4": "aaaa", "enabled": true},
+		map[string]any{"id": "vlt_b", "provider": "anthropic", "last4": "bbbb", "enabled": true},
+	}
+	other := []any{
+		map[string]any{"id": "vlt_o", "provider": "openai", "last4": "oooo", "enabled": true},
+		map[string]any{"id": "vlt_d", "provider": "anthropic", "last4": "dddd", "enabled": false},
+	}
+	for _, tc := range []struct {
+		name string
+		keys []any
+		args []string
+		want string
+	}{
+		{"two enabled keys", two, nil, "name the one this agent calls with"},
+		{"no enabled key for the provider", other, nil, "no enabled anthropic key"},
+		{"a named key of another provider", other, []string{"--key", "vlt_o"}, "is a openai key"},
+		{"a named disabled key", other, []string{"--key", "vlt_d"}, "enabled: false"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &runCtl{workspace: "available", prov: supervisedAnswer(), keys: tc.keys}
+			syncFixture(t, &c.mu)
+			bin, cfg := runAgentEnv(t, c)
+			_, errOut, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), append([]string{"run", "--agent"}, tc.args...)...)
+			if code == 0 || !strings.Contains(errOut, tc.want) || !strings.Contains(errOut, "Nothing was created") {
+				t.Fatalf("exit %d:\n%s", code, errOut)
+			}
+			if c.asked("POST /api/v2/sessions") {
+				t.Fatal("a session was created before its key was settled")
+			}
+		})
+	}
+	// and a named key of the right provider is the one bound
+	c := &runCtl{workspace: "available", prov: supervisedAnswer(), keys: two}
+	syncFixture(t, &c.mu)
+	bin, cfg := runAgentEnv(t, c)
+	if _, errOut, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "run", "--agent", "--key", "vlt_b"); code != 0 {
+		t.Fatalf("exit %d\n%s", code, errOut)
+	}
+	if len(c.bindings) != 1 || !strings.Contains(c.bindings[0], `"anthropic":"vlt_b"`) {
+		t.Fatalf("bound %v", c.bindings)
 	}
 }

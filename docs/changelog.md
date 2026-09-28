@@ -1,5 +1,37 @@
 # Changelog
 
+## v0.1.14
+
+Release candidate. The production service (ctl build `66863064`, 2026-09-28)
+reports every capability these commands need as available, so all 103
+commands in `commands.json` read available; none is planned.
+
+### Available in this release
+
+**Agents, advisers, results, migration and Cruise proposals**
+
+The 57 commands that were listed as planned in v0.1.13 are available: the
+`ks agent ...` family (open, list, status, tell, view, stop, pause, resume,
+queue, approvals and the rest), `ks adviser ...`, `ks advice ...`,
+`ks result ...`, `ks session migrate` and `ks cruise proposals ...`. The
+v0.1.13 binary already dispatched them and ran each one wherever the service
+reported its capability available; this release changes what the manifest
+says, and the two fixes below.
+
+### Fixed
+
+- `ks run --agent --task TEXT` never submitted its task. A new agent reports
+  Ready only after its first instruction, and the command waited for Ready.
+  It now treats an agent whose supervisor has reported as started, submits
+  the task, and says "supervised and waiting for its first instruction";
+  Ready is still printed only when the agent reports it.
+- `ks run --agent` bound no provider key to the session, so the agent's first
+  instruction was refused by the gateway ("not bound to a key"; nothing was
+  billed). It now chooses the key before anything is created -- `--key KEY`,
+  or your one enabled key for the agent's provider -- and binds it before the
+  machine starts. No usable key, several, another provider's or a disabled
+  key is refused with "Nothing was created"; a key is never guessed.
+
 ## v0.1.13
 
 Release candidate. Every command's status in `commands.json` was re-derived

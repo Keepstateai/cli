@@ -49,7 +49,7 @@
   {
    "verb": "run",
    "aliases": [],
-   "usage": "ks run [--image I] [--budget-tokens N] [--agent] [--name NAME] [--agent-name NAME] [--task TEXT] [--open]",
+   "usage": "ks run [--image I] [--budget-tokens N] [--agent] [--name NAME] [--agent-name NAME] [--key KEY] [--task TEXT] [--open]",
    "summary": "start a hosted session; with --agent, an agent session whose main agent is Ready",
    "status": "available",
    "surface": "hosted",
@@ -83,12 +83,16 @@
      "summary": "the primary agent's name (with --agent); default main"
     },
     {
+     "flag": "--key KEY",
+     "summary": "the provider key the agent calls with, by id or alias (with --agent); default your one enabled key for the agent's provider"
+    },
+    {
      "flag": "--task TEXT",
-     "summary": "a first task for the agent, submitted after Ready (with --agent)"
+     "summary": "a first task for the agent, submitted once the agent is supervised (with --agent)"
     },
     {
      "flag": "--open",
-     "summary": "open the agent's window after Ready (with --agent)"
+     "summary": "open the agent's window once the agent is supervised (with --agent)"
     }
    ]
   },
@@ -563,7 +567,7 @@
    "aliases": [],
    "usage": "ks agent list [--session ID]",
    "summary": "the agents of a session: name, id, activity, role, current task",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
    "flags": [
@@ -578,7 +582,7 @@
    "aliases": [],
    "usage": "ks agent open <name> [--session ID] [--take-control] [--view] [--no-follow] [--resume] [--project PROJECT]",
    "summary": "the agent window: its state, then its events as they happen",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
    "flags": [
@@ -613,7 +617,7 @@
    "aliases": [],
    "usage": "ks agent status <name> [--session ID] [--watch]",
    "summary": "one agent's activity, queue depth and current task",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
    "flags": [
@@ -632,7 +636,7 @@
    "aliases": [],
    "usage": "ks agent tell <name> <instruction> [--session ID] [--resume]",
    "summary": "queue one instruction for an agent from outside any window",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
    "flags": [
@@ -651,7 +655,7 @@
    "aliases": [],
    "usage": "ks agent queue show <name> [--session ID]",
    "summary": "why an agent's queue is not moving: what blocks it, what waits behind it, what each choice would do",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
    "flags": [
@@ -666,7 +670,7 @@
    "aliases": [],
    "usage": "ks agent queue resume <name> [--session ID] [--finding TEXT]",
    "summary": "continue the instructions held behind a failed or unresolved one; that one is never restarted",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
    "flags": [
@@ -685,7 +689,7 @@
    "aliases": [],
    "usage": "ks agent queue hold <name> [--session ID] [--finding TEXT]",
    "summary": "record that an agent's queue stays held, and what you established",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
    "flags": [
@@ -704,7 +708,7 @@
    "aliases": [],
    "usage": "ks task resume <instruction> [--session ID] [--checkpoint ID] [--finding TEXT] [--accept-affected DIGEST]",
    "summary": "run one blocked instruction again as a new attempt from a saved point you name; it never continues the rest of the queue instead",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available. Measured: with no --checkpoint it lists the session's restorable saved points and refuses, sending nothing; with one it restores from THAT saved point only, never substituting another, and it releases no held instruction on any path",
    "flags": [
@@ -733,7 +737,7 @@
    ],
    "usage": "ks agent approve <request> [--session ID]",
    "summary": "approve one permission request an agent is waiting on, by its id",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
    "flags": [
@@ -750,7 +754,7 @@
    ],
    "usage": "ks agent deny <request> [--session ID]",
    "summary": "deny one permission request an agent is waiting on, by its id",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
    "flags": [
@@ -765,7 +769,7 @@
    "aliases": [],
    "usage": "ks agent pause <name> [--session ID]",
    "summary": "save the session an agent lives in and park it, waiting until it is parked",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
    "flags": [
@@ -780,7 +784,7 @@
    "aliases": [],
    "usage": "ks agent resume <name> [--session ID]",
    "summary": "resume the parked session an agent lives in, waiting out a save that is still completing",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
    "flags": [
@@ -797,7 +801,7 @@
    ],
    "usage": "ks task list [--session ID] [--agent NAME]",
    "summary": "the instructions of a session's agents, in the order they were committed",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
    "flags": [
@@ -816,7 +820,7 @@
    "aliases": [],
    "usage": "ks task show <instruction> [--session ID]",
    "summary": "one instruction in full: where it sits, what it says, what it last reported and what attempt exists",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
    "flags": [
@@ -831,7 +835,7 @@
    "aliases": [],
    "usage": "ks session checkpoints <session>",
    "summary": "the saved points a restore may be named against: boundary, state, scope and manifest identity",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not"
   },
@@ -840,7 +844,7 @@
    "aliases": [],
    "usage": "ks task cancel <instruction> [--session ID] [--reason TEXT]",
    "summary": "end one instruction: it will not run, and the instructions held behind it stay held",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
    "flags": [
@@ -859,7 +863,7 @@
    "aliases": [],
    "usage": "ks task reconcile <instruction> [--session ID] [--finding TEXT]",
    "summary": "record that a running attempt's outcome could NOT be established, after the service refused its close",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not",
    "flags": [
@@ -878,7 +882,7 @@
    "aliases": [],
    "usage": "ks adviser connect <adviser> [--session ID] [--agent NAME] [--confirm SESSION/AGENT] [--expires DURATION] [--max-consultations N] [--max-tokens N] [--max-output-tokens N]",
    "summary": "let an agent consult another agent of yours, after you have seen both ends and confirmed the adviser by name",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -916,7 +920,7 @@
    "aliases": [],
    "usage": "ks adviser list [--session ID] [--agent NAME]",
    "summary": "an agent's adviser connections, live, revoked and expired, in both directions",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -934,7 +938,7 @@
    "aliases": [],
    "usage": "ks adviser disconnect <grant>",
    "summary": "withdraw a connection: every future consultation over it stops at once",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted"
   },
   {
@@ -972,7 +976,7 @@
    "aliases": [],
    "usage": "ks agent rename <name> <new-name> [--session ID]",
    "summary": "rename an agent by id; its tasks, approvals and adviser connections keep resolving",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -986,7 +990,7 @@
    "aliases": [],
    "usage": "ks result list [--task ID] [--session ID] [--agent NAME]",
    "summary": "the results of one task, or of a session's tasks: name, size, sha256, task, verification",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1008,7 +1012,7 @@
    "aliases": [],
    "usage": "ks result show <result>",
    "summary": "one result: size, sha256, task and attempt, the producer's checks, the task's verification, provenance",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted"
   },
   {
@@ -1016,7 +1020,7 @@
    "aliases": [],
    "usage": "ks result download <result> [--out FILE] [--force] [--extract DIR] [--task ID] [--grant-ttl DURATION] [--keep-partial]",
    "summary": "download a result, verify its size and sha256, and place it without replacing anything",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1050,7 +1054,7 @@
    "aliases": [],
    "usage": "ks agent logs [--session ID] [--follow] [--cursor CURSOR] [--limit N]",
    "summary": "the session's setup log and its agent's log from a cursor, safe to print; --follow polls until the service says it ends",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1076,7 +1080,7 @@
    "aliases": [],
    "usage": "ks file list [path] [--session ID]",
    "summary": "one directory of a session's workspace: type, mode, size, name; secret files marked redacted",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1090,7 +1094,7 @@
    "aliases": [],
    "usage": "ks file show <path> [--session ID] [--max-bytes N] [--out FILE]",
    "summary": "one workspace file, at most 1 MiB, printed as safe text or written to a new file",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1112,7 +1116,7 @@
    "aliases": [],
    "usage": "ks agent queue list <name> [--session ID]",
    "summary": "an agent's pending work in dispatch order, the instruction executing now apart, and the queue revision a move names",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1126,7 +1130,7 @@
    "aliases": [],
    "usage": "ks task move <instruction> [--session ID] [--before TASK] [--after TASK] [--queue-revision QREV]",
    "summary": "move one queued instruction before or after another pending one of the same agent, against a queue revision",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1152,7 +1156,7 @@
    "aliases": [],
    "usage": "ks approval list [--session ID] [--all]",
    "summary": "a session's permission requests with the instruction each was asked for, what it touches and what deciding costs",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1170,7 +1174,7 @@
    "aliases": [],
    "usage": "ks approval show <request> [--session ID]",
    "summary": "one permission request in full: the action, its instruction, what it touches, the cost, expiry and decision",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1184,7 +1188,7 @@
    "aliases": [],
    "usage": "ks agent queue cancel <name> [--session ID] [--preview] [--confirm QREV] [--states STATES] [--reason TEXT]",
    "summary": "cancel an agent's pending instructions in bulk: previewed first, then confirmed by naming the preview's queue revision",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1214,7 +1218,7 @@
    "aliases": [],
    "usage": "ks task replace <instruction> [--session ID] [--text TEXT] [--queue-revision QREV] [--reason TEXT]",
    "summary": "replace one pending instruction: it is cancelled with its content kept and a new one takes its place, against a queue revision",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1240,7 +1244,7 @@
    "aliases": [],
    "usage": "ks cruise proposal list [--session ID]",
    "summary": "a session's proposed Cruise jobs, newest first: state, goal, manifest digest and the job each became",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1254,7 +1258,7 @@
    "aliases": [],
    "usage": "ks cruise proposal show <proposal>",
    "summary": "one proposed job: its manifest in full, the digest the service states and the digest computed here, and its job",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted"
   },
   {
@@ -1262,7 +1266,7 @@
    "aliases": [],
    "usage": "ks cruise proposal approve <proposal> [--confirm DIGEST]",
    "summary": "run a proposed job by confirming the digest of the exact manifest shown",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1276,7 +1280,7 @@
    "aliases": [],
    "usage": "ks cruise proposal decline <proposal> [--reason TEXT]",
    "summary": "decline a proposed job; it never runs",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1298,7 +1302,7 @@
    "aliases": [],
    "usage": "ks check define [--session ID] [--agent NAME] [--input PATH] [--artifact PATH] [--workdir PATH] [--kind KIND] [--timeout SECONDS] [--max-output BYTES] <name> [--] <argv...>",
    "summary": "store a check: an argument vector with no shell, the files it depends on, its artifacts and bounds; runs nothing",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1340,7 +1344,7 @@
    "aliases": [],
    "usage": "ks check list [--session ID] [--agent NAME]",
    "summary": "an agent's checks: the exact action, the definition hash and the input sets you trusted",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1358,7 +1362,7 @@
    "aliases": [],
    "usage": "ks check run <check>",
    "summary": "request a run of a check; it executes only over inputs you trusted",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted"
   },
   {
@@ -1366,7 +1370,7 @@
    "aliases": [],
    "usage": "ks check show <run>",
    "summary": "one run: state, inputs seen, exit status, output, artifacts' digests, the action to trust",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted"
   },
   {
@@ -1374,7 +1378,7 @@
    "aliases": [],
    "usage": "ks check trust <run> [--confirm HASH]",
    "summary": "trust the exact action a run stopped at: this definition over the inputs it saw",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1388,7 +1392,7 @@
    "aliases": [],
    "usage": "ks session fork <session> [--plan] [--checkpoint CHECKPOINT] [--children N] [--execute DIGEST] [--plan-id ID]",
    "summary": "plan a fork of a named saved point, then execute exactly that plan by its digest",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1418,7 +1422,7 @@
    "aliases": [],
    "usage": "ks session restore <session> [--checkpoint CHECKPOINT] [--reason TEXT] [--accept-affected DIGEST]",
    "summary": "restore a session from a named saved point, and say exactly what continues from it",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1440,7 +1444,7 @@
    "aliases": [],
    "usage": "ks agent view <name> [--session ID] [--choose N] [--confirm CHOICE]",
    "summary": "the live window's model: header, runner, footer counts and the KS menu, as the service gives them, within 80x24",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1462,7 +1466,7 @@
    "aliases": [],
    "usage": "ks agent stop <name> [--session ID] [--confirm NAME] [--reason TEXT]",
    "summary": "stop an agent: its instruction in flight is asked to stop and its queue is held; the session keeps running",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1484,7 +1488,7 @@
    "aliases": [],
    "usage": "ks agent create <name> [--session ID]",
    "summary": "create the primary agent of a session that has none",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1498,7 +1502,7 @@
    "aliases": [],
    "usage": "ks agent remove <name> [--session ID] [--plan] [--execute PLAN]",
    "summary": "remove an agent through a plan: what it cancels and keeps, then the removal naming that plan",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1520,7 +1524,7 @@
    "aliases": [],
    "usage": "ks result diff <result> [--content]",
    "summary": "what an attempt's ks-changeset.json says it changed, against its recorded base, with every path escaped",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1534,7 +1538,7 @@
    "aliases": [],
    "usage": "ks result apply [result] [--dir DIR] [--confirm DIGEST] [--recover]",
    "summary": "apply an attempt's changeset to this project, only onto the recorded base, transactionally",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1556,7 +1560,7 @@
    "aliases": [],
    "usage": "ks session idle <session>",
    "summary": "a session's idle policy and where it stands: counting, warned with the park time and countdown, deferred with the reason",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted"
   },
   {
@@ -1564,7 +1568,7 @@
    "aliases": [],
    "usage": "ks project configure [--project ID] [--session ID] [--file PATH] [--confirm DIGEST]",
    "summary": "propose .keepstate/project.json as the project's defaults, see the exact changes, and trust that digest only if you confirm it",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1590,7 +1594,7 @@
    "aliases": [],
    "usage": "ks session checkpoint-policy <session> [--on] [--off] [--interval MINUTES]",
    "summary": "a session's automatic-save policy and where it stands; --on/--off changes it against the session's revision",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1634,7 +1638,7 @@
    "aliases": [],
    "usage": "ks adviser discover [name] [--project ID]",
    "summary": "the existing agents you may consult: selector, availability, the runner each reported, last seen; creates and grants nothing",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1664,18 +1668,18 @@
    "aliases": [],
    "usage": "ks advice list <instruction>",
    "summary": "every consultation one instruction raised: who was asked, who replied, who is pending or unavailable (named), whether the set is complete, current or history",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
-   "note": "Gated on the registry's advisers.advice row, which reads unavailable today; the verb refuses with that row's reason. The agent.workspace row decides only for an older registry that has no advisers.advice row."
+   "note": "Gated on the registry's advisers.advice row (available since ctl 2026-09-28); the verb refuses with that row's reason wherever it reads otherwise. The agent.workspace row decides only for an older registry that has no advisers.advice row."
   },
   {
    "verb": "advice show",
    "aliases": [],
    "usage": "ks advice show <consultation>",
    "summary": "one consultation in full: who asked whom, when it was asked, taken up and answered, the context it was asked with, and the adviser's own words",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
-   "note": "Gated on the registry's advisers.advice row, which reads unavailable today; the verb refuses with that row's reason. The agent.workspace row decides only for an older registry that has no advisers.advice row."
+   "note": "Gated on the registry's advisers.advice row (available since ctl 2026-09-28); the verb refuses with that row's reason wherever it reads otherwise. The agent.workspace row decides only for an older registry that has no advisers.advice row."
   },
   {
    "verb": "cruise review",
@@ -1729,7 +1733,7 @@
    "aliases": [],
    "usage": "ks session migrate <session> [--confirm DIGEST]",
    "summary": "turn a legacy session into an agent session through a preview you review: runner, keys, saved points, what each legacy command does afterwards, what is preserved, the rollback point",
-   "status": "planned",
+   "status": "available",
    "surface": "hosted",
    "flags": [
     {
@@ -1737,7 +1741,7 @@
      "summary": "the preview's digest (the 12 characters shown, or all of it); required without a terminal, never implied by --yes"
     }
    ],
-   "note": "Reads GET /api/v2/sessions/{id}/migration and sends POST /api/v2/sessions/{id}/migrate, which the deployed control plane does not serve yet; gated on the registry's session.migration row, else agent.workspace."
+   "note": "Reads GET /api/v2/sessions/{id}/migration and sends POST /api/v2/sessions/{id}/migrate; gated on the registry's session.migration row (available since ctl 2026-09-28), else agent.workspace."
   }
  ]
 }

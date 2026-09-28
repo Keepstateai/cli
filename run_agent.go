@@ -8,11 +8,15 @@ package main
 //  2. preflight (KS-029): blockers stop the run BEFORE anything is created or
 //     billed; preflight uploads nothing, provisions nothing, calls no model
 //  3. the session record and its primary agent, one commit on the service
-//  4. provisioning: a machine, the agent started in it, and Ready only when
-//     the agent reports it; a setup that does not complete is cleaned up by
-//     the service and said so here
+//  3a. the key the agent calls with, bound to the session before a machine
+//     exists: --key, or the account's ONE enabled key for the runner's
+//     provider; none or several is refused before anything is created
+//  4. provisioning: a machine, the agent started in it, and supervised once
+//     its supervisor reports (a new agent reports Ready only after its first
+//     instruction, BACKLOG-189); a setup that does not complete is cleaned up
+//     by the service and said so here
 //  5. optionally a first task (--task), and the agent's window (--open),
-//     both only after Ready
+//     both once the agent is supervised
 //
 // A Ready line is printed only for an agent the service OBSERVED ready.
 
@@ -34,6 +38,7 @@ type provisionAnswer struct {
 	AgentID       string              `json:"agent_id"`
 	Phases        []provisionPhaseRow `json:"phases"`
 	Ready         bool                `json:"ready"`
+	Supervised    bool                `json:"supervised"`
 	AgentActivity string              `json:"agent_activity"`
 	CleanedUp     bool                `json:"cleaned_up"`
 	Note          string              `json:"note"`
@@ -62,6 +67,12 @@ func hostedRunAgent(cr hostedCreds, inv *Invocation) {
 			NextAction: "ks preflight --provider " + runnerProvider})
 	}
 
+	// ---- 2a. the key, chosen before anything exists --------------------------
+	key, err := runKey(cr, inv.Str("key"))
+	if err != nil {
+		die(err)
+	}
+
 	// ---- 3. the record and its primary agent --------------------------------
 	name := inv.Str("name")
 	if name == "" {
@@ -85,6 +96,19 @@ func hostedRunAgent(cr hostedCreds, inv *Invocation) {
 	rec := created.Data
 	progress("session %s created with its primary agent; starting a machine for it", rec.ID)
 
+	// ---- 3a. the session's binding: that key is used or nothing is ---------
+	var bound struct {
+		Data struct {
+			Revision int64 `json:"revision"`
+		} `json:"data"`
+	}
+	if err := hostedMutate(cr, "POST", "/api/v2/sessions/"+url.PathEscape(rec.ID)+"/bindings",
+		map[string]any{"keys": map[string]string{runnerProvider: key.ID}, "expected_revision": rec.Revision}, &bound); err != nil {
+		die(err)
+	}
+	rec.Revision = bound.Data.Revision
+	progress("  %s calls go through your key %s (…%s)", runnerProvider, key.ID, key.Last4)
+
 	// ---- 4. the machine and the agent in it --------------------------------
 	req := map[string]any{"expected_revision": rec.Revision}
 	if inv.Set("budget-tokens") {
@@ -104,16 +128,16 @@ func hostedRunAgent(cr hostedCreds, inv *Invocation) {
 		}
 		progress("  %-14s %s: %s", ph.Phase, mark, ph.Detail)
 	}
-	facts := map[string]any{"session": rec.ID, "agent": p.AgentID, "ready": p.Ready,
+	facts := map[string]any{"session": rec.ID, "agent": p.AgentID, "ready": p.Ready, "supervised": p.Supervised, "key": key.ID,
 		"agent_activity": p.AgentActivity, "cleaned_up": p.CleanedUp, "phases": p.Phases, "note": p.Note, "control_plane": cr.CTL}
 	agentRef := agentName
 	if agentRef == "" {
 		agentRef = "main"
 	}
-	if !p.Ready {
+	if !p.Ready && !p.Supervised {
 		// Not Ready is never printed as Ready. Two different facts: the
-		// setup failed (and was cleaned up), or the agent is running and
-		// has not reported Ready yet.
+		// setup failed (and was cleaned up), or the supervisor has not
+		// reported for the agent yet.
 		if p.CleanedUp || !phaseDone(p.Phases, "start_agent") {
 			fail(&cliError{Code: exitFailed, Kind: "run_setup_failed", Message: p.Note,
 				NextAction: "ks run --agent (to try again), or ks doctor"})
@@ -139,16 +163,65 @@ func hostedRunAgent(cr hostedCreds, inv *Invocation) {
 		progress("task %s submitted to %s", env.Data.ID, agentRef)
 	}
 	if inv.Bool("open") {
-		progress("agent %s is Ready in session %s; opening its window", agentRef, rec.ID)
+		progress("agent %s is %s in session %s; opening its window", agentRef, startedWord(p), rec.ID)
 		sub := &Invocation{Args: []string{agentRef}, set: map[string]bool{"session": true}, strs: map[string]string{"session": rec.ID}}
 		hostedAgentOpen(cr, sub)
 		return
 	}
 	emit(facts, func() {
-		fmt.Printf("agent %s is Ready in session %s\n", agentRef, rec.ID)
+		fmt.Printf("agent %s is %s in session %s\n", agentRef, startedWord(p), rec.ID)
 		fmt.Println(p.Note)
 		fmt.Printf("next: ks agent open %s --session %s   (or: ks agent tell %s \"...\" --session %s)\n", agentRef, rec.ID, agentRef, rec.ID)
 	})
+}
+
+// startedWord is what the agent is, as reported: Ready only when it said so.
+func startedWord(p provisionAnswer) string {
+	if p.Ready {
+		return "Ready"
+	}
+	return "supervised and waiting for its first instruction"
+}
+
+// runKey is the key an agent session calls with: the one named, or the
+// account's single enabled key for the runner's provider. None or several is
+// refused before anything is created; a key is never guessed.
+func runKey(cr hostedCreds, arg string) (customerKey, error) {
+	if arg != "" {
+		k, err := resolveKey(cr, arg)
+		if err != nil {
+			return k, err
+		}
+		if k.Provider != runnerProvider || !k.Enabled {
+			return k, &cliError{Code: exitUsage, Kind: "key_unusable",
+				Message: fmt.Sprintf("key %s is a %s key (enabled: %t); the agent calls %s with an enabled %s key. Nothing was created", k.ID, k.Provider, k.Enabled, runnerProvider, runnerProvider), NextAction: "ks key list"}
+		}
+		return k, nil
+	}
+	keys, err := fetchKeys(cr)
+	if err != nil {
+		return customerKey{}, err
+	}
+	var usable []customerKey
+	for _, k := range keys {
+		if k.Provider == runnerProvider && k.Enabled {
+			usable = append(usable, k)
+		}
+	}
+	switch len(usable) {
+	case 1:
+		return usable[0], nil
+	case 0:
+		return customerKey{}, &cliError{Code: exitConflict, Kind: "no_key",
+			Message: "you have no enabled " + runnerProvider + " key, which the agent calls with. Nothing was created", NextAction: "ks key add --provider " + runnerProvider}
+	}
+	var ids []string
+	for _, k := range usable {
+		ids = append(ids, k.ID+" (…"+k.Last4+")")
+	}
+	return customerKey{}, &cliError{Code: exitUsage, Kind: "key_ambiguous",
+		Message:    fmt.Sprintf("you have %d enabled %s keys (%s); name the one this agent calls with. Nothing was created", len(usable), runnerProvider, strings.Join(ids, ", ")),
+		NextAction: "ks run --agent --key <id>"}
 }
 
 func phaseDone(ph []provisionPhaseRow, name string) bool {
