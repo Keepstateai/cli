@@ -83,6 +83,9 @@ func (c *migrateCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		env(200, map[string]any{"id": "session_leg1", "mode": mode, "primary_agent_id": "agt_new"})
 	case r.URL.Path == "/api/v2/preflight":
 		env(200, map[string]any{"checks": []any{}, "blockers": []any{}})
+	case r.Method == "GET" && r.URL.Path == "/api/v2/keys":
+		// ks run --agent chooses its key before anything is created
+		env(200, map[string]any{"items": []any{map[string]any{"id": "vlt_one1", "provider": "anthropic", "last4": "abcd", "enabled": true}}, "next_cursor": ""})
 	case r.Method == "POST" && r.URL.Path == "/api/v2/sessions":
 		refuse(503, "ks_rollout_paused", "new agent sessions are paused while an incident is handled; your existing sessions, their status, cancellation and saved results are unaffected")
 	case r.Method == "POST" && r.URL.Path == "/api/sessions":
