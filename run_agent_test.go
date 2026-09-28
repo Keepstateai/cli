@@ -255,7 +255,7 @@ func supervisedAnswer() map[string]any {
 		"phases": []any{map[string]any{"phase": "create_guest", "done": true, "detail": "a machine was created"}, map[string]any{"phase": "start_agent", "done": true, "detail": "running"}}}
 }
 
-// BACKLOG-189: a new agent reports Ready only after its first instruction, so
+// A new agent reports Ready only after its first instruction, so
 // `ks run --agent --task` must submit the task to a SUPERVISED agent -- and
 // never print Ready for it.
 func TestRunAgentSubmitsTheFirstTaskToASupervisedAgent(t *testing.T) {
