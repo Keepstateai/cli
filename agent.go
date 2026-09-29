@@ -57,6 +57,10 @@ type agentRow struct {
 	ActiveTaskID  string `json:"active_task_id"`
 	QueueRevision int64  `json:"queue_revision"`
 	Revision      int64  `json:"revision"`
+	// SupervisorLive is the service's word that the agent's supervisor holds
+	// a live lease and reports every change; nil from a service that predates
+	// it, which is then judged by age alone.
+	SupervisorLive *bool `json:"supervisor_live,omitempty"`
 	CreatedAt     string `json:"created_at"`
 	// KS-038: whether a window holds control ("held" or "none") and whether
 	// the agent could take a consultation now, as the service reads them
@@ -479,7 +483,7 @@ func hostedAgentStatus(cr hostedCreds, inv *Invocation) {
 			die(err)
 		}
 		waiting, current := queueState(a, tasks)
-		age, stale := observedAge(a.ObservedAt, time.Now())
+		age, stale := agentAge(a, time.Now())
 		// KS-031: whether the queue is held, read beside the activity, so an
 		// agent reading ready over a queue held behind an unknown outcome is
 		// never shown as simply ready. A hold that cannot be read is said.
@@ -564,6 +568,24 @@ func hostedAgentStatus(cr hostedCreds, inv *Invocation) {
 
 // staleAfter is C04's stale threshold for a live status.
 const staleAfter = 15 * time.Second
+
+// restingActivity: a word under which nothing is expected to move until
+// something else happens. Only these may read "no change reported since"
+// under a live supervisor; a working or waiting word still goes stale after
+// 15 s, because that silence is the signal something is stuck.
+var restingActivity = map[string]bool{
+	"ready": true, "starting": true, "paused": true, "stopped": true, "failed": true, "recovery_required": true,
+}
+
+// agentAge is observedAge for an agent: an old RESTING report under a live
+// supervisor is not stale, and says "no change since"; the age is unchanged.
+func agentAge(a agentRow, now time.Time) (string, bool) {
+	age, stale := observedAge(a.ObservedAt, now)
+	if stale && a.SupervisorLive != nil && *a.SupervisorLive && restingActivity[a.Activity] {
+		return age + ", no change since (supervisor live)", false
+	}
+	return age, stale
+}
 
 // observedAge says how old an observation is, and whether it is stale.
 func observedAge(observed string, now time.Time) (string, bool) {
@@ -868,7 +890,7 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 	}
 	// the header is a fact about the window, not a result: stderr, so a
 	// piped stdout carries the agent's events and nothing else
-	age, stale := observedAge(w.Agent.ObservedAt, time.Now())
+	age, stale := agentAge(w.Agent, time.Now())
 	progress("agent %s (%s) in session %s · %s (%s) · %s · %s · %d queued",
 		a.Name, a.ID, sess.ShortID, stateLabel("agent_activity", w.Agent.Activity), age, joined, controlLine(w), w.QueueDepth)
 	if stale {

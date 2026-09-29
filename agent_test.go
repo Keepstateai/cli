@@ -1830,3 +1830,26 @@ func TestAnAgentVerbOnAPlainSessionSaysItHasNoAgents(t *testing.T) {
 		}
 	}
 }
+
+// An idle agent under a live supervisor is not stale (it would have reported a
+// change); a working one past 15 s is, lease or not; a service that predates
+// supervisor_live is judged by age alone.
+func TestAnIdleAgentUnderALiveSupervisorIsNotStale(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	old := now.Add(-10 * time.Minute).Format(time.RFC3339Nano)
+	yes, no := true, false
+	for _, c := range []struct {
+		activity string
+		live     *bool
+		stale    bool
+	}{
+		{"ready", &yes, false}, {"starting", &yes, false}, {"paused", &yes, false},
+		{"ready", &no, true}, {"ready", nil, true},
+		{"working", &yes, true}, {"waiting_provider", &yes, true},
+	} {
+		age, stale := agentAge(agentRow{Activity: c.activity, ObservedAt: old, SupervisorLive: c.live}, now)
+		if stale != c.stale || !strings.Contains(age, "10m0s ago") {
+			t.Errorf("%s live=%v: %q stale=%v, want stale=%v", c.activity, c.live, age, stale, c.stale)
+		}
+	}
+}
