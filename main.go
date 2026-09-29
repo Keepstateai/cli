@@ -954,13 +954,7 @@ func groupUsage(g *Command) {
 		cruiseUsage()
 		return
 	}
-	fmt.Printf("ks %s: %s\n\nusage:\n", g.Name(), g.Summary)
-	for _, c := range registry {
-		if !c.Group && len(c.Path) > 1 && c.Path[0] == g.Path[0] {
-			fmt.Printf("  %-44s %s\n", c.Usage(), c.Summary)
-		}
-	}
-	fmt.Println("\nHelp makes no request and changes nothing.")
+	fmt.Print(groupHelp(g, registry))
 }
 
 // die reports a failure in the mode's shape and exits by the table.

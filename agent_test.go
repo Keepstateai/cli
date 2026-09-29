@@ -63,6 +63,7 @@ type agentCtl struct {
 	decisionBodies []string
 	submissions    map[string]map[string]any // submission id -> the task it created
 	created        int
+	plainSession   bool // the inventory also lists a plain session (no record, no agents)
 
 	approvals     map[string]map[string]any // the permission requests, by id
 	bumpOnRead    bool                      // the exact action changes the moment it is read
@@ -228,13 +229,25 @@ func (c *agentCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				{"id": "agent.workspace", "availability": availability, "summary": "agent windows", "surface": "api", "note": "not open to accounts yet"},
 			}, "limits": map[string]any{}})
 	case r.URL.Path == "/api/v2/sessions" && r.URL.Query().Get("source") == "fleet":
-		env(200, map[string]any{"items": []map[string]any{{
+		items := []map[string]any{{
 			"id": "agentsession0000000000000000aaaa", "short_id": agentSessionShort, "name": "checkout", "runtime_state": "running",
 			"fleet_state": "running", "record_id": agentSessionRecord, "agent_activity": "working", "task_state": "1 queued",
 			"key_alias": "prod", "observed_at": "2026-09-20T12:00:00Z", "last_activity_at": "2026-09-20T12:00:00Z",
 			"created_at": "2026-09-20T11:00:00Z", "image": "base", "budget_tokens": 500000, "execution_epoch": 1,
-		}}, "next_cursor": "", "observed_at": "x"})
+		}}
+		if c.plainSession {
+			items = append(items, map[string]any{"id": "697ca7f1a5df", "short_id": "697ca7", "name": "697ca7", "runtime_state": "running",
+				"agent_activity": "unavailable", "task_state": "unavailable", "key_alias": "unavailable", "observed_at": "2026-09-29T18:11:13Z",
+				"created_at": "2026-09-29T18:03:30Z", "image": "base", "budget_tokens": 750000, "execution_epoch": 1})
+		}
+		env(200, map[string]any{"items": items, "next_cursor": "", "observed_at": "x"})
 	case r.Method == "GET" && r.URL.Path == "/api/v2/agents":
+		if r.URL.Query().Get("session_id") == "697ca7f1a5df" {
+			// production answers a plain session's id with a bare 404
+			w.WriteHeader(404)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"type": "ks_not_found", "code": "ks_not_found", "message": "no such resource"}})
+			return
+		}
 		if r.URL.Query().Get("session_id") != agentSessionRecord {
 			env(200, map[string]any{"items": []map[string]any{}})
 			return
@@ -1778,5 +1791,42 @@ func TestAFailedSaveSaysWhatIsTrue(t *testing.T) {
 	if code != exitFailed || strings.Contains(out+errs, "is parked") || !strings.Contains(errs, "NOT saved") ||
 		!strings.Contains(errs, "ck_prev (untouched)") || !strings.Contains(errs, "session reads     running") || !strings.Contains(errs, "Remote work started: no") {
 		t.Fatalf("failed save: exit %d\n%s%s", code, out, errs)
+	}
+}
+
+// Reported by the owner 2026-09-29: `ks agent open tester --session 697ca7`
+// on a plain session (ks run without --agent) answered "no such resource".
+// It says what the session is and how to get an agent, and asks nothing more.
+func TestAnAgentVerbOnAPlainSessionSaysItHasNoAgents(t *testing.T) {
+	c := newAgentCtl()
+	c.plainSession = true
+	syncFixture(t, &c.mu)
+	srv := httptest.NewServer(c)
+	defer srv.Close()
+	bin, cfg := buildAndAuth(t, srv)
+	for _, args := range [][]string{
+		{"agent", "open", "tester", "--session", "697ca7"},
+		{"agent", "open", "tester", "--session", "697ca7f1a5df"},
+		{"agent", "status", "tester", "--session", "697ca7"},
+	} {
+		out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), args...)
+		if code != exitUsage {
+			t.Fatalf("%v: exit %d\n%s%s", args, code, out, errs)
+		}
+		for _, want := range []string{"session 697ca7 is a plain session", "it has no agents", "ks run --agent --agent-name tester"} {
+			if !strings.Contains(errs, want) {
+				t.Errorf("%v lacks %q:\n%s", args, want, errs)
+			}
+		}
+		if strings.Contains(errs, "no such resource") {
+			t.Errorf("%v still passes on the bare 404:\n%s", args, errs)
+		}
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, r := range c.requests {
+		if strings.Contains(r, "/api/v2/agents") && strings.Contains(r, "697ca7") {
+			t.Fatalf("the agents of a plain session were asked for: %s", r)
+		}
 	}
 }
