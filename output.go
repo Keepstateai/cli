@@ -69,6 +69,10 @@ func progress(format string, a ...any) {
 	if out.quiet {
 		return
 	}
+	if appSink != nil {
+		appSink(fmt.Sprintf(format, a...))
+		return
+	}
 	fmt.Fprintf(os.Stderr, format+"\n", a...)
 }
 
@@ -90,6 +94,10 @@ func emitLine(data any, human string) {
 	if out.json {
 		b, _ := json.Marshal(data)
 		fmt.Println(string(b))
+		return
+	}
+	if appSink != nil {
+		appSink(human)
 		return
 	}
 	fmt.Println(human)

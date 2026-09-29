@@ -57,7 +57,11 @@ type agentRow struct {
 	ActiveTaskID  string `json:"active_task_id"`
 	QueueRevision int64  `json:"queue_revision"`
 	Revision      int64  `json:"revision"`
-	CreatedAt     string `json:"created_at"`
+	// SupervisorLive is the service's word that the agent's supervisor holds
+	// a live lease and reports every change; nil from a service that predates
+	// it, which is then judged by age alone.
+	SupervisorLive *bool  `json:"supervisor_live,omitempty"`
+	CreatedAt      string `json:"created_at"`
 	// KS-038: whether a window holds control ("held" or "none") and whether
 	// the agent could take a consultation now, as the service reads them
 	Controller   string `json:"controller,omitempty"`
@@ -479,7 +483,7 @@ func hostedAgentStatus(cr hostedCreds, inv *Invocation) {
 			die(err)
 		}
 		waiting, current := queueState(a, tasks)
-		age, stale := observedAge(a.ObservedAt, time.Now())
+		age, stale := agentAge(a, time.Now())
 		// KS-031: whether the queue is held, read beside the activity, so an
 		// agent reading ready over a queue held behind an unknown outcome is
 		// never shown as simply ready. A hold that cannot be read is said.
@@ -564,6 +568,24 @@ func hostedAgentStatus(cr hostedCreds, inv *Invocation) {
 
 // staleAfter is C04's stale threshold for a live status.
 const staleAfter = 15 * time.Second
+
+// restingActivity: a word under which nothing is expected to move until
+// something else happens. Only these may read "no change reported since"
+// under a live supervisor; a working or waiting word still goes stale after
+// 15 s, because that silence is the signal something is stuck.
+var restingActivity = map[string]bool{
+	"ready": true, "starting": true, "paused": true, "stopped": true, "failed": true, "recovery_required": true,
+}
+
+// agentAge is observedAge for an agent: an old RESTING report under a live
+// supervisor is not stale, and says "no change since"; the age is unchanged.
+func agentAge(a agentRow, now time.Time) (string, bool) {
+	age, stale := observedAge(a.ObservedAt, now)
+	if stale && a.SupervisorLive != nil && *a.SupervisorLive && restingActivity[a.Activity] {
+		return age + ", no change since (supervisor live)", false
+	}
+	return age, stale
+}
 
 // observedAge says how old an observation is, and whether it is stale.
 func observedAge(observed string, now time.Time) (string, bool) {
@@ -868,7 +890,7 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 	}
 	// the header is a fact about the window, not a result: stderr, so a
 	// piped stdout carries the agent's events and nothing else
-	age, stale := observedAge(w.Agent.ObservedAt, time.Now())
+	age, stale := agentAge(w.Agent, time.Now())
 	progress("agent %s (%s) in session %s · %s (%s) · %s · %s · %d queued",
 		a.Name, a.ID, sess.ShortID, stateLabel("agent_activity", w.Agent.Activity), age, joined, controlLine(w), w.QueueDepth)
 	if stale {
@@ -1768,6 +1790,7 @@ type liveWindow struct {
 	agent agentRow
 	lease *agentLease
 	lost  string // why control is no longer held; empty while it is
+	app   bool   // inside the ks app: Esc interrupts, Ctrl-C twice leaves
 }
 
 // hold answers the lease this window may steer with, and whether it has
@@ -1912,7 +1935,13 @@ func (win *liveWindow) interrupt(cr hostedCreds) {
 		for k, v := range extra {
 			data[k] = v
 		}
-		emitLine(data, "Ctrl-C: "+human)
+		key, leave := "Ctrl-C", "q"
+		if win.app {
+			key, leave = "Esc", "Ctrl-C twice"
+		}
+		human = strings.ReplaceAll(human, "leave with q", "leave with "+leave)
+		human = strings.ReplaceAll(human, "(q leaves)", "("+leave+" leaves)")
+		emitLine(data, key+": "+human)
 	}
 	if _, held := win.hold(); !held {
 		say("interrupt_refused", "this window is watching, so it interrupts nothing; leave with q", nil)
@@ -2115,6 +2144,39 @@ func (win *liveWindow) submit(cr hostedCreds, text string) {
 		win.refuse(err)
 		return
 	}
+	win.submitAs(cr, text, sid, lease)
+}
+
+// submitFresh is the app's Enter: every Enter is a new message, so its id is
+// fresh -- recorded locally before sending, so a retry of THIS send is still
+// the same submission, while typing the same words again is a new one.
+func (win *liveWindow) submitFresh(cr hostedCreds, text string) {
+	lease, held := win.hold()
+	if !held {
+		reason := win.lostReason()
+		if reason == "" {
+			reason = "this window is watching; another window holds control"
+		}
+		win.refuse(&cliError{Code: exitConflict, Kind: "not_controller", Message: reason + ", so nothing was sent to the agent", NextAction: "/take"})
+		return
+	}
+	path := "/api/v2/agents/" + url.PathEscape(win.agent.ID) + "/tasks"
+	id, err := newSubmissionID()
+	if err != nil {
+		win.refuse(err)
+		return
+	}
+	op := localOp{Key: "kssub_" + id, Submission: id, Method: "POST", Path: path, BodySHA: sha256Hex([]byte(text)), CTL: cr.CTL, CreatedAt: time.Now().UTC().Format(time.RFC3339)}
+	if err := recordOperation(op); err != nil {
+		win.refuse(fmt.Errorf("could not record the message locally before sending it (%v); nothing was sent", err))
+		return
+	}
+	win.submitAs(cr, text, id, lease)
+}
+
+// submitAs sends one instruction under a submission id already recorded.
+func (win *liveWindow) submitAs(cr hostedCreds, text, sid string, lease agentLease) {
+	var err error
 	// the lease token is in the request and nowhere else: the journal keeps
 	// the submission id and a hash of the instruction, never the body.
 	body := map[string]any{
@@ -2136,6 +2198,9 @@ func (win *liveWindow) submit(cr hostedCreds, text string) {
 	}
 	t := env.Data
 	human := fmt.Sprintf("sent: task %s at queue position %d (%s)", t.ID, t.QueueSeq, figure(t.State))
+	if win.app {
+		human = fmt.Sprintf("       %s · task %s", stateLabel("task_state", t.State), t.ID)
+	}
 	if t.Replayed {
 		human = fmt.Sprintf("already sent: task %s at queue position %d (%s); the same instruction was submitted once", t.ID, t.QueueSeq, figure(t.State))
 	}

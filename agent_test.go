@@ -424,6 +424,24 @@ func (c *agentCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		c.mu.Unlock()
 		env(200, map[string]any{"approval": decided, "decision": decision, "decided_at": "2026-09-20T12:02:00Z"})
+	case r.Method == "DELETE" && strings.HasPrefix(r.URL.Path, "/api/v2/control-leases/"):
+		// the app releases control when it leaves an agent
+		env(200, map[string]any{"released": true})
+	case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/view") && strings.HasPrefix(r.URL.Path, "/api/v2/agents/"):
+		q, p := 0, 0
+		c.mu.Lock()
+		for id := range c.approvals {
+			if c.approvals[id]["state"] == "pending" {
+				p++
+			}
+		}
+		c.mu.Unlock()
+		env(200, map[string]any{
+			"header": map[string]any{"agent_name": "main", "session_name": "checkout", "controller": "controller", "runtime_state": "running", "activity": "ready"},
+			"footer": map[string]any{"queued": q, "pending_approvals": p},
+			"status": map[string]any{"label": "Ready", "age_seconds": 2, "stale": false, "stale_after_seconds": 15},
+			"usage":  map[string]any{"model_microusd": nil, "model_standing": "unavailable", "entries": []any{map[string]any{"kind": "model", "source": "gateway meter", "tokens": 1234}}},
+		})
 	case r.Method == "PUT" && strings.HasPrefix(r.URL.Path, "/api/v2/control-leases/"):
 		c.mu.Lock()
 		c.renewals++
@@ -1827,6 +1845,29 @@ func TestAnAgentVerbOnAPlainSessionSaysItHasNoAgents(t *testing.T) {
 	for _, r := range c.requests {
 		if strings.Contains(r, "/api/v2/agents") && strings.Contains(r, "697ca7") {
 			t.Fatalf("the agents of a plain session were asked for: %s", r)
+		}
+	}
+}
+
+// An idle agent under a live supervisor is not stale (it would have reported a
+// change); a working one past 15 s is, lease or not; a service that predates
+// supervisor_live is judged by age alone.
+func TestAnIdleAgentUnderALiveSupervisorIsNotStale(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	old := now.Add(-10 * time.Minute).Format(time.RFC3339Nano)
+	yes, no := true, false
+	for _, c := range []struct {
+		activity string
+		live     *bool
+		stale    bool
+	}{
+		{"ready", &yes, false}, {"starting", &yes, false}, {"paused", &yes, false},
+		{"ready", &no, true}, {"ready", nil, true},
+		{"working", &yes, true}, {"waiting_provider", &yes, true},
+	} {
+		age, stale := agentAge(agentRow{Activity: c.activity, ObservedAt: old, SupervisorLive: c.live}, now)
+		if stale != c.stale || !strings.Contains(age, "10m0s ago") {
+			t.Errorf("%s live=%v: %q stale=%v, want stale=%v", c.activity, c.live, age, stale, c.stale)
 		}
 	}
 }

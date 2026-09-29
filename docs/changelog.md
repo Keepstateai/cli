@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.1.16
+
+### New: the ks app
+
+Run `ks` on its own, at a terminal, and it opens an app you stay in:
+
+- a home screen of your agents (↑/↓, Enter to open, `n` to start a new agent
+  session, `q` to quit);
+- an agent's window: the conversation scrolls above, you type below and
+  Enter sends; Esc interrupts the instruction in flight; a permission
+  request appears as a prompt that `y` allows once, `n` denies and `d`
+  explains; a status line shows what the agent is doing, its queue, what
+  waits for you, when it was last saved, its model use and whether you have
+  control; Ctrl-C twice leaves (the agent keeps working).
+
+`/help`, `/status`, `/take`, `/home` and `/quit` work in the window. For a
+script, a pipe, `--json` or `--no-input`, bare `ks` prints the usage as
+before.
+
+### Fixed
+
+- An idle, healthy agent no longer reads STALE in `ks agent status` and the
+  agent window: with a live supervisor, an old resting report reads
+  "no change since". A working or waiting agent still goes stale after 15 s.
+
 ## v0.1.15
 
 Readability fixes reported by the owner.
