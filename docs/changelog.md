@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.1.17
+
+The ks app, continued.
+
+- **Every ks command inside the app.** In an agent's window, `/<command>`
+  runs that command: `/session checkpoints`, `/result diff <id>`,
+  `/cruise status <job>`, all of them, with their own options (`--help`
+  shows them). The window fills in its session and agent when the command
+  takes them. Short forms: `/stop` `/pause` `/resume` `/queue` `/tasks`
+  `/results` `/approvals` `/advisers` `/usage` `/keys` `/logs` `/agents`
+  `/checkpoints` `/restore` `/diff` `/apply`. Tab completes a `/` command;
+  Ctrl-C stops one that is running. A command that needs a confirmation
+  names the flag instead of asking.
+- **While you were away.** Opening an agent again starts with one line: what
+  finished, what did not, the results, and what waits for you, since this
+  terminal last showed that agent.
+- **Several agents.** `/switch <agent> [session]` opens another agent
+  without going home (it never guesses between two of the same name). The
+  home screen puts agents that need you first, marked ⚑, and the status line
+  says when another agent needs you.
+- Quieter: no "operation accepted" lines inside the app; the agent's full
+  name in the conversation; the per-turn changeset result is listed by
+  `/results` instead of every turn.
+
 ## v0.1.16
 
 ### New: the ks app

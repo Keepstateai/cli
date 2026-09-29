@@ -121,9 +121,27 @@ func loadHome(cr hostedCreds) ([]homeRow, error) {
 			rows = append(rows, homeRow{sess: s, agent: &a})
 		}
 	}
-	// agents first (what you came for), plain sessions after
-	sort.SliceStable(rows, func(i, j int) bool { return rows[i].agent != nil && rows[j].agent == nil })
+	// agents that need you first, then the other agents, plain sessions last
+	rank := func(r homeRow) int {
+		switch {
+		case r.agent != nil && needsYou(r.agent.Activity):
+			return 0
+		case r.agent != nil:
+			return 1
+		}
+		return 2
+	}
+	sort.SliceStable(rows, func(i, j int) bool { return rank(rows[i]) < rank(rows[j]) })
 	return rows, nil
+}
+
+// needsYou: an agent that is waiting on a person, or stopped needing one.
+func needsYou(activity string) bool {
+	switch activity {
+	case "waiting_approval", "recovery_required", "failed":
+		return true
+	}
+	return false
 }
 
 func homeLine(r homeRow, selected bool, width int) string {
@@ -137,7 +155,11 @@ func homeLine(r homeRow, selected bool, width int) string {
 			stateLabel("session_runtime", r.sess.RuntimeState), r.sess.ShortID)
 	} else {
 		age, _ := agentAge(*r.agent, time.Now())
-		s = fmt.Sprintf("%s%-14s %s · %s · %s · %s", mark, fitWidth(r.agent.Name, 14), r.sess.ShortID, fitWidth(r.sess.Name, 24),
+		flag := "  "
+		if needsYou(r.agent.Activity) {
+			flag = "⚑ "
+		}
+		s = fmt.Sprintf("%s%s%-14s %s · %s · %s · %s", mark, flag, fitWidth(r.agent.Name, 14), r.sess.ShortID, fitWidth(r.sess.Name, 24),
 			stateLabel("agent_activity", r.agent.Activity), age)
 	}
 	s = fitWidth(s, width)
@@ -331,7 +353,8 @@ func appAgent(cr hostedCreds, scr *screen, keys <-chan keyEvent, sess inventoryR
 		return false
 	}
 	scr.Print(fmt.Sprintf("── %s · session %s (%s) ──", a.Name, sess.ShortID, sess.Name))
-	appBacklog(cr, scr, sess, a.Name, w.Resume.AfterSeq)
+	appBacklog(cr, scr, sess, a, w.Resume.AfterSeq)
+	markSeen(cr, a.ID, w.Resume.AfterSeq)
 	win := &liveWindow{sess: sess, agent: a, lease: w.Lease, app: true}
 	if _, held := win.hold(); !held {
 		scr.Print("another window controls this agent: you are watching. /take takes control.")
@@ -339,6 +362,23 @@ func appAgent(cr hostedCreds, scr *screen, keys <-chan keyEvent, sess inventoryR
 	go win.renew(cr)
 
 	var leaving atomic.Bool
+	var othersNeed atomic.Int64
+	go func() { // other agents that need you, every 15 s
+		for !leaving.Load() {
+			if rows, err := loadHome(cr); err == nil {
+				n := int64(0)
+				for _, r := range rows {
+					if r.agent != nil && r.agent.ID != a.ID && needsYou(r.agent.Activity) {
+						n++
+					}
+				}
+				othersNeed.Store(n)
+			}
+			for i := 0; i < 15 && !leaving.Load(); i++ {
+				time.Sleep(time.Second)
+			}
+		}
+	}()
 	var mu sync.Mutex
 	var shown []approvalRow // the prompt on screen, as recorded shown
 	refresh := func() {
@@ -349,7 +389,11 @@ func appAgent(cr hostedCreds, scr *screen, keys <-chan keyEvent, sess inventoryR
 		}
 		if err == nil {
 			_, held := win.hold()
-			scr.setStatus(appStatusLine(v, held))
+			line := appStatusLine(v, held)
+			if n := othersNeed.Load(); n > 0 {
+				line = fmt.Sprintf("⚑ %d other agent(s) need you (/switch) · ", n) + line
+			}
+			scr.setStatus(line)
 		}
 		if perr == nil {
 			mu.Lock()
@@ -380,6 +424,7 @@ func appAgent(cr hostedCreds, scr *screen, keys <-chan keyEvent, sess inventoryR
 			if kind == "event" {
 				var e journalEvent
 				if json.Unmarshal(data, &e) == nil {
+					markSeen(cr, a.ID, e.StreamSeq)
 					if line, ok := appEventLine(e, a.Name, cr.AccountID); ok {
 						scr.Print(line)
 					}
@@ -411,6 +456,8 @@ func appAgent(cr hostedCreds, scr *screen, keys <-chan keyEvent, sess inventoryR
 	var history []string
 	hpos := 0
 	var ctrlCArmed time.Time
+	var running atomic.Bool
+	var cancel chan struct{}
 	for k := range keys {
 		switch k.kind {
 		case keyEnter:
@@ -421,7 +468,47 @@ func appAgent(cr hostedCreds, scr *screen, keys <-chan keyEvent, sess inventoryR
 			history = append(history, text)
 			hpos = len(history)
 			if strings.HasPrefix(strings.TrimSpace(text), "/") {
-				switch appSlash(cr, scr, win, a, strings.TrimSpace(text)) {
+				line := strings.TrimSpace(text)
+				name := strings.Fields(strings.TrimPrefix(line, "/"))
+				if len(name) > 0 && name[0] == "switch" {
+					if len(name) < 2 {
+						scr.Print("/switch <agent> [session]: open another of your agents; /agents lists this session's")
+						continue
+					}
+					hint := ""
+					if len(name) > 2 {
+						hint = name[2]
+					}
+					target, err := appFindAgent(cr, sess, name[1], hint)
+					if err != nil {
+						scr.Print(err.Error())
+						continue
+					}
+					leave()
+					return appAgent(cr, scr, keys, target.sess, *target.agent)
+				}
+				if len(name) > 0 && !windowCommands[name[0]] {
+					if running.Load() {
+						scr.Print("a command is still running; Ctrl-C stops it")
+						continue
+					}
+					argv, _, err := slashArgv(line, slashContext{sessionID: agentSessionID(sess), agentName: a.Name})
+					if err != nil {
+						scr.Print(err.Error())
+						continue
+					}
+					cancel = make(chan struct{})
+					running.Store(true)
+					scr.setHint("running: ks " + strings.Join(argv, " ") + " · Ctrl-C stops it")
+					go func(argv []string, c chan struct{}) {
+						runSlash(scr, argv, c)
+						running.Store(false)
+						scr.setHint("Enter sends · Esc interrupts · Ctrl-C twice leaves (the agent keeps working) · /help")
+						go refresh()
+					}(argv, cancel)
+					continue
+				}
+				switch appSlash(cr, scr, win, a, line) {
 				case slashHome:
 					leave()
 					return false
@@ -445,7 +532,27 @@ func appAgent(cr hostedCreds, scr *screen, keys <-chan keyEvent, sess inventoryR
 			})
 		case keyEsc:
 			go win.interrupt(cr)
+		case keyTab:
+			in := ""
+			scr.mu.Lock()
+			in = string(scr.input)
+			scr.mu.Unlock()
+			done, cands := completeSlash(in)
+			if len(cands) > 1 {
+				shown := cands
+				if len(shown) > 24 {
+					shown = append(shown[:24:24], fmt.Sprintf("… %d more", len(cands)-24))
+				}
+				scr.Print("  /" + strings.Join(shown, "  /"))
+			}
+			scr.update(func() { scr.input, scr.cursor = []rune(done), len([]rune(done)) })
 		case keyCtrlC, keyCtrlD:
+			if running.Load() && cancel != nil {
+				close(cancel)
+				cancel = nil
+				scr.Print("  stopping the command…")
+				continue
+			}
 			if !scr.inputEmpty() {
 				scr.take()
 				continue
@@ -648,8 +755,12 @@ func appSlash(cr hostedCreds, scr *screen, win *liveWindow, a agentRow, line str
 			"Enter sends what you typed to " + a.Name + " · Esc interrupts its instruction in flight",
 			"y / n / d answer a permission prompt (with an empty input) · ↑/↓ your earlier lines",
 			"/status   the agent's full state        /take   take control from another window",
+			"/switch <agent> [session]   open another of your agents without going home",
 			"/home     back to your agents           /quit   leave the app (agents keep working)",
-			"Ctrl-C clears the input; twice on an empty input leaves this agent",
+			"/stop /pause /resume /queue /tasks /results /approvals /advisers /usage /keys /logs /agents",
+			"and EVERY ks command: /<command> [options], e.g. /session checkpoints, /result diff <id>, /cruise status <job>",
+			"  this session and agent are filled in when the command takes them; /<command> --help shows its options",
+			"Tab completes a / command · Ctrl-C stops a running command; on an empty input, twice leaves this agent",
 		}, "\n"))
 	case "/status":
 		if v, err := fetchLiveView(cr, a.ID); err == nil {
@@ -667,8 +778,6 @@ func appSlash(cr hostedCreds, scr *screen, win *liveWindow, a agentRow, line str
 			return slashStay
 		}
 		return slashTake
-	default:
-		scr.Print(f[0] + " is not a command here yet; /help lists them. Every ks command becomes a / command in the next step of the app")
 	}
 	return slashStay
 }
@@ -691,7 +800,9 @@ func appEventLine(e journalEvent, agentName, account string) (string, bool) {
 			if t.Clipped {
 				text += " […clipped by the service]"
 			}
-			return sanitize(fmt.Sprintf("%-6s %s", fitWidth(agentName, 6), strings.ReplaceAll(text, "\n", "\n       "))), true
+			w := max(6, min(12, displayWidth(agentName)))
+			pad := strings.Repeat(" ", w+1)
+			return sanitize(fmt.Sprintf("%-*s %s", w, fitWidth(agentName, w), strings.ReplaceAll(text, "\n", "\n"+pad))), true
 		case "instruction":
 			// this person's own messages were shown when they pressed Enter;
 			// an instruction from anyone or anywhere else is shown here
@@ -741,7 +852,10 @@ func appEventLine(e journalEvent, agentName, account string) (string, bool) {
 			return sanitize("  ● " + figure(p.State) + " (" + e.SubjectID + ")"), true
 		}
 	case "result.recorded":
-		return sanitize("  ↳ result " + figure(p.Name) + " (ks result list)"), true
+		if p.Name == "ks-changeset.json" {
+			return "", false // every turn records one; /results lists them
+		}
+		return sanitize("  ↳ result " + figure(p.Name) + " (/results)"), true
 	case "queue.held":
 		return sanitize("! the queue is HELD: " + firstLineOf(p.Reason) + " (ks agent queue show " + agentName + ")"), true
 	case "session.parked", "session.resumed", "session.stopped":
@@ -752,7 +866,8 @@ func appEventLine(e journalEvent, agentName, account string) (string, bool) {
 
 // appBacklog shows the end of the conversation so far, as the chat renders
 // it; a journal that cannot be read says so and is never shown as silence.
-func appBacklog(cr hostedCreds, scr *screen, sess inventoryRow, agentName string, upto int64) {
+func appBacklog(cr hostedCreds, scr *screen, sess inventoryRow, a agentRow, upto int64) {
+	agentName := a.Name
 	if upto <= 0 {
 		return
 	}
@@ -764,6 +879,26 @@ func appBacklog(cr hostedCreds, scr *screen, sess inventoryRow, agentName string
 	if err := hostedCall(cr, "GET", "/api/v2/sessions/"+url.PathEscape(agentSessionID(sess))+"/events?limit=400", nil, &env); err != nil {
 		scr.Print("the conversation so far could not be read (that is not the same as nothing having happened): " + errText(err))
 		return
+	}
+	if mark, ok := lastSeen(cr, a.ID); ok && mark.Seq < upto {
+		waiting := 0
+		if pending, err := fetchPendingApprovals(cr, agentSessionID(sess)); err == nil {
+			waiting = len(pending)
+		}
+		var away struct {
+			Data struct {
+				Items []journalEvent `json:"items"`
+			} `json:"data"`
+		}
+		q := fmt.Sprintf("/api/v2/sessions/%s/events?after_seq=%d&limit=400", url.PathEscape(agentSessionID(sess)), mark.Seq)
+		if err := hostedCall(cr, "GET", q, nil, &away); err == nil {
+			if s := awaySummary(away.Data.Items, mark.Seq, waiting, mark.At); s != "" {
+				if len(away.Data.Items) >= 400 {
+					s += " (at least: more happened than one page; ks agent logs)"
+				}
+				scr.Print(s)
+			}
+		}
 	}
 	var lines []string
 	for _, e := range env.Data.Items {
@@ -781,4 +916,41 @@ func appBacklog(cr hostedCreds, scr *screen, sess inventoryRow, agentName string
 	for _, l := range lines {
 		scr.Print(l)
 	}
+}
+
+// appFindAgent resolves /switch: this session first, then every session;
+// several agents of one name are listed, never chosen between.
+func appFindAgent(cr hostedCreds, here inventoryRow, name, sessHint string) (homeRow, error) {
+	rows, err := loadHome(cr)
+	if err != nil {
+		return homeRow{}, fmt.Errorf("your agents could not be read: %s", errText(err))
+	}
+	var local, all []homeRow
+	for _, r := range rows {
+		if r.agent == nil || (r.agent.Name != name && r.agent.ID != name) {
+			continue
+		}
+		if sessHint != "" && r.sess.ShortID != sessHint && r.sess.ID != sessHint && r.sess.RecordID != sessHint {
+			continue
+		}
+		all = append(all, r)
+		if r.sess.RecordID == agentSessionID(here) || r.sess.ID == here.ID {
+			local = append(local, r)
+		}
+	}
+	pick := all
+	if len(local) > 0 && sessHint == "" {
+		pick = local
+	}
+	switch len(pick) {
+	case 1:
+		return pick[0], nil
+	case 0:
+		return homeRow{}, fmt.Errorf("no agent of yours is named %q; /home lists them, n there starts one", name)
+	}
+	var where []string
+	for _, r := range pick {
+		where = append(where, r.sess.ShortID)
+	}
+	return homeRow{}, fmt.Errorf("%d agents are named %q (sessions %s); name the session: /switch %s <session>", len(pick), name, strings.Join(where, ", "), name)
 }

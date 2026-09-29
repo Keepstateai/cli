@@ -22,6 +22,10 @@ type usageEntryRow struct {
 	Calls        int64  `json:"calls,omitempty"`
 	InputTokens  int64  `json:"input_tokens,omitempty"`
 	OutputTokens int64  `json:"output_tokens,omitempty"`
+	// Tokens is a total where only a total is metered (the gateway's meter
+	// of a session's machine); Source says which ledger a row came from.
+	Tokens       int64  `json:"tokens,omitempty"`
+	Source       string `json:"source,omitempty"`
 	ReservedLive int64  `json:"reserved_live_tokens,omitempty"`
 	MicroUSD     *int64 `json:"microusd"`
 	Currency     string `json:"currency"`
@@ -38,9 +42,12 @@ type sessionUsageDoc struct {
 		ModelAdmissionLimitMicro *int64 `json:"model_admission_limit_microusd"`
 		AdmissionPolicy          string `json:"admission_policy"`
 	} `json:"limits"`
-	RateBook   string          `json:"rate_book_version"`
-	Entries    []usageEntryRow `json:"entries"`
-	ObservedAt string          `json:"observed_at"`
+	// GatewayBudget is the token budget the gateway enforces on the
+	// session's machine; the token cap above governs admitted calls only.
+	GatewayBudget *int64          `json:"gateway_budget_tokens"`
+	RateBook      string          `json:"rate_book_version"`
+	Entries       []usageEntryRow `json:"entries"`
+	ObservedAt    string          `json:"observed_at"`
 }
 
 // money renders micro-units, or "unavailable" when the service has no figure.
@@ -80,13 +87,20 @@ func hostedSessionUsage(cr hostedCreds, inv *Invocation) {
 			lim += ", model spend limit " + money(u.Limits.ModelAdmissionLimitMicro, "USD", "actual")
 		}
 		fmt.Printf("  limits   %s; admission %s\n", lim, figure(u.Limits.AdmissionPolicy))
+		if u.GatewayBudget != nil {
+			fmt.Printf("           gateway budget %s tokens: what the gateway enforces on this session's machine (the token cap governs admitted calls)\n", commas(*u.GatewayBudget))
+		}
 		if len(u.Entries) == 0 {
 			fmt.Println("  nothing recorded yet")
 			return
 		}
 		for _, e := range u.Entries {
-			switch e.Kind {
-			case "model":
+			switch {
+			case "model" == e.Kind && e.Source == "gateway meter":
+				// the gateway meters a total, not input and output apart
+				fmt.Printf("  model    gateway meter via %s: %d call(s), %s tokens (a total)", figure(e.KeySource), e.Calls, commas(e.Tokens))
+				fmt.Printf("; cost %s\n", money(e.MicroUSD, e.Currency, e.Standing))
+			case "model" == e.Kind:
 				fmt.Printf("  model    %s/%s via %s: %d call(s), %s in + %s out tokens", figure(e.Provider), figure(e.Model), figure(e.KeySource), e.Calls, commas(e.InputTokens), commas(e.OutputTokens))
 				if e.ReservedLive > 0 {
 					fmt.Printf(", %s reserved now", commas(e.ReservedLive))

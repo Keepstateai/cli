@@ -41,3 +41,35 @@ func TestUsageShowsUnavailableNeverZero(t *testing.T) {
 		t.Fatalf("usage: %d\n%s%s", code, out, errs)
 	}
 }
+
+// Found by the production live check of the app: the gateway meter's row
+// carries a token TOTAL, and the renderer printed "0 in + 0 out" for a call
+// that used 55 tokens. The row says what the meter says, and the budget the
+// gateway enforces is shown beside the admission cap.
+func TestUsageShowsTheGatewayMetersTotalAndBudget(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		env := func(data any) {
+			_ = json.NewEncoder(w).Encode(map[string]any{"schema_version": 2, "data": data})
+		}
+		switch {
+		case r.URL.Path == "/api/capabilities":
+			fmt.Fprint(w, `{"schema_version":2,"data":{"registry_version":"t","build":"b","fetched_at":"x","price_book":"v1.3","capabilities":[{"id":"budget.admission","availability":"available","summary":"s","surface":"api"},{"id":"session.list","availability":"available","summary":"s","surface":"api"}],"limits":{}}}`)
+		case r.URL.Path == "/api/v2/sessions":
+			env(map[string]any{"items": []any{map[string]any{"id": "fleetgw00000000000000000000000001", "short_id": "fleetgw00000", "name": "c", "runtime_state": "running", "record_id": "session_2"}}, "next_cursor": ""})
+		case r.URL.Path == "/api/v2/sessions/session_2/usage":
+			env(map[string]any{"session_id": "session_2", "limits": map[string]any{"token_cap": 500000, "admission_policy": "dollar"}, "gateway_budget_tokens": 2000000,
+				"rate_book_version": "unratified", "observed_at": "2026-09-30T12:00:00Z", "entries": []any{
+					map[string]any{"kind": "model", "provider": "gateway", "source": "gateway meter", "key_source": "byok", "calls": 1, "tokens": 55, "microusd": nil, "currency": "USD", "standing": "unavailable"},
+				}})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+	bin, cfg := buildAndAuth(t, srv)
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "session", "usage", "fleetgw")
+	if code != 0 || !strings.Contains(out, "gateway meter via byok: 1 call(s), 55 tokens (a total); cost unavailable") ||
+		!strings.Contains(out, "gateway budget 2,000,000 tokens") || strings.Contains(out, "0 in + 0 out") {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+}
