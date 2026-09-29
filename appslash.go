@@ -36,6 +36,11 @@ var slashShortcuts = map[string][]string{
 	"keys":      {"key", "list"},
 	"logs":      {"agent", "logs"},
 	"agents":    {"agent", "list"},
+	// the timeline and the results (app phase 3)
+	"checkpoints": {"session", "checkpoints"},
+	"restore":     {"session", "restore"},
+	"diff":        {"result", "diff"},
+	"apply":       {"result", "apply"},
 }
 
 // slashExcluded are the commands a window does not run, each with why.
@@ -47,7 +52,7 @@ var slashExcluded = map[string]string{
 }
 
 // windowCommands are handled by the window itself (app.go), not run.
-var windowCommands = map[string]bool{"help": true, "status": true, "home": true, "back": true, "quit": true, "exit": true, "take": true}
+var windowCommands = map[string]bool{"help": true, "status": true, "home": true, "back": true, "quit": true, "exit": true, "take": true, "switch": true}
 
 // splitWords splits a line like a shell would for quoting: "a b" and 'a b'
 // are one word; nothing is expanded.

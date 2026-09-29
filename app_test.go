@@ -203,9 +203,11 @@ func TestAppEndToEndInAPseudoTerminal(t *testing.T) {
 		{"approved", "/help\r"},
 		{"/take", "/agent list\r"},
 		{"$ ks agent list --session", "/nosuch\r"},
-		{"is not a ks command", "\x03"},
+		{"is not a ks command", "/switch twin\r"},
+		{"2 agents are named \"twin\"", "/switch agt_twin0001\r"},
+		{"── twin", "\x03"},
 		{"press Ctrl-C again", "\x03"},
-		{"left main", "q"},
+		{"left twin", "q"},
 	}}
 	f := filepath.Join(t.TempDir(), "spec.json")
 	b, _ := json.Marshal(spec)
@@ -336,5 +338,57 @@ func TestAppTabCompletesSlashCommands(t *testing.T) {
 	}
 	if got, cands := completeSlash("hello"); got != "hello" || cands != nil {
 		t.Errorf("plain text was completed: %q %v", got, cands)
+	}
+}
+
+func TestAppWhileYouWereAway(t *testing.T) {
+	ev := func(seq int64, payload string) journalEvent {
+		return journalEvent{StreamSeq: seq, Payload: json.RawMessage(payload)}
+	}
+	events := []journalEvent{
+		ev(10, `{"type":"task.finished","state":"succeeded"}`), // before: not counted
+		ev(11, `{"type":"task.finished","state":"succeeded"}`),
+		ev(12, `{"type":"task.finished","state":"succeeded"}`),
+		ev(13, `{"type":"task.finished","state":"failed"}`),
+		ev(14, `{"type":"result.recorded","name":"report.md"}`),
+		ev(15, `{"type":"result.recorded","name":"ks-changeset.json"}`),
+	}
+	s := awaySummary(events, 10, 1, "2026-09-29T14:02:00Z")
+	for _, want := range []string{"While you were away", "2 instructions finished", "1 did not finish", "1 result (/results)", "1 permission request waits for you"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("%q lacks %q", s, want)
+		}
+	}
+	if awaySummary(events, 15, 0, "") != "" {
+		t.Error("a summary with nothing to say")
+	}
+	// the mark is per control plane and agent, only ever moves forward
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	cr := hostedCreds{CTL: "https://ctl.test"}
+	markSeen(cr, "agt_1", 20)
+	markSeen(cr, "agt_1", 15)
+	if m, ok := lastSeen(cr, "agt_1"); !ok || m.Seq != 20 {
+		t.Fatalf("the mark moved back or was lost: %+v %v", m, ok)
+	}
+	if _, ok := lastSeen(hostedCreds{CTL: "https://other"}, "agt_1"); ok {
+		t.Fatal("a mark leaked across control planes")
+	}
+}
+
+func TestAppAgentsThatNeedYouComeFirst(t *testing.T) {
+	for _, a := range []string{"waiting_approval", "recovery_required", "failed"} {
+		if !needsYou(a) {
+			t.Errorf("%s does not need you", a)
+		}
+	}
+	for _, a := range []string{"ready", "working", "starting", "paused"} {
+		if needsYou(a) {
+			t.Errorf("%s needs you", a)
+		}
+	}
+	line := homeLine(homeRow{sess: inventoryRow{ShortID: "3f2a1c", Name: "checkout"}, agent: &agentRow{Name: "main", Activity: "waiting_approval"}}, false, 100)
+	if !strings.Contains(line, "⚑ main") {
+		t.Errorf("an agent waiting on you is not marked: %q", line)
 	}
 }
