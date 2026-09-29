@@ -860,6 +860,16 @@ var registry = []*Command{
 func main() {
 	args := os.Args[1:]
 	if len(args) == 0 {
+		// at an interactive terminal, bare ks is the app; for a script or a
+		// pipe it is the usage and exit 2, as it always was
+		if appWanted() {
+			if cr, ok := hostedToken(); ok {
+				hostedApp(cr)
+				return
+			}
+			fmt.Fprintln(os.Stderr, "Not signed in: run ks login, then ks to open the app.")
+			os.Exit(exitAuth)
+		}
 		usage()
 		os.Exit(2)
 	}

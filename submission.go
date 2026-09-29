@@ -41,7 +41,9 @@ func sendInstruction(cr hostedCreds, agentID, sid string, body map[string]any) (
 		return submittedTask{}, false, fmt.Errorf("could not record the submission locally before sending it (%v); nothing was sent", err)
 	}
 	send := func() (submittedTask, bool, error) {
-		progress("sending: submission %s", sid)
+		if appSink == nil { // the app confirms with the "sent" line alone
+			progress("sending: submission %s", sid)
+		}
 		resp, rb, err := doBounded(cr, "POST", path, map[string]string{"Idempotency-Key": key}, raw)
 		switch {
 		case err != nil:

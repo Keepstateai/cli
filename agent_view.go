@@ -90,6 +90,11 @@ type liveViewDoc struct {
 	Usage       *struct {
 		ModelSpend *int64 `json:"model_microusd"`
 		Standing   string `json:"model_standing"`
+		Entries    []struct {
+			Kind   string `json:"kind"`
+			Source string `json:"source"`
+			Tokens int64  `json:"tokens"`
+		} `json:"entries"`
 	} `json:"usage"`
 	NextAction *openAction `json:"next_action"`
 }

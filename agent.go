@@ -60,8 +60,8 @@ type agentRow struct {
 	// SupervisorLive is the service's word that the agent's supervisor holds
 	// a live lease and reports every change; nil from a service that predates
 	// it, which is then judged by age alone.
-	SupervisorLive *bool `json:"supervisor_live,omitempty"`
-	CreatedAt     string `json:"created_at"`
+	SupervisorLive *bool  `json:"supervisor_live,omitempty"`
+	CreatedAt      string `json:"created_at"`
 	// KS-038: whether a window holds control ("held" or "none") and whether
 	// the agent could take a consultation now, as the service reads them
 	Controller   string `json:"controller,omitempty"`
@@ -1790,6 +1790,7 @@ type liveWindow struct {
 	agent agentRow
 	lease *agentLease
 	lost  string // why control is no longer held; empty while it is
+	app   bool   // inside the ks app: Esc interrupts, Ctrl-C twice leaves
 }
 
 // hold answers the lease this window may steer with, and whether it has
@@ -1934,7 +1935,13 @@ func (win *liveWindow) interrupt(cr hostedCreds) {
 		for k, v := range extra {
 			data[k] = v
 		}
-		emitLine(data, "Ctrl-C: "+human)
+		key, leave := "Ctrl-C", "q"
+		if win.app {
+			key, leave = "Esc", "Ctrl-C twice"
+		}
+		human = strings.ReplaceAll(human, "leave with q", "leave with "+leave)
+		human = strings.ReplaceAll(human, "(q leaves)", "("+leave+" leaves)")
+		emitLine(data, key+": "+human)
 	}
 	if _, held := win.hold(); !held {
 		say("interrupt_refused", "this window is watching, so it interrupts nothing; leave with q", nil)
@@ -2137,6 +2144,39 @@ func (win *liveWindow) submit(cr hostedCreds, text string) {
 		win.refuse(err)
 		return
 	}
+	win.submitAs(cr, text, sid, lease)
+}
+
+// submitFresh is the app's Enter: every Enter is a new message, so its id is
+// fresh -- recorded locally before sending, so a retry of THIS send is still
+// the same submission, while typing the same words again is a new one.
+func (win *liveWindow) submitFresh(cr hostedCreds, text string) {
+	lease, held := win.hold()
+	if !held {
+		reason := win.lostReason()
+		if reason == "" {
+			reason = "this window is watching; another window holds control"
+		}
+		win.refuse(&cliError{Code: exitConflict, Kind: "not_controller", Message: reason + ", so nothing was sent to the agent", NextAction: "/take"})
+		return
+	}
+	path := "/api/v2/agents/" + url.PathEscape(win.agent.ID) + "/tasks"
+	id, err := newSubmissionID()
+	if err != nil {
+		win.refuse(err)
+		return
+	}
+	op := localOp{Key: "kssub_" + id, Submission: id, Method: "POST", Path: path, BodySHA: sha256Hex([]byte(text)), CTL: cr.CTL, CreatedAt: time.Now().UTC().Format(time.RFC3339)}
+	if err := recordOperation(op); err != nil {
+		win.refuse(fmt.Errorf("could not record the message locally before sending it (%v); nothing was sent", err))
+		return
+	}
+	win.submitAs(cr, text, id, lease)
+}
+
+// submitAs sends one instruction under a submission id already recorded.
+func (win *liveWindow) submitAs(cr hostedCreds, text, sid string, lease agentLease) {
+	var err error
 	// the lease token is in the request and nowhere else: the journal keeps
 	// the submission id and a hash of the instruction, never the body.
 	body := map[string]any{
@@ -2158,6 +2198,9 @@ func (win *liveWindow) submit(cr hostedCreds, text string) {
 	}
 	t := env.Data
 	human := fmt.Sprintf("sent: task %s at queue position %d (%s)", t.ID, t.QueueSeq, figure(t.State))
+	if win.app {
+		human = fmt.Sprintf("       %s · task %s", stateLabel("task_state", t.State), t.ID)
+	}
 	if t.Replayed {
 		human = fmt.Sprintf("already sent: task %s at queue position %d (%s); the same instruction was submitted once", t.ID, t.QueueSeq, figure(t.State))
 	}

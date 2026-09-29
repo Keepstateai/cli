@@ -49,85 +49,16 @@ const runnerProvider = "anthropic"
 
 func hostedRunAgent(cr hostedCreds, inv *Invocation) {
 	requireCapability(cr, &Command{Path: []string{"run", "--agent"}, Needs: "agent.workspace"})
-
-	// ---- 2. preflight: stop before anything exists --------------------------
-	var pf struct {
-		Data map[string]any `json:"data"`
+	var budget *int64
+	if inv.Set("budget-tokens") {
+		v := int64(inv.Int("budget-tokens"))
+		budget = &v
 	}
-	if err := hostedCall(cr, "POST", "/api/v2/preflight", map[string]any{"provider": runnerProvider, "mode": "agent"}, &pf); err != nil {
-		die(err)
-	}
-	if b, ok := pf.Data["blockers"].([]any); ok && len(b) > 0 {
-		var lines []string
-		for _, x := range b {
-			lines = append(lines, fmt.Sprint(x))
-		}
-		fail(&cliError{Code: exitConflict, Kind: "preflight_blocked",
-			Message:    "preflight found blockers, so nothing was created: " + strings.Join(lines, "; "),
-			NextAction: "ks preflight --provider " + runnerProvider})
-	}
-
-	// ---- 2a. the key, chosen before anything exists --------------------------
-	key, err := runKey(cr, inv.Str("key"))
+	rec, p, key, err := startAgentSession(cr, inv.Str("name"), inv.Str("agent-name"), inv.Str("key"), budget)
 	if err != nil {
 		die(err)
 	}
-
-	// ---- 3. the record and its primary agent --------------------------------
-	name := inv.Str("name")
-	if name == "" {
-		name = "run-" + time.Now().UTC().Format("20060102-150405")
-	}
 	agentName := inv.Str("agent-name")
-	body := map[string]any{"name": name, "mode": "agent"}
-	if agentName != "" {
-		body["primary_agent_name"] = agentName
-	}
-	var created struct {
-		Data struct {
-			ID             string `json:"id"`
-			Revision       int64  `json:"revision"`
-			PrimaryAgentID string `json:"primary_agent_id"`
-		} `json:"data"`
-	}
-	if err := hostedMutate(cr, "POST", "/api/v2/sessions", body, &created); err != nil {
-		die(err)
-	}
-	rec := created.Data
-	progress("session %s created with its primary agent; starting a machine for it", rec.ID)
-
-	// ---- 3a. the session's binding: that key is used or nothing is ---------
-	var bound struct {
-		Data struct {
-			Revision int64 `json:"revision"`
-		} `json:"data"`
-	}
-	if err := hostedMutate(cr, "POST", "/api/v2/sessions/"+url.PathEscape(rec.ID)+"/bindings",
-		map[string]any{"keys": map[string]string{runnerProvider: key.ID}, "expected_revision": rec.Revision}, &bound); err != nil {
-		die(err)
-	}
-	rec.Revision = bound.Data.Revision
-	progress("  %s calls go through your key %s (…%s)", runnerProvider, key.ID, key.Last4)
-
-	// ---- 4. the machine and the agent in it --------------------------------
-	req := map[string]any{"expected_revision": rec.Revision}
-	if inv.Set("budget-tokens") {
-		req["budget"] = inv.Int("budget-tokens")
-	}
-	var prov struct {
-		Data provisionAnswer `json:"data"`
-	}
-	if err := hostedMutate(cr, "POST", "/api/v2/sessions/"+url.PathEscape(rec.ID)+"/provision", req, &prov); err != nil {
-		die(err)
-	}
-	p := prov.Data
-	for _, ph := range p.Phases {
-		mark := "done"
-		if !ph.Done {
-			mark = "NOT DONE"
-		}
-		progress("  %-14s %s: %s", ph.Phase, mark, ph.Detail)
-	}
 	facts := map[string]any{"session": rec.ID, "agent": p.AgentID, "ready": p.Ready, "supervised": p.Supervised, "key": key.ID,
 		"agent_activity": p.AgentActivity, "cleaned_up": p.CleanedUp, "phases": p.Phases, "note": p.Note, "control_plane": cr.CTL}
 	agentRef := agentName
@@ -222,6 +153,94 @@ func runKey(cr hostedCreds, arg string) (customerKey, error) {
 	return customerKey{}, &cliError{Code: exitUsage, Kind: "key_ambiguous",
 		Message:    fmt.Sprintf("you have %d enabled %s keys (%s); name the one this agent calls with. Nothing was created", len(usable), runnerProvider, strings.Join(ids, ", ")),
 		NextAction: "ks run --agent --key <id>"}
+}
+
+// createdRecord is the session record ks run --agent created.
+type createdRecord struct {
+	ID             string `json:"id"`
+	Revision       int64  `json:"revision"`
+	PrimaryAgentID string `json:"primary_agent_id"`
+}
+
+// startAgentSession is steps 2 to 4 of ks run --agent, for the command and
+// for the app alike: preflight, the key, the record, its binding and the
+// machine. It returns errors rather than exiting; progress goes where
+// progress goes (the terminal, or the app's screen).
+func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *int64) (createdRecord, provisionAnswer, customerKey, error) {
+	var none createdRecord
+	// ---- 2. preflight: stop before anything exists --------------------------
+	var pf struct {
+		Data map[string]any `json:"data"`
+	}
+	if err := hostedCall(cr, "POST", "/api/v2/preflight", map[string]any{"provider": runnerProvider, "mode": "agent"}, &pf); err != nil {
+		return none, provisionAnswer{}, customerKey{}, err
+	}
+	if b, ok := pf.Data["blockers"].([]any); ok && len(b) > 0 {
+		var lines []string
+		for _, x := range b {
+			lines = append(lines, fmt.Sprint(x))
+		}
+		return none, provisionAnswer{}, customerKey{}, &cliError{Code: exitConflict, Kind: "preflight_blocked",
+			Message:    "preflight found blockers, so nothing was created: " + strings.Join(lines, "; "),
+			NextAction: "ks preflight --provider " + runnerProvider}
+	}
+
+	// ---- 2a. the key, chosen before anything exists --------------------------
+	key, err := runKey(cr, keyArg)
+	if err != nil {
+		return none, provisionAnswer{}, customerKey{}, err
+	}
+
+	// ---- 3. the record and its primary agent --------------------------------
+	if name == "" {
+		name = "run-" + time.Now().UTC().Format("20060102-150405")
+	}
+	body := map[string]any{"name": name, "mode": "agent"}
+	if agentName != "" {
+		body["primary_agent_name"] = agentName
+	}
+	var created struct {
+		Data createdRecord `json:"data"`
+	}
+	if err := hostedMutate(cr, "POST", "/api/v2/sessions", body, &created); err != nil {
+		return none, provisionAnswer{}, key, err
+	}
+	rec := created.Data
+	progress("session %s created with its primary agent; starting a machine for it", rec.ID)
+
+	// ---- 3a. the session's binding: that key is used or nothing is ---------
+	var bound struct {
+		Data struct {
+			Revision int64 `json:"revision"`
+		} `json:"data"`
+	}
+	if err := hostedMutate(cr, "POST", "/api/v2/sessions/"+url.PathEscape(rec.ID)+"/bindings",
+		map[string]any{"keys": map[string]string{runnerProvider: key.ID}, "expected_revision": rec.Revision}, &bound); err != nil {
+		return rec, provisionAnswer{}, key, err
+	}
+	rec.Revision = bound.Data.Revision
+	progress("  %s calls go through your key %s (…%s)", runnerProvider, key.ID, key.Last4)
+
+	// ---- 4. the machine and the agent in it --------------------------------
+	req := map[string]any{"expected_revision": rec.Revision}
+	if budget != nil {
+		req["budget"] = *budget
+	}
+	var prov struct {
+		Data provisionAnswer `json:"data"`
+	}
+	if err := hostedMutate(cr, "POST", "/api/v2/sessions/"+url.PathEscape(rec.ID)+"/provision", req, &prov); err != nil {
+		return rec, provisionAnswer{}, key, err
+	}
+	p := prov.Data
+	for _, ph := range p.Phases {
+		mark := "done"
+		if !ph.Done {
+			mark = "NOT DONE"
+		}
+		progress("  %-14s %s: %s", ph.Phase, mark, ph.Detail)
+	}
+	return rec, p, key, nil
 }
 
 func phaseDone(ph []provisionPhaseRow, name string) bool {

@@ -28,6 +28,7 @@ var helpSections = []struct {
 
 // helpStartHere is the shortest path to a working agent.
 var helpStartHere = [][2]string{
+	{"ks", "open the app: your agents, and a window you stay in"},
 	{"ks login", "sign in (opens your browser)"},
 	{"ks run --agent", "start an agent session: a machine with an agent in it"},
 	{"ks agent open main", "open that agent's window"},

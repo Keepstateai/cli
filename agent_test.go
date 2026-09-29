@@ -424,6 +424,24 @@ func (c *agentCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		c.mu.Unlock()
 		env(200, map[string]any{"approval": decided, "decision": decision, "decided_at": "2026-09-20T12:02:00Z"})
+	case r.Method == "DELETE" && strings.HasPrefix(r.URL.Path, "/api/v2/control-leases/"):
+		// the app releases control when it leaves an agent
+		env(200, map[string]any{"released": true})
+	case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/view") && strings.HasPrefix(r.URL.Path, "/api/v2/agents/"):
+		q, p := 0, 0
+		c.mu.Lock()
+		for id := range c.approvals {
+			if c.approvals[id]["state"] == "pending" {
+				p++
+			}
+		}
+		c.mu.Unlock()
+		env(200, map[string]any{
+			"header": map[string]any{"agent_name": "main", "session_name": "checkout", "controller": "controller", "runtime_state": "running", "activity": "ready"},
+			"footer": map[string]any{"queued": q, "pending_approvals": p},
+			"status": map[string]any{"label": "Ready", "age_seconds": 2, "stale": false, "stale_after_seconds": 15},
+			"usage":  map[string]any{"model_microusd": nil, "model_standing": "unavailable", "entries": []any{map[string]any{"kind": "model", "source": "gateway meter", "tokens": 1234}}},
+		})
 	case r.Method == "PUT" && strings.HasPrefix(r.URL.Path, "/api/v2/control-leases/"):
 		c.mu.Lock()
 		c.renewals++
