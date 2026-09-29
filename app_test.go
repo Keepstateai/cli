@@ -201,7 +201,9 @@ func TestAppEndToEndInAPseudoTerminal(t *testing.T) {
 		{"task tsk_new1", "\x1b"},
 		{"Esc:", "y"},
 		{"approved", "/help\r"},
-		{"/take", "\x03"},
+		{"/take", "/agent list\r"},
+		{"$ ks agent list --session", "/nosuch\r"},
+		{"is not a ks command", "\x03"},
 		{"press Ctrl-C again", "\x03"},
 		{"left main", "q"},
 	}}
@@ -255,5 +257,84 @@ func TestAppConversationReadsLikeAChat(t *testing.T) {
 		if ok != c.shown || (c.shown && !strings.Contains(got, c.want)) {
 			t.Errorf("%s: %q shown=%v, want %q shown=%v", c.payload, got, ok, c.want, c.shown)
 		}
+	}
+}
+
+// Parity: every ks command runs as a / command in the app, or is excluded
+// with a stated reason; a command added later cannot be silently missing.
+func TestAppEveryCommandIsASlashCommand(t *testing.T) {
+	ctx := slashContext{sessionID: "session_rec1", agentName: "main"}
+	for _, c := range registry {
+		if c.Group {
+			continue
+		}
+		argv, got, err := slashArgv("/"+c.Name()+" --help", ctx)
+		if why, excluded := slashExcluded[c.Name()]; excluded {
+			if err == nil || !strings.Contains(err.Error(), why) || strings.TrimSpace(why) == "" {
+				t.Errorf("/%s is excluded without saying why: %v", c.Name(), err)
+			}
+			continue
+		}
+		if err != nil || got != c || strings.Join(argv, " ") != c.Name()+" --help" {
+			t.Errorf("/%s --help runs %v (%v), want %q", c.Name(), argv, err, c.Name()+" --help")
+		}
+	}
+	for short, path := range slashShortcuts {
+		if c, _, _ := lookup(registry, path); c == nil || c.Group {
+			t.Errorf("/%s names %v, which is not a command", short, path)
+		}
+		for _, c := range registry {
+			if c.Path[0] == short {
+				t.Errorf("the shortcut /%s hides the ks command or group %q", short, c.Path[0])
+				break
+			}
+		}
+		if _, clash := windowCommands[short]; clash {
+			t.Errorf("/%s is both a shortcut and a window command", short)
+		}
+	}
+	for w := range windowCommands {
+		if c, _, _ := lookup(registry, []string{w}); c != nil {
+			t.Errorf("the window command /%s hides the ks command %q", w, c.Name())
+		}
+	}
+}
+
+// The window fills in its own session and agent, and only where the command
+// takes them and they were not given.
+func TestAppSlashFillsInTheWindowsContext(t *testing.T) {
+	ctx := slashContext{sessionID: "session_rec1", agentName: "main"}
+	for _, c := range []struct{ line, want string }{
+		{"/agent status", "agent status main --session session_rec1"},
+		{"/stop", "agent stop main --session session_rec1"},
+		{"/queue", "agent queue show main --session session_rec1"},
+		{"/agent status twin", "agent status twin --session session_rec1"},
+		{"/task list --session other1", "task list --session other1"},
+		{"/usage", "session usage session_rec1"},
+		{"/keys", "key list"},
+		{`/agent tell main "run the tests"`, "agent tell main run the tests --session session_rec1"},
+	} {
+		argv, _, err := slashArgv(c.line, ctx)
+		if err != nil || strings.Join(argv, " ") != c.want {
+			t.Errorf("%s: %q (%v), want %q", c.line, strings.Join(argv, " "), err, c.want)
+		}
+	}
+	for _, line := range []string{"/agent open main", "/attach x", "/login", "/agent", "/nosuch", `/agent tell main "unclosed`} {
+		if argv, _, err := slashArgv(line, ctx); err == nil {
+			t.Errorf("%s runs %v; it must be refused with a reason", line, argv)
+		}
+	}
+}
+
+func TestAppTabCompletesSlashCommands(t *testing.T) {
+	if got, _ := completeSlash("/que"); got != "/queue " {
+		t.Errorf("/que -> %q", got)
+	}
+	got, cands := completeSlash("/agent q")
+	if !strings.HasPrefix(got, "/agent queue ") || len(cands) < 2 {
+		t.Errorf("/agent q -> %q %v", got, cands)
+	}
+	if got, cands := completeSlash("hello"); got != "hello" || cands != nil {
+		t.Errorf("plain text was completed: %q %v", got, cands)
 	}
 }

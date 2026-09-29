@@ -411,6 +411,8 @@ func appAgent(cr hostedCreds, scr *screen, keys <-chan keyEvent, sess inventoryR
 	var history []string
 	hpos := 0
 	var ctrlCArmed time.Time
+	var running atomic.Bool
+	var cancel chan struct{}
 	for k := range keys {
 		switch k.kind {
 		case keyEnter:
@@ -421,7 +423,30 @@ func appAgent(cr hostedCreds, scr *screen, keys <-chan keyEvent, sess inventoryR
 			history = append(history, text)
 			hpos = len(history)
 			if strings.HasPrefix(strings.TrimSpace(text), "/") {
-				switch appSlash(cr, scr, win, a, strings.TrimSpace(text)) {
+				line := strings.TrimSpace(text)
+				name := strings.Fields(strings.TrimPrefix(line, "/"))
+				if len(name) > 0 && !windowCommands[name[0]] {
+					if running.Load() {
+						scr.Print("a command is still running; Ctrl-C stops it")
+						continue
+					}
+					argv, _, err := slashArgv(line, slashContext{sessionID: agentSessionID(sess), agentName: a.Name})
+					if err != nil {
+						scr.Print(err.Error())
+						continue
+					}
+					cancel = make(chan struct{})
+					running.Store(true)
+					scr.setHint("running: ks " + strings.Join(argv, " ") + " · Ctrl-C stops it")
+					go func(argv []string, c chan struct{}) {
+						runSlash(scr, argv, c)
+						running.Store(false)
+						scr.setHint("Enter sends · Esc interrupts · Ctrl-C twice leaves (the agent keeps working) · /help")
+						go refresh()
+					}(argv, cancel)
+					continue
+				}
+				switch appSlash(cr, scr, win, a, line) {
 				case slashHome:
 					leave()
 					return false
@@ -445,7 +470,27 @@ func appAgent(cr hostedCreds, scr *screen, keys <-chan keyEvent, sess inventoryR
 			})
 		case keyEsc:
 			go win.interrupt(cr)
+		case keyTab:
+			in := ""
+			scr.mu.Lock()
+			in = string(scr.input)
+			scr.mu.Unlock()
+			done, cands := completeSlash(in)
+			if len(cands) > 1 {
+				shown := cands
+				if len(shown) > 24 {
+					shown = append(shown[:24:24], fmt.Sprintf("… %d more", len(cands)-24))
+				}
+				scr.Print("  /" + strings.Join(shown, "  /"))
+			}
+			scr.update(func() { scr.input, scr.cursor = []rune(done), len([]rune(done)) })
 		case keyCtrlC, keyCtrlD:
+			if running.Load() && cancel != nil {
+				close(cancel)
+				cancel = nil
+				scr.Print("  stopping the command…")
+				continue
+			}
 			if !scr.inputEmpty() {
 				scr.take()
 				continue
@@ -649,7 +694,10 @@ func appSlash(cr hostedCreds, scr *screen, win *liveWindow, a agentRow, line str
 			"y / n / d answer a permission prompt (with an empty input) · ↑/↓ your earlier lines",
 			"/status   the agent's full state        /take   take control from another window",
 			"/home     back to your agents           /quit   leave the app (agents keep working)",
-			"Ctrl-C clears the input; twice on an empty input leaves this agent",
+			"/stop /pause /resume /queue /tasks /results /approvals /advisers /usage /keys /logs /agents",
+			"and EVERY ks command: /<command> [options], e.g. /session checkpoints, /result diff <id>, /cruise status <job>",
+			"  this session and agent are filled in when the command takes them; /<command> --help shows its options",
+			"Tab completes a / command · Ctrl-C stops a running command; on an empty input, twice leaves this agent",
 		}, "\n"))
 	case "/status":
 		if v, err := fetchLiveView(cr, a.ID); err == nil {
@@ -667,8 +715,6 @@ func appSlash(cr hostedCreds, scr *screen, win *liveWindow, a agentRow, line str
 			return slashStay
 		}
 		return slashTake
-	default:
-		scr.Print(f[0] + " is not a command here yet; /help lists them. Every ks command becomes a / command in the next step of the app")
 	}
 	return slashStay
 }
@@ -691,7 +737,9 @@ func appEventLine(e journalEvent, agentName, account string) (string, bool) {
 			if t.Clipped {
 				text += " […clipped by the service]"
 			}
-			return sanitize(fmt.Sprintf("%-6s %s", fitWidth(agentName, 6), strings.ReplaceAll(text, "\n", "\n       "))), true
+			w := max(6, min(12, displayWidth(agentName)))
+			pad := strings.Repeat(" ", w+1)
+			return sanitize(fmt.Sprintf("%-*s %s", w, fitWidth(agentName, w), strings.ReplaceAll(text, "\n", "\n"+pad))), true
 		case "instruction":
 			// this person's own messages were shown when they pressed Enter;
 			// an instruction from anyone or anywhere else is shown here
@@ -741,7 +789,10 @@ func appEventLine(e journalEvent, agentName, account string) (string, bool) {
 			return sanitize("  ● " + figure(p.State) + " (" + e.SubjectID + ")"), true
 		}
 	case "result.recorded":
-		return sanitize("  ↳ result " + figure(p.Name) + " (ks result list)"), true
+		if p.Name == "ks-changeset.json" {
+			return "", false // every turn records one; /results lists them
+		}
+		return sanitize("  ↳ result " + figure(p.Name) + " (/results)"), true
 	case "queue.held":
 		return sanitize("! the queue is HELD: " + firstLineOf(p.Reason) + " (ks agent queue show " + agentName + ")"), true
 	case "session.parked", "session.resumed", "session.stopped":

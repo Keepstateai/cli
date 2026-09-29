@@ -415,7 +415,9 @@ func waitOperation(cr hostedCreds, id, key string, out any) error {
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sig)
 	deadline := time.Now().Add(bound)
-	progress("operation %s accepted; waiting up to %s", id, bound.Round(time.Second))
+	if appSink == nil { // the app shows the outcome, not the wait
+		progress("operation %s accepted; waiting up to %s", id, bound.Round(time.Second))
+	}
 	for {
 		select {
 		case <-sig:
