@@ -31,7 +31,7 @@ def main():
     for i, step in enumerate(spec["steps"]):
         want, send = step[0], step[1]
         deadline = time.time() + spec.get("timeout", 10)
-        start = len(buf) if step[2:] and step[2] == "new" else 0
+        start = len(buf) if "new" in step[2:] else 0
         while want and want.encode() not in buf[start:] and time.time() < deadline:
             if not pump(0.1):
                 break
@@ -40,6 +40,9 @@ def main():
             print("\n@@ STEP %d: never saw %r" % (i, want))
             ok = False
             break
+        for opt in step[2:]:
+            if opt.startswith("wait:"):
+                pump(float(opt[5:]))
         if send:
             os.write(fd, send.encode("utf-8"))
             pump(0.2)
