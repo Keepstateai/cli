@@ -34,6 +34,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -297,6 +298,11 @@ func fetchAgents(cr hostedCreds, sessionID string) ([]agentRow, error) {
 func resolveAgent(cr hostedCreds, sess inventoryRow, arg string) (agentRow, error) {
 	if arg == "" {
 		return agentRow{}, &cliError{Code: exitUsage, Kind: "usage", Message: "an agent name is required", NextAction: "ks agent list --session " + sess.ShortID}
+	}
+	if sess.RecordID == "" {
+		// a plain session (ks run without --agent) has no agents at all:
+		// say so, rather than passing on the service's bare "no such resource"
+		return agentRow{}, plainSessionError(sess, arg)
 	}
 	agents, err := fetchAgents(cr, agentSessionID(sess))
 	if err != nil {
@@ -2530,3 +2536,20 @@ func (p *pasteBuffer) feed(raw string) (text string, done, ok bool) {
 	p.lines = append(p.lines, raw)
 	return "", false, true
 }
+
+// plainSessionError is the answer for an agent verb pointed at a plain
+// session: it has no agents, so nothing is named arg in it, and the way to an
+// agent is a new agent session (a plain session without a workspace record
+// cannot be migrated).
+func plainSessionError(sess inventoryRow, arg string) *cliError {
+	name := "<name>"
+	if agentNameSafe.MatchString(arg) {
+		name = arg
+	}
+	return &cliError{Code: exitUsage, Kind: "not_an_agent_session",
+		Message:    fmt.Sprintf("session %s is a plain session (started by ks run without --agent): it has no agents, so there is no agent %q in it. Nothing was done", sess.ShortID, arg),
+		NextAction: "ks run --agent --agent-name " + name}
+}
+
+// agentNameSafe is a name that can be shown inside a command line as is.
+var agentNameSafe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)

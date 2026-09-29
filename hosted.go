@@ -202,6 +202,10 @@ func hostedRun(cr hostedCreds, inv *Invocation) {
 	}
 	emit(map[string]any{"session_id": sess["id"], "image": sess["image"], "state": sess["state"], "control_plane": cr.CTL}, func() {
 		progress("hosted session %v: image=%v state=%v (on %s)", sess["id"], sess["image"], sess["state"], cr.CTL)
+		if id, _ := sess["id"].(string); len(id) > 6 {
+			progress("ks session list shows it as %s: a short id is the start of the full id, and either works in every command", id[:6])
+		}
+		progress("this is a plain session, without an agent; for an agent session: ks run --agent")
 		fmt.Println(sess["id"])
 	})
 }

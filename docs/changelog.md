@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.1.15
+
+Readability fixes reported by the owner.
+
+- `ks --help` is organised for reading: a "Start here" block, then every
+  command and command group on one line under what it is for (Agents,
+  Sessions, Cruise, Keys and setup, Account). Options moved to each
+  command's own `--help`, where they are explained.
+- `ks <group> --help` (for example `ks agent --help`) lists the group's
+  commands with their arguments and a one-line description.
+- An agent command pointed at a plain session (started by `ks run` without
+  `--agent`) now says the session has no agents and how to start an agent
+  session, instead of "no such resource". This holds for the short id and the
+  full id alike.
+- `ks run` (plain) and `ks session list` say that the short id in the list is
+  the start of the full id `ks run` prints, and that either works everywhere.
+
 ## v0.1.14
 
 Release candidate. The production service (ctl build `66863064`, 2026-09-28)

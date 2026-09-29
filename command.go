@@ -548,34 +548,7 @@ func commandHelp(c *Command) {
 	fmt.Println("\nHelp makes no request and changes nothing.")
 }
 
-// registryUsage renders the global usage from the schema, in registry
-// order, so a verb the binary has is a verb the usage shows.
-func registryUsage(reg []*Command) string {
-	var b strings.Builder
-	b.WriteString("ks — durable agent sessions on KeepState\n\nusage:\n")
-	for _, c := range reg {
-		if c.Group {
-			continue
-		}
-		line := c.Usage()
-		if len(line) > 44 {
-			fmt.Fprintf(&b, "  %s\n  %-44s %s\n", line, "", c.Summary)
-			continue
-		}
-		fmt.Fprintf(&b, "  %-44s %s\n", line, c.Summary)
-	}
-	b.WriteString(`
-Global options on every command: --json, --plain, --no-color, --quiet,
---no-input, --yes, --wait-timeout DURATION (ks <command> --help lists them).
-Exit codes: 0 ok, 1 failed, 2 usage, 3 sign-in, 4 temporary or unknown
-outcome, 5 conflict or limit, 6 integrity, 130 interrupted.
-
-Sessions survive kills: checkpoint, wake, and the agent resumes exactly
-where it stopped — files, memory, and running processes intact.
-Every --help makes no request and changes nothing.
-`)
-	return b.String()
-}
+// registryUsage (help.go) renders the global usage from the schema.
 
 // sortedNames is used by tests and completion: every command name and
 // alias the registry knows, sorted.

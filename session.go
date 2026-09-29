@@ -201,6 +201,7 @@ func hostedSessionList(cr hostedCreds, inv *Invocation) {
 			fmt.Println(parkProblem)
 		}
 		fmt.Printf("%d session(s); details: ks session show <session>\n", len(rows))
+		fmt.Println("SESSION is the start of the full id (ks run prints the full one); either works in every command")
 	})
 }
 

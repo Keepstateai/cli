@@ -134,7 +134,7 @@ func resolveOpenTarget(cr hostedCreds, name, project string) (inventoryRow, agen
 		t = d.Candidates[i]
 	default:
 		msg := fmt.Sprintf("no agent you can see is named %q; opening never creates one", name)
-		fail(&cliError{Code: exitUsage, Kind: "not_found", Message: msg, NextAction: firstNonEmpty(sanitize(d.Create), "ks run --agent --agent-name "+name)})
+		fail(&cliError{Code: exitUsage, Kind: "not_found", Message: msg, NextAction: firstNonEmpty(sanitize(d.Create), plainSessionError(inventoryRow{}, name).NextAction)})
 	}
 	sess := inventoryRow{ID: t.SessionID, RecordID: t.SessionID, ShortID: t.SessionID, Name: t.SessionName, RuntimeState: t.RuntimeState}
 	if rows, err := fetchInventory(cr, "", true); err == nil {
