@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.1.19
+
+Found by checking every documentation page against the client.
+
+- In an agent's window, a `/` command that is missing an agent gets this
+  agent: `/agent tell "run the tests"` tells this agent. A command whose first
+  argument is a new name (`/agent create`, `/check define`) never gets one.
+- Commands that name an agent with `--agent` (`/tasks`, `/results`,
+  `/adviser connect`, `/advisers`, `/check define`, `/check list`) get this
+  agent, for this session.
+- `/help` lists all sixteen short forms, including `/checkpoints`,
+  `/restore`, `/diff` and `/apply`.
+- The status line reads durations as `2m` or `1h 5m`, not `2m0s`.
+- Help and manifest wording: `ks run --agent` starts an agent that is
+  running and supervised (it reads Ready after its first instruction);
+  `--yes` names the one deletion plan it carries out (`ks key delete`);
+  `ks cruise approve` reads the model catalog and your keys; the paid budget
+  default cites price book v1.3.
+
 ## v0.1.18
 
 Fixes found by the production check of the ks app.
