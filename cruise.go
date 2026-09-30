@@ -69,8 +69,8 @@ Every rung runs from an exact save point; a candidate is accepted only when
 the check passes in a verifier the agent cannot reach. After the last rung
 the job waits in your review queue.
 
-Every help invocation makes no request; neither do init and approve. init
-never calls a model. Defaults: 1800 s per attempt, a $2 spend ceiling
+Every help invocation makes no request; init makes none either, and approve
+reads only the model catalog and your keys. Neither calls a model. Defaults: 1800 s per attempt, a $2 spend ceiling
 (--spend), a workspace of at most 50 MiB (.git and .keepstate excluded).
 `
 

@@ -131,10 +131,20 @@ func slashArgv(line string, ctx slashContext) ([]string, *Command, error) {
 		}
 		positional++
 	}
-	if positional == 0 && len(c.Args) > 0 && c.Args[0].Required && !hasHelp(rest) {
+	// filled when the command is missing a required argument: /agent tell
+	// "run the tests" names this agent, the instruction being the one given.
+	// An agent's name is filled only where it names an EXISTING agent: in
+	// /agent create and /check define the first argument is a new name.
+	required := 0
+	for _, a := range c.Args {
+		if a.Required {
+			required++
+		}
+	}
+	if positional < required && len(c.Args) > 0 && c.Args[0].Required && !hasHelp(rest) {
 		switch c.Args[0].Name {
 		case "name", "agent":
-			if ctx.agentName != "" {
+			if ctx.agentName != "" && c.Path[0] == "agent" && c.Name() != "agent create" {
 				argv = append(append(append([]string{}, c.Path...), ctx.agentName), rest...)
 			}
 		case "session":
@@ -142,6 +152,14 @@ func slashArgv(line string, ctx slashContext) ([]string, *Command, error) {
 				argv = append(append(append([]string{}, c.Path...), ctx.sessionID), rest...)
 			}
 		}
+	}
+	// the window's agent, for a command that names an agent by --agent NAME
+	// (task list, result list, adviser connect/list, check define/list); a
+	// switch that only happens to be called --agent (ks run --agent) is not one
+	// -- and only for this window's session: another session named by --session
+	// may have no agent of that name
+	if f := c.flagNamed("agent"); f != nil && f.Kind != flagBool && !hasFlag(rest, "agent") && !hasFlag(rest, "session") && ctx.agentName != "" && !hasHelp(rest) {
+		argv = append(argv, "--agent", ctx.agentName)
 	}
 	if c.flagNamed("session") != nil && !hasFlag(rest, "session") && ctx.sessionID != "" && !hasHelp(rest) &&
 		!(len(c.Args) > 0 && c.Args[0].Name == "session") {

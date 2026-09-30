@@ -145,7 +145,7 @@ func TestAppStatusLine(t *testing.T) {
 	}{Label: "Ready", AgeSeconds: &age}
 	v.Footer.Queued, v.Footer.PendingApprovals = &q, &p
 	line := appStatusLine(v, true)
-	for _, want := range []string{"● Ready · unchanged 5m0s", "queue 1", "2 waiting for you", "not saved yet", "you control"} {
+	for _, want := range []string{"● Ready · unchanged 5m", "queue 1", "2 waiting for you", "not saved yet", "you control"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("status %q lacks %q", line, want)
 		}
@@ -314,6 +314,9 @@ func TestAppSlashFillsInTheWindowsContext(t *testing.T) {
 		{"/task list --session other1", "task list --session other1"},
 		{"/usage", "session usage session_rec1"},
 		{"/keys", "key list"},
+		{"/adviser connect helper --confirm s/helper", "adviser connect helper --confirm s/helper --agent main --session session_rec1"},
+		{"/tasks", "task list --agent main --session session_rec1"},
+		{"/adviser list --agent other", "adviser list --agent other --session session_rec1"},
 		{`/agent tell main "run the tests"`, "agent tell main run the tests --session session_rec1"},
 	} {
 		argv, _, err := slashArgv(c.line, ctx)
@@ -390,5 +393,24 @@ func TestAppAgentsThatNeedYouComeFirst(t *testing.T) {
 	line := homeLine(homeRow{sess: inventoryRow{ShortID: "3f2a1c", Name: "checkout"}, agent: &agentRow{Name: "main", Activity: "waiting_approval"}}, false, 100)
 	if !strings.Contains(line, "⚑ main") {
 		t.Errorf("an agent waiting on you is not marked: %q", line)
+	}
+}
+
+func TestAppFillsTheAgentOnlyWhereItNamesAnExistingAgent(t *testing.T) {
+	ctx := slashContext{sessionID: "session_rec1", agentName: "main"}
+	for _, c := range []struct{ line, want string }{
+		{`/agent tell "run the tests"`, "agent tell main run the tests --session session_rec1"},
+		{"/agent rename helper", "agent rename main helper --session session_rec1"},
+		{"/agent create helper", "agent create helper --session session_rec1"},
+	} {
+		argv, _, err := slashArgv(c.line, ctx)
+		if err != nil || strings.Join(argv, " ") != c.want {
+			t.Errorf("%s: %q (%v), want %q", c.line, strings.Join(argv, " "), err, c.want)
+		}
+	}
+	for d, want := range map[time.Duration]string{45 * time.Second: "45s", 2 * time.Minute: "2m", 65 * time.Minute: "1h 5m", 26 * time.Hour: "1d 2h"} {
+		if got := shortDuration(d); got != want {
+			t.Errorf("shortDuration(%v) = %q, want %q", d, got, want)
+		}
 	}
 }
