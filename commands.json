@@ -24,7 +24,7 @@
   },
   {
    "flag": "--yes",
-   "summary": "skip a displayed non-destructive confirmation when every input is already exact; never a deletion plan, grant, budget, approval or trust"
+   "summary": "skip a displayed confirmation when every input is already exact; never a grant, budget, approval or trust, and of the deletion plans only ks key delete's, which it shows first"
   },
   {
    "flag": "--wait-timeout DURATION",
@@ -50,7 +50,7 @@
    "verb": "run",
    "aliases": [],
    "usage": "ks run [--image I] [--budget-tokens N] [--agent] [--name NAME] [--agent-name NAME] [--key KEY] [--task TEXT] [--open]",
-   "summary": "start a hosted session; with --agent, an agent session whose main agent is Ready",
+   "summary": "start a hosted session; with --agent, an agent session whose main agent is running and supervised",
    "status": "available",
    "surface": "hosted",
    "budgetDefaults": {
@@ -58,7 +58,7 @@
     "free": 500000,
     "paid": 2000000,
     "freeProvenance": "measured 2026-09-09 on the released client against a disposable free-tier account (DEC-01 command gate)",
-    "paidProvenance": "stated by the control plane, ctl/broker.go, and the ratified price book v1.2. NOT measured: no paid account was exercised.",
+    "paidProvenance": "stated by the control plane, ctl/broker.go, and the ratified price book v1.3. NOT measured: no paid account was exercised.",
     "override": "ks run --budget-tokens N"
    },
    "flags": [

@@ -38,7 +38,7 @@ var globalFlags = []Flag{
 	{Name: "no-color", Kind: flagBool, Summary: "no colour codes (this release prints none; accepted so scripts can pass it)"},
 	{Name: "quiet", Kind: flagBool, Summary: "no progress lines on stderr; results and errors still print"},
 	{Name: "no-input", Kind: flagBool, Summary: "never prompt or open a browser; a decision that needs you fails with exit 2 and the flag to pass"},
-	{Name: "yes", Kind: flagBool, Summary: "skip a displayed non-destructive confirmation when every input is already exact; never a deletion plan, grant, budget, approval or trust"},
+	{Name: "yes", Kind: flagBool, Summary: "skip a displayed confirmation when every input is already exact; never a grant, budget, approval or trust, and of the deletion plans only ks key delete's, which it shows first"},
 	{Name: "wait-timeout", Kind: flagString, Value: "DURATION", Summary: "how long to wait for an accepted operation before reporting it as continuing; default 120s"},
 }
 

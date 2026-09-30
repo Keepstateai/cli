@@ -25,7 +25,7 @@ var registry = []*Command{
 				die(err)
 			}
 		}},
-	{Path: []string{"run"}, Summary: "start a hosted session; with --agent, an agent session whose main agent is Ready", Surface: "hosted",
+	{Path: []string{"run"}, Summary: "start a hosted session; with --agent, an agent session whose main agent is running and supervised", Surface: "hosted",
 		Effects:  "starts a session on the fleet: session time is metered from this moment until the session is killed or parked. With --agent: preflight first (nothing is created on a blocker), the key the agent calls with chosen before anything exists (--key, or your one enabled key for its provider; several is refused, never guessed), then one session bound to that key, its primary agent and a machine; the answer says supervised (running, waiting for its first instruction) or Ready only as the agent reports it, a setup that does not complete is destroyed and said so, and no model is called unless --task gives it work",
 		Examples: []string{"ks run", "ks run --budget-tokens 750000", "ks run --agent", "ks run --agent --name checkout --task \"run the tests\" --open"},
 		Flags: []Flag{

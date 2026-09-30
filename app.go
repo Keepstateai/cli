@@ -705,7 +705,7 @@ func appStatusLine(v liveViewDoc, held bool) string {
 		case v.Status.Stale:
 			st += " (STALE: last known)"
 		case v.Status.AgeSeconds != nil && *v.Status.AgeSeconds > 15:
-			st += " · unchanged " + (time.Duration(*v.Status.AgeSeconds) * time.Second).String()
+			st += " · unchanged " + shortDuration(time.Duration(*v.Status.AgeSeconds)*time.Second)
 		}
 		parts = append(parts, st)
 	} else {
@@ -719,7 +719,7 @@ func appStatusLine(v liveViewDoc, held bool) string {
 	}
 	if v.Header.LastSavedAt != "" {
 		if t, err := time.Parse(time.RFC3339Nano, v.Header.LastSavedAt); err == nil {
-			parts = append(parts, "saved "+time.Since(t).Round(time.Minute).String()+" ago")
+			parts = append(parts, "saved "+shortDuration(time.Since(t))+" ago")
 		}
 	} else {
 		parts = append(parts, "not saved yet")
@@ -767,6 +767,7 @@ func appSlash(cr hostedCreds, scr *screen, win *liveWindow, a agentRow, line str
 			"/switch <agent> [session]   open another of your agents without going home",
 			"/home     back to your agents           /quit   leave the app (agents keep working)",
 			"/stop /pause /resume /queue /tasks /results /approvals /advisers /usage /keys /logs /agents",
+			"/checkpoints /restore /diff /apply",
 			"and EVERY ks command: /<command> [options], e.g. /session checkpoints, /result diff <id>, /cruise status <job>",
 			"  this session and agent are filled in when the command takes them; /<command> --help shows its options",
 			"Tab completes a / command · Ctrl-C stops a running command; on an empty input, twice leaves this agent",
@@ -962,4 +963,27 @@ func appFindAgent(cr hostedCreds, here inventoryRow, name, sessHint string) (hom
 		where = append(where, r.sess.ShortID)
 	}
 	return homeRow{}, fmt.Errorf("%d agents are named %q (sessions %s); name the session: /switch %s <session>", len(pick), name, strings.Join(where, ", "), name)
+}
+
+// shortDuration is a duration as a person reads it on a status line: 45s,
+// 2m, 1h 5m, 3d 2h -- never Go's 2m0s.
+func shortDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	m := int(d.Minutes())
+	switch {
+	case m < 60:
+		return fmt.Sprintf("%dm", m)
+	case m < 24*60:
+		if m%60 == 0 {
+			return fmt.Sprintf("%dh", m/60)
+		}
+		return fmt.Sprintf("%dh %dm", m/60, m%60)
+	}
+	h := m / 60
+	if h%24 == 0 {
+		return fmt.Sprintf("%dd", h/24)
+	}
+	return fmt.Sprintf("%dd %dh", h/24, h%24)
 }
