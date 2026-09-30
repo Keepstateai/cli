@@ -321,12 +321,18 @@ func appNewSession(cr hostedCreds, scr *screen, keys <-chan keyEvent) (*homeRow,
 			scr.Print("the agent did not start: " + p.Note)
 			return nil, false
 		}
-		scr.Print(fmt.Sprintf("agent %s is %s in session %s", name, startedWord(p), rec.ID))
-		short := rec.ID
-		if i := strings.LastIndex(short, "_"); i >= 0 && len(short) > i+7 {
-			short = short[i+1 : i+7]
+		// the session as ks session list shows it: its id there is the one a
+		// person sees everywhere else, never one derived from the record id
+		sess := inventoryRow{ID: rec.ID, RecordID: rec.ID, ShortID: rec.ID, Name: rec.ID, RuntimeState: "running"}
+		if inv, err := fetchInventory(cr, "", false); err == nil {
+			for _, r := range inv {
+				if r.RecordID == rec.ID {
+					sess = r
+					break
+				}
+			}
 		}
-		sess := inventoryRow{ID: rec.ID, RecordID: rec.ID, ShortID: short, Name: short, RuntimeState: "running"}
+		scr.Print(fmt.Sprintf("agent %s is %s in session %s", name, startedWord(p), sess.ShortID))
 		a := agentRow{ID: p.AgentID, Name: name, SessionID: rec.ID, IsPrimary: true}
 		return &homeRow{sess: sess, agent: &a}, true
 	}
@@ -446,10 +452,13 @@ func appAgent(cr hostedCreds, scr *screen, keys <-chan keyEvent, sess inventoryR
 	})
 	leave := func() {
 		leaving.Store(true)
-		if l, held := win.hold(); held {
+		// stop the renewal loop FIRST (lose), then release: a renewal racing
+		// the release would otherwise report control lost after leaving
+		l, held := win.hold()
+		win.lose("left the window")
+		if held {
 			_ = hostedMutate(cr, "DELETE", "/api/v2/control-leases/"+url.PathEscape(l.ID), nil, nil)
 		}
-		win.lose("left the window")
 		scr.update(func() { scr.box, scr.hint, scr.status = nil, "", "" })
 		scr.Print(fmt.Sprintf("left %s; it keeps working", a.Name))
 	}
