@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.1.18
+
+Fixes found by the production check of the ks app.
+
+- The app names a session by the id `ks session list` shows, everywhere (a
+  new agent session's window showed a different, record-derived id).
+- Leaving an agent no longer prints "the control could not be renewed": the
+  app stops renewing before it releases control.
+
 ## v0.1.17
 
 The ks app, continued.
