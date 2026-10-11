@@ -112,6 +112,11 @@ func slashArgv(line string, ctx slashContext) ([]string, *Command, error) {
 		}
 		return nil, nil, fmt.Errorf("%s (/help lists them)", msg)
 	}
+	if hasHelp(rest) {
+		// help is only read: a group lists its commands, and a command the
+		// window does not run still explains itself
+		return append(append([]string{}, c.Path...), "--help"), c, nil
+	}
 	if c.Group {
 		return nil, c, fmt.Errorf("/%s is a group of commands; /%s --help lists them", c.Name(), c.Name())
 	}
@@ -314,4 +319,38 @@ func completeSlash(input string) (string, []string) {
 		}
 	}
 	return "/" + common, hits
+}
+
+// windowHelp explains each command the window handles itself.
+var windowHelp = map[string]string{
+	"help":   "/help lists what this window does; /help <command> shows a ks command's options, as /<command> --help does",
+	"status": "/status shows the agent's full state: its activity, its current task, its queue and who holds control",
+	"home":   "/home goes back to your agents; this agent keeps working",
+	"back":   "/back goes back to your agents; this agent keeps working",
+	"quit":   "/quit leaves the app; every agent keeps working",
+	"exit":   "/exit leaves the app; every agent keeps working",
+	"take":   "/take takes control of this agent from another window that holds it",
+	"switch": "/switch <agent> [session] opens another of your agents without going home; /agents lists this session's",
+}
+
+func windowCommandHelp(name string) string {
+	if h, ok := windowHelp[name]; ok {
+		return h
+	}
+	return "/" + name + " is handled by this window; /help lists what it does"
+}
+
+// looksLikeKsCommand reports whether an instruction is really a ks command
+// typed into the agent's input ("ks agent open"), and the / command that runs
+// it here. Only a line whose first word is ks and whose next words name a
+// real command counts; prose that starts with "ks" is an instruction.
+func looksLikeKsCommand(text string) (string, bool) {
+	words, err := splitWords(strings.TrimSpace(text))
+	if err != nil || len(words) < 2 || words[0] != "ks" || strings.Contains(text, "\n") {
+		return "", false
+	}
+	if c, _, _ := lookup(registry, words[1:]); c == nil {
+		return "", false
+	}
+	return "/" + strings.Join(quoteWords(words[1:]), " "), true
 }

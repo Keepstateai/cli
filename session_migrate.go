@@ -146,7 +146,7 @@ func hostedSessionMigrate(cr hostedCreds, inv *Invocation) {
 				NextAction: fmt.Sprintf("review the preview above, then ks session migrate %s --confirm %s", id, want)})
 		}
 	case out.noInput || !stdinIsTerminal():
-		fail(&cliError{Code: exitUsage, Kind: "confirmation_required", Message: "migrating is confirmed by the preview's digest; --yes does not confirm it, and nothing was changed",
+		fail(&cliError{Code: exitUsage, Kind: "confirmation_required", Message: confirmByNaming("migrating", "--confirm "+want, "nothing was changed"),
 			NextAction: fmt.Sprintf("ks session migrate %s --confirm %s", id, want)})
 	default:
 		fmt.Fprintf(os.Stderr, "type %s to migrate, or anything else to stop: ", want)

@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"sort"
@@ -38,13 +39,17 @@ func sessionRecordOf(cr hostedCreds, inv *Invocation) inventoryRow {
 }
 
 func printPlanSection(plan map[string]any, key, label string) {
+	fprintPlanSection(os.Stdout, plan, key, label)
+}
+
+func fprintPlanSection(w io.Writer, plan map[string]any, key, label string) {
 	v, ok := plan[key]
 	if !ok {
 		return
 	}
 	switch x := v.(type) {
 	case string:
-		fmt.Printf("  %-10s %s\n", label, sanitize(x))
+		fmt.Fprintf(w, "  %-10s %s\n", label, sanitize(x))
 	case map[string]any:
 		keys := make([]string, 0, len(x))
 		for k := range x {
@@ -58,9 +63,9 @@ func printPlanSection(plan map[string]any, key, label string) {
 			b, _ := json.Marshal(x[k])
 			parts = append(parts, k+" "+string(b))
 		}
-		fmt.Printf("  %-10s %s\n", label, sanitize(strings.Join(parts, ", ")))
+		fmt.Fprintf(w, "  %-10s %s\n", label, sanitize(strings.Join(parts, ", ")))
 		if e, _ := x["effect"].(string); e != "" {
-			fmt.Printf("  %-10s %s\n", "", sanitize(e))
+			fmt.Fprintf(w, "  %-10s %s\n", "", sanitize(e))
 		}
 	}
 }
@@ -248,27 +253,22 @@ func hostedSessionDelete(cr hostedCreds, inv *Invocation) {
 		}
 		d := env.Data
 		emit(d, func() {
-			fmt.Printf("deletion plan %s for session %s: NOTHING was deleted (plan expires %s)\n", d.ID, sess.ShortID, figure(d.ExpiresAt))
-			keys := make([]string, 0, len(d.Plan))
-			for k := range d.Plan {
-				if k != "retention" {
-					keys = append(keys, k)
-				}
-			}
-			sort.Strings(keys)
-			for _, k := range keys {
-				printPlanSection(d.Plan, k, k)
-			}
-			printPlanSection(d.Plan, "retention", "retention")
+			printDeletionPlan(os.Stdout, d.ID, sess.ShortID, d.ExpiresAt, d.Plan)
 			fmt.Printf("delete exactly this: ks session delete %s --execute %s --confirm %s\n", sess.ShortID, d.ID, sess.ShortID)
 		})
 		return
 	}
 	if c := strings.TrimSpace(inv.Str("confirm")); c != sess.ShortID && c != sess.RecordID && c != sess.ID {
 		fail(&cliError{Code: exitUsage, Kind: "confirmation_required",
-			Message:    fmt.Sprintf("deleting session %s is confirmed by naming it with --confirm; --yes does not confirm a deletion, and nothing was deleted", sess.ShortID),
+			Message:    confirmByNaming("deleting session "+sess.ShortID, "--confirm "+sess.ShortID, "nothing was deleted"),
 			NextAction: fmt.Sprintf("ks session delete %s --execute %s --confirm %s", sess.ShortID, exec, sess.ShortID)})
 	}
+	executeSessionDelete(cr, sess, exec)
+}
+
+// executeSessionDelete runs the deletion plan it names, confirmed already.
+func executeSessionDelete(cr hostedCreds, sess inventoryRow, exec string) {
+	base := "/api/v2/sessions/" + url.PathEscape(sess.RecordID)
 	var env struct {
 		Data struct {
 			Deleted        bool            `json:"deleted"`
@@ -326,4 +326,21 @@ func hostedSessionDelete(cr hostedCreds, inv *Invocation) {
 			fmt.Printf("  retention %s\n", sanitize(v))
 		}
 	})
+}
+
+// printDeletionPlan shows a deletion plan as one readable line per section,
+// the retention terms last. Nothing was deleted when it is shown.
+func printDeletionPlan(w io.Writer, id, short, expires string, plan map[string]any) {
+	fmt.Fprintf(w, "deletion plan %s for session %s: NOTHING was deleted (plan expires %s)\n", id, short, figure(expires))
+	keys := make([]string, 0, len(plan))
+	for k := range plan {
+		if k != "retention" {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		fprintPlanSection(w, plan, k, k)
+	}
+	fprintPlanSection(w, plan, "retention", "retention")
 }

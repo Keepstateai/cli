@@ -17,6 +17,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -120,14 +121,28 @@ func followUseV2(cr hostedCreds, err error, verb string, inv *Invocation) bool {
 			die(perr)
 		}
 		d := env.Data
+		sess, rerr := resolveSession(cr, ws)
+		if rerr != nil || sess.RecordID == "" {
+			sess = inventoryRow{ShortID: ws, RecordID: ws}
+		}
 		if !out.json {
-			fmt.Fprintf(os.Stderr, "deletion plan %s for session %s: NOTHING was deleted (plan expires %s)\n", d.ID, ws, figure(d.ExpiresAt))
-			b, _ := json.Marshal(d.Plan)
-			fmt.Fprintf(os.Stderr, "  plan %s\n", sanitize(string(b)))
+			printDeletionPlan(os.Stderr, d.ID, sess.ShortID, d.ExpiresAt, d.Plan)
+		}
+		// the type-to-confirm law: in a terminal, the person confirms this plan
+		// by typing the session's name, exactly as --confirm would name it
+		if !out.json && !out.noInput && stdinIsTerminal() {
+			fmt.Fprintf(os.Stderr, "type %s to delete this session now, or anything else to keep it: ", sess.ShortID)
+			line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+			if c := strings.TrimSpace(line); c != "" && (c == sess.ShortID || c == sess.RecordID || c == sess.ID) {
+				executeSessionDelete(cr, sess, d.ID)
+				return true
+			}
+			fail(&cliError{Code: exitUsage, Kind: "confirmation_declined", Detail: d,
+				Message: fmt.Sprintf("session %s was not named; nothing was deleted", sess.ShortID)})
 		}
 		fail(&cliError{Code: exitConflict, Kind: "ks_agent_session_use_v2", Detail: d,
-			Message:    fmt.Sprintf("session %s was NOT killed: an agent session is deleted only by a plan you confirm, and the plan above changed nothing", ws),
-			NextAction: fmt.Sprintf("ks session delete %s --execute %s --confirm %s", ws, d.ID, ws)})
+			Message:    fmt.Sprintf("session %s was NOT killed: an agent session is deleted only by a plan you confirm, and the plan above changed nothing", sess.ShortID),
+			NextAction: fmt.Sprintf("ks session delete %s --execute %s --confirm %s", sess.ShortID, d.ID, sess.ShortID)})
 	case "fork":
 		extra := ""
 		if inv.Set("steer") {

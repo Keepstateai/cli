@@ -306,3 +306,16 @@ func figure(v any) string {
 	}
 	return fmt.Sprint(v)
 }
+
+// confirmByNaming is the refusal of a step confirmed only by naming what it
+// acts on, where nobody can be asked to type the name (no terminal, --no-input,
+// or a / command in the app). It names the flag that confirms it, and speaks of
+// --yes only when --yes was given: a refusal that blames a flag the person
+// never typed sends them looking for the wrong thing.
+func confirmByNaming(what, confirmFlag, nothing string) string {
+	msg := fmt.Sprintf("%s is confirmed by naming it: add %s", what, confirmFlag)
+	if out.yes {
+		msg += " (--yes does not confirm it)"
+	}
+	return msg + "; " + nothing
+}

@@ -464,6 +464,7 @@ func appAgent(cr hostedCreds, scr *screen, keys <-chan keyEvent, sess inventoryR
 	}
 	var history []string
 	hpos := 0
+	heldKs := "" // a ks command typed as an instruction, held back once
 	var ctrlCArmed time.Time
 	var running atomic.Bool
 	var cancel chan struct{}
@@ -479,6 +480,15 @@ func appAgent(cr hostedCreds, scr *screen, keys <-chan keyEvent, sess inventoryR
 			if strings.HasPrefix(strings.TrimSpace(text), "/") {
 				line := strings.TrimSpace(text)
 				name := strings.Fields(strings.TrimPrefix(line, "/"))
+				if len(name) > 1 && name[0] == "help" && !strings.HasPrefix(name[1], "-") {
+					// /help agent stop is /agent stop --help
+					line = "/" + strings.Join(name[1:], " ") + " --help"
+					name = append(name[1:], "--help")
+				}
+				if len(name) > 0 && windowCommands[name[0]] && hasHelp(name[1:]) {
+					scr.Print(windowCommandHelp(name[0]))
+					continue
+				}
 				if len(name) > 0 && name[0] == "switch" {
 					if len(name) < 2 {
 						scr.Print("/switch <agent> [session]: open another of your agents; /agents lists this session's")
@@ -530,6 +540,12 @@ func appAgent(cr hostedCreds, scr *screen, keys <-chan keyEvent, sess inventoryR
 				}
 				continue
 			}
+			if slash, ok := looksLikeKsCommand(text); ok && text != heldKs {
+				heldKs = text
+				scr.Print(fmt.Sprintf("%q is a ks command, not an instruction: run it here as %s. Nothing was sent to %s; Enter again sends it to %s as written", strings.TrimSpace(text), slash, a.Name, a.Name))
+				continue
+			}
+			heldKs = ""
 			scr.Print(fmt.Sprintf("%-6s %s", "you", strings.ReplaceAll(sanitize(text), "\n", "\n       ")))
 			go win.submitFresh(cr, text)
 		case keyPaste:
