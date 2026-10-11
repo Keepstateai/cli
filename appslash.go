@@ -213,9 +213,11 @@ func runSlash(scr *screen, argv []string, cancel <-chan struct{}) int {
 		scr.Print("this binary could not be found to run the command: " + err.Error())
 		return 1
 	}
-	scr.Print("$ ks " + strings.Join(quoteWords(argv), " "))
+	scr.Print("\n" + th.accent("$ ks "+strings.Join(quoteWords(argv), " ")))
 	cmd := exec.Command(self, append(argv, "--no-input")...)
-	cmd.Env = append(os.Environ(), fmt.Sprintf("COLUMNS=%d", appTerminalWidth()))
+	// its lines are shown indented by two: it is told two columns less, so
+	// nothing it prints wraps
+	cmd.Env = append(os.Environ(), fmt.Sprintf("COLUMNS=%d", max(20, appTerminalWidth()-2)))
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
 	if err := cmd.Start(); err != nil {
@@ -230,7 +232,7 @@ func runSlash(scr *screen, argv []string, cancel <-chan struct{}) int {
 			sc := bufio.NewScanner(r)
 			sc.Buffer(make([]byte, 0, 64<<10), 1<<20)
 			for sc.Scan() {
-				scr.Print("  " + sc.Text())
+				scr.Print("  " + slashOutputLine(sc.Text()))
 			}
 		}(r)
 	}
@@ -247,7 +249,7 @@ func runSlash(scr *screen, argv []string, cancel <-chan struct{}) int {
 	close(done)
 	if ee, ok := err.(*exec.ExitError); ok {
 		code := ee.ExitCode()
-		scr.Print(fmt.Sprintf("  (exit %d)", code))
+		scr.Print(th.bad(fmt.Sprintf("  (exit %d)", code)))
 		return code
 	}
 	return 0
@@ -353,4 +355,66 @@ func looksLikeKsCommand(text string) (string, bool) {
 		return "", false
 	}
 	return "/" + strings.Join(quoteWords(words[1:]), " "), true
+}
+
+// slashOutputLine colours a / command's output line by what it is: an error
+// or refusal red, the next step to take amber, the rest as printed.
+func slashOutputLine(l string) string {
+	t := strings.TrimSpace(l)
+	switch {
+	case strings.HasPrefix(t, "error:") || strings.HasPrefix(t, "refused:"):
+		return th.bad(l)
+	case strings.HasPrefix(t, "Next:"):
+		return th.warn(l)
+	case strings.HasPrefix(t, "Remote work started:"):
+		return th.dim(l)
+	}
+	return l
+}
+
+// slashSuggestions is what the window lists under the input while a / command
+// is being typed: each command that fits, with what it does, the first (the
+// one Tab completes toward) in the accent; at most max rows.
+func slashSuggestions(input string, limit int) []string {
+	if !strings.HasPrefix(input, "/") || strings.Contains(input, "\n") {
+		return nil
+	}
+	typed := strings.TrimPrefix(input, "/")
+	var fits []string
+	for _, n := range slashNames() {
+		if strings.HasPrefix(n, typed) && n != typed {
+			fits = append(fits, n)
+		}
+	}
+	if len(fits) == 0 {
+		return nil
+	}
+	var rows []string
+	for i, n := range fits {
+		if i == limit {
+			rows = append(rows, th.dim(fmt.Sprintf("… %d more (Tab completes)", len(fits)-limit)))
+			break
+		}
+		name := fmt.Sprintf("/%-24s", n)
+		if i == 0 {
+			name = th.accent(name)
+		}
+		rows = append(rows, name+" "+th.dim(slashSummary(n)))
+	}
+	return rows
+}
+
+// slashSummary is one line on what a / name does.
+func slashSummary(n string) string {
+	if h, ok := windowHelp[n]; ok {
+		return strings.TrimSpace(strings.TrimPrefix(h, "/"+n))
+	}
+	words := strings.Fields(n)
+	if exp, ok := slashShortcuts[n]; ok {
+		words = exp
+	}
+	if c, _, _ := lookup(registry, words); c != nil {
+		return c.Summary
+	}
+	return ""
 }

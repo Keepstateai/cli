@@ -275,6 +275,13 @@ type screen struct {
 	drawn     int // rows of the live region currently on screen
 	cursorRow int // the row of the live region the cursor sits on
 	hidden    bool
+
+	spin  bool // the agent works: the status's dot is the working indicator
+	frame int
+
+	// suggest, when set, lists what the input could become (the / commands
+	// that fit); shown under the input in place of the key hints
+	suggest func(input string) []string
 }
 
 func newScreen(w io.Writer) *screen {
@@ -296,38 +303,104 @@ func (s *screen) erase() {
 }
 
 // draw paints the live region and parks the cursor in the input. Caller
-// holds mu.
+// holds mu. Top to bottom: the box (a permission prompt, or the home list),
+// the status (what the agent is doing), the input in a rounded box, and a
+// grey line of what the keys do. A screen with no prompt (home) has no input.
 func (s *screen) draw() {
 	if s.hidden {
 		return
 	}
 	width := s.width()
 	var rows []string
-	rows = append(rows, s.box...)
-	rows = append(rows, strings.Repeat("─", width))
-	inputRow := len(rows)
-	line, col := s.inputLine(width)
-	rows = append(rows, line)
-	if s.hint != "" {
-		rows = append(rows, fitWidth(s.hint, width))
+	if len(s.box) > 0 && s.prompt != "" { // a prompt in the window stands apart
+		rows = append(rows, "")
 	}
-	rows = append(rows, fitWidth(s.status, width))
+	rows = append(rows, s.box...)
+	if s.status != "" {
+		rows = append(rows, fitWidth(s.statusShown(), width))
+	}
+	inputRow, col := -1, 0
+	if s.prompt != "" {
+		if len(rows) > 0 {
+			rows = append(rows, "")
+		}
+		line, c := s.inputLine(width - 4)
+		pad := max(0, width-4-displayWidth(line))
+		rows = append(rows, th.subtle("╭"+strings.Repeat("─", max(0, width-2))+"╮"))
+		inputRow = len(rows)
+		rows = append(rows, th.subtle("│")+" "+line+strings.Repeat(" ", pad)+" "+th.subtle("│"))
+		rows = append(rows, th.subtle("╰"+strings.Repeat("─", max(0, width-2))+"╯"))
+		col = 2 + c
+	}
+	var sugg []string
+	if s.suggest != nil && len(s.input) > 0 {
+		sugg = s.suggest(string(s.input))
+	}
+	switch {
+	case len(sugg) > 0:
+		for _, l := range sugg {
+			rows = append(rows, fitWidth("  "+l, width))
+		}
+	case s.hint != "":
+		if s.prompt == "" && len(rows) > 0 {
+			rows = append(rows, "")
+		}
+		rows = append(rows, fitWidth("  "+s.hint, width))
+	}
+	if len(rows) == 0 {
+		rows = append(rows, "")
+	}
 	for i, r := range rows {
 		if i > 0 {
 			fmt.Fprint(s.w, "\r\n")
 		}
-		fmt.Fprint(s.w, r)
+		fmt.Fprint(s.w, r+"\x1b[0m")
 	}
+	if inputRow < 0 { // nothing to type into: park at the end, cursor hidden
+		fmt.Fprint(s.w, "\x1b[?25l\r")
+		s.drawn, s.cursorRow = len(rows), len(rows)-1
+		return
+	}
+	fmt.Fprint(s.w, "\x1b[?25h")
 	// back up to the input row, and to the cursor's column in it
 	up := len(rows) - 1 - inputRow
 	if up > 0 {
 		fmt.Fprintf(s.w, "\x1b[%dA", up)
 	}
 	fmt.Fprintf(s.w, "\r\x1b[%dC", col)
-	if col == 0 {
-		fmt.Fprint(s.w, "\r")
-	}
 	s.drawn, s.cursorRow = len(rows), inputRow
+}
+
+// statusShown is the status as drawn: while the agent works its first dot
+// is the working indicator, one frame of it.
+func (s *screen) statusShown() string {
+	if !s.spin {
+		return s.status
+	}
+	f := spinFrames[s.frame%len(spinFrames)]
+	return strings.Replace(s.status, "●", th.accent(f), 1)
+}
+
+// spinner advances the working indicator while there is one to show.
+func (s *screen) spinner() {
+	for {
+		time.Sleep(120 * time.Millisecond)
+		s.mu.Lock()
+		active := s.spin && !s.hidden
+		s.mu.Unlock()
+		if active {
+			s.update(func() { s.frame++ })
+		}
+	}
+}
+
+func (s *screen) setSpin(on bool) {
+	s.mu.Lock()
+	same := s.spin == on
+	s.mu.Unlock()
+	if !same {
+		s.update(func() { s.spin = on })
+	}
 }
 
 // inputLine renders the prompt and input within one row, scrolling the text
@@ -354,7 +427,7 @@ func (s *screen) inputLine(width int) (string, int) {
 	}
 	shown := strings.ReplaceAll(string(text[start:end]), "\n", "↵")
 	col := displayWidth(s.prompt) + displayWidth(string(text[start:s.cursor]))
-	return s.prompt + shown, col
+	return th.dim(s.prompt) + shown, col
 }
 
 // Print writes lines above the live region, into the scrollback.
@@ -388,6 +461,7 @@ func (s *screen) close() {
 	defer s.mu.Unlock()
 	s.erase()
 	s.hidden = true
+	fmt.Fprint(s.w, "\x1b[?25h") // the cursor, as the app found it
 }
 
 // ---- line editing -------------------------------------------------------------

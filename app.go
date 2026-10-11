@@ -56,8 +56,10 @@ func hostedApp(cr hostedCreds) {
 	if err != nil {
 		fail(&cliError{Code: exitFailed, Kind: "no_terminal", Message: "the app needs an interactive terminal (" + err.Error() + ")", NextAction: "ks --help"})
 	}
+	enableAppTheme()
 	scr := newScreen(os.Stdout)
-	appSink = scr.Print
+	appSink = func(l string) { scr.Print(appSystemLine(l)) }
+	go scr.spinner()
 	exit := func(code int) {
 		scr.close()
 		appSink = nil
@@ -78,7 +80,7 @@ func hostedApp(cr hostedCreds) {
 	keys := make(chan keyEvent, 64)
 	go readKeys(os.Stdin, keys)
 
-	scr.Print("KeepState · " + cr.CTL + " · agents keep working when you leave")
+	scr.Print(strings.Join(appWelcome(cr, appTerminalWidth()), "\n"))
 	for {
 		row, act := appHome(cr, scr, keys)
 		switch act {
@@ -147,26 +149,43 @@ func needsYou(activity string) bool {
 func homeLine(r homeRow, selected bool, width int) string {
 	mark := "  "
 	if selected {
-		mark = "› "
+		mark = th.accent("❯") + " "
 	}
 	var s string
 	if r.agent == nil {
-		s = fmt.Sprintf("%s%-14s plain session %s · %s · no agent (ks attach %s)", mark, "–", r.sess.ShortID,
-			stateLabel("session_runtime", r.sess.RuntimeState), r.sess.ShortID)
+		s = mark + th.dim(fmt.Sprintf("%-16s plain session %s · %s · no agent (ks attach %s)", "–", r.sess.ShortID,
+			stateLabel("session_runtime", r.sess.RuntimeState), r.sess.ShortID))
 	} else {
 		age, _ := agentAge(*r.agent, time.Now())
 		flag := "  "
 		if needsYou(r.agent.Activity) {
-			flag = "⚑ "
+			flag = th.warn("⚑") + " "
 		}
-		s = fmt.Sprintf("%s%s%-14s %s · %s · %s · %s", mark, flag, fitWidth(r.agent.Name, 14), r.sess.ShortID, fitWidth(r.sess.Name, 24),
-			stateLabel("agent_activity", r.agent.Activity), age)
+		name := fmt.Sprintf("%-14s", fitWidth(r.agent.Name, 14))
+		if selected {
+			name = th.accentBold(name)
+		} else {
+			name = th.bold(name)
+		}
+		s = mark + flag + name + " " + th.dim(r.sess.ShortID+" · "+fitWidth(r.sess.Name, 24)+" · ") +
+			th.activityColor(r.agent.Activity, stateLabel("agent_activity", r.agent.Activity)) + th.dim(" · "+age)
 	}
-	s = fitWidth(s, width)
-	if selected {
-		return "\x1b[7m" + s + "\x1b[0m"
+	return fitWidth(s, width)
+}
+
+// appWelcome is the app's first screen: what it is, the three keys a
+// person needs first, and which service it talks to.
+func appWelcome(cr hostedCreds, width int) []string {
+	w := min(width, 64)
+	lines := []string{
+		th.accent("✻") + " " + th.bold("Welcome to KeepState"),
+		"",
+		"  " + th.dim("agents keep working when you leave"),
+		"  " + th.dim("/help for commands · n starts an agent · q quits"),
+		"",
+		"  " + th.dim("service: ") + sanitize(cr.CTL),
 	}
-	return s
+	return append(roundedBox(lines, w, "", th.accent), "")
 }
 
 func appHome(cr hostedCreds, scr *screen, keys <-chan keyEvent) (*homeRow, appAction) {
@@ -183,7 +202,7 @@ func appHome(cr hostedCreds, scr *screen, keys <-chan keyEvent) (*homeRow, appAc
 	}
 	render := func() {
 		width := appTerminalWidth()
-		box := []string{"Your agents:"}
+		box := []string{th.bold("Your agents:")}
 		agents := 0
 		for _, r := range rows {
 			if r.agent != nil {
@@ -191,7 +210,7 @@ func appHome(cr hostedCreds, scr *screen, keys <-chan keyEvent) (*homeRow, appAc
 			}
 		}
 		if agents == 0 {
-			box = append(box, "  none yet: press n to start an agent session")
+			box = append(box, th.dim("  none yet: press n to start an agent session"))
 		}
 		for i, r := range rows {
 			box = append(box, homeLine(r, i == sel, width))
@@ -200,8 +219,8 @@ func appHome(cr hostedCreds, scr *screen, keys <-chan keyEvent) (*homeRow, appAc
 			scr.box = box
 			scr.prompt = ""
 			scr.input, scr.cursor = nil, 0
-			scr.hint = ""
-			scr.status = "↑/↓ choose · Enter open · n new agent session · r refresh · q quit"
+			scr.status = ""
+			scr.hint = th.keyHints([2]string{"↑/↓", "choose"}, [2]string{"Enter", "open"}, [2]string{"n", "new agent session"}, [2]string{"r", "refresh"}, [2]string{"q", "quit"})
 		})
 	}
 	render()
@@ -252,7 +271,7 @@ func appHome(cr hostedCreds, scr *screen, keys <-chan keyEvent) (*homeRow, appAc
 				}
 				r := rows[sel]
 				if r.agent == nil {
-					scr.Print(fmt.Sprintf("%s is a plain session: it has no agents. Its terminal: ks attach %s (outside the app). For an agent: press n.", r.sess.ShortID, r.sess.ShortID))
+					scr.Print(th.dim(fmt.Sprintf("%s is a plain session: it has no agents. Its terminal: ks attach %s (outside the app). For an agent: press n.", r.sess.ShortID, r.sess.ShortID)))
 					continue
 				}
 				scr.setBox(nil)
@@ -340,6 +359,32 @@ func appNewSession(cr hostedCreds, scr *screen, keys <-chan keyEvent) (*homeRow,
 
 // ---- the agent's window -----------------------------------------------------------
 
+// appSystemLine is how a line the commands print (progress, an outcome, a
+// refusal) reads in the app: grey, so the conversation stands out; a refusal
+// red and the next step amber.
+func appSystemLine(l string) string {
+	t := strings.TrimSpace(l)
+	switch {
+	case strings.HasPrefix(t, "refused:") || strings.HasPrefix(t, "error:"):
+		return th.bad(l)
+	case strings.HasPrefix(t, "Next:"):
+		return th.warn(l)
+	}
+	return th.dim(l)
+}
+
+// appWindowHint is the grey line under the input: what the keys do.
+func appWindowHint() string {
+	return th.keyHints([2]string{"Enter", "send"}, [2]string{"Esc", "interrupt"}, [2]string{"Ctrl-C ×2", "leave (the agent keeps working)"}, [2]string{"/help", "commands"})
+}
+
+// appWindowHeader opens an agent's conversation: a rule carrying the agent's
+// name and its session.
+func appWindowHeader(name string, sess inventoryRow, width int) string {
+	head := th.accentBold("── "+name) + th.dim(fmt.Sprintf(" · session %s (%s) ", sess.ShortID, sanitize(sess.Name)))
+	return "\n" + head + th.subtle(strings.Repeat("─", max(2, width-displayWidth(head))))
+}
+
 // appAgent runs one agent's window; it answers true when the person asked to
 // leave the app altogether, false to go back home.
 func appAgent(cr hostedCreds, scr *screen, keys <-chan keyEvent, sess inventoryRow, a agentRow) bool {
@@ -358,12 +403,12 @@ func appAgent(cr hostedCreds, scr *screen, keys <-chan keyEvent, sess inventoryR
 		}
 		return false
 	}
-	scr.Print(fmt.Sprintf("── %s · session %s (%s) ──", a.Name, sess.ShortID, sess.Name))
+	scr.Print(appWindowHeader(a.Name, sess, appTerminalWidth()))
 	appBacklog(cr, scr, sess, a, w.Resume.AfterSeq)
 	markSeen(cr, a.ID, w.Resume.AfterSeq)
 	win := &liveWindow{sess: sess, agent: a, lease: w.Lease, app: true}
 	if _, held := win.hold(); !held {
-		scr.Print("another window controls this agent: you are watching. /take takes control.")
+		scr.Print(th.warn("another window controls this agent: you are watching. /take takes control."))
 	}
 	go win.renew(cr)
 
@@ -397,9 +442,10 @@ func appAgent(cr hostedCreds, scr *screen, keys <-chan keyEvent, sess inventoryR
 			_, held := win.hold()
 			line := appStatusLine(v, held)
 			if n := othersNeed.Load(); n > 0 {
-				line = fmt.Sprintf("⚑ %d other agent(s) need you (/switch) · ", n) + line
+				line = th.warn(fmt.Sprintf("⚑ %d other agent(s) need you (/switch)", n)) + th.dim(" · ") + line
 			}
 			scr.setStatus(line)
+			scr.setSpin(v.Header.Activity == "working" || v.Header.Activity == "starting")
 		}
 		if perr == nil {
 			mu.Lock()
@@ -448,7 +494,8 @@ func appAgent(cr hostedCreds, scr *screen, keys <-chan keyEvent, sess inventoryR
 
 	scr.update(func() {
 		scr.prompt, scr.input, scr.cursor = "> ", nil, 0
-		scr.hint = "Enter sends · Esc interrupts · Ctrl-C twice leaves (the agent keeps working) · /help"
+		scr.hint = appWindowHint()
+		scr.suggest = func(in string) []string { return slashSuggestions(in, 6) }
 	})
 	leave := func() {
 		leaving.Store(true)
@@ -459,8 +506,8 @@ func appAgent(cr hostedCreds, scr *screen, keys <-chan keyEvent, sess inventoryR
 		if held {
 			_ = hostedMutate(cr, "DELETE", "/api/v2/control-leases/"+url.PathEscape(l.ID), nil, nil)
 		}
-		scr.update(func() { scr.box, scr.hint, scr.status = nil, "", "" })
-		scr.Print(fmt.Sprintf("left %s; it keeps working", a.Name))
+		scr.update(func() { scr.box, scr.hint, scr.status, scr.suggest, scr.spin = nil, "", "", nil, false })
+		scr.Print(th.dim(fmt.Sprintf("left %s; it keeps working", a.Name)))
 	}
 	var history []string
 	hpos := 0
@@ -513,16 +560,16 @@ func appAgent(cr hostedCreds, scr *screen, keys <-chan keyEvent, sess inventoryR
 					}
 					argv, _, err := slashArgv(line, slashContext{sessionID: agentSessionID(sess), agentName: a.Name})
 					if err != nil {
-						scr.Print(err.Error())
+						scr.Print(th.warn(err.Error()))
 						continue
 					}
 					cancel = make(chan struct{})
 					running.Store(true)
-					scr.setHint("running: ks " + strings.Join(argv, " ") + " · Ctrl-C stops it")
+					scr.setHint(th.accent("running") + th.dim(" ks "+strings.Join(argv, " ")+" · ") + th.keyHints([2]string{"Ctrl-C", "stops it"}))
 					go func(argv []string, c chan struct{}) {
 						runSlash(scr, argv, c)
 						running.Store(false)
-						scr.setHint("Enter sends · Esc interrupts · Ctrl-C twice leaves (the agent keeps working) · /help")
+						scr.setHint(appWindowHint())
 						go refresh()
 					}(argv, cancel)
 					continue
@@ -542,11 +589,11 @@ func appAgent(cr hostedCreds, scr *screen, keys <-chan keyEvent, sess inventoryR
 			}
 			if slash, ok := looksLikeKsCommand(text); ok && text != heldKs {
 				heldKs = text
-				scr.Print(fmt.Sprintf("%q is a ks command, not an instruction: run it here as %s. Nothing was sent to %s; Enter again sends it to %s as written", strings.TrimSpace(text), slash, a.Name, a.Name))
+				scr.Print(th.info(fmt.Sprintf("%q is a ks command, not an instruction: run it here as %s. Nothing was sent to %s; Enter again sends it to %s as written", strings.TrimSpace(text), slash, a.Name, a.Name)))
 				continue
 			}
 			heldKs = ""
-			scr.Print(fmt.Sprintf("%-6s %s", "you", strings.ReplaceAll(sanitize(text), "\n", "\n       ")))
+			scr.Print("\n" + th.dim(fmt.Sprintf("%-6s", "you")) + " " + strings.ReplaceAll(sanitize(text), "\n", "\n       "))
 			go win.submitFresh(cr, text)
 		case keyPaste:
 			scr.update(func() {
@@ -692,25 +739,16 @@ func approvalBox(pending []approvalRow, width int) []string {
 		return nil
 	}
 	ap := pending[0]
-	inner := width - 4
-	if inner < 20 {
-		inner = 20
-	}
-	title := "┌ Permission "
+	title := th.infoBold("Permission")
 	if len(pending) > 1 {
-		title = fmt.Sprintf("┌ Permission · 1 of %d waiting ", len(pending))
+		title += th.info(fmt.Sprintf(" · 1 of %d waiting", len(pending)))
 	}
-	rows := []string{title + strings.Repeat("─", max(0, width-displayWidth(title)-1)) + "┐"}
-	add := func(s string) {
-		rows = append(rows, "│ "+fitWidth(s, inner)+strings.Repeat(" ", max(0, inner-displayWidth(fitWidth(s, inner))))+" │")
-	}
-	add("the agent wants to: " + sanitize(actionShown(ap)))
+	lines := []string{th.dim("the agent wants to: ") + th.bold(sanitize(actionShown(ap)))}
 	if ap.RequestedForTask != "" {
-		add("for instruction " + ap.RequestedForTask + " · expires " + figure(ap.ExpiresAt))
+		lines = append(lines, th.dim("for instruction "+ap.RequestedForTask+" · expires "+figure(ap.ExpiresAt)))
 	}
-	add("[y] allow once   [n] deny   [d] details")
-	rows = append(rows, "└"+strings.Repeat("─", max(0, width-2))+"┘")
-	return rows
+	lines = append(lines, "", th.ok("[y] allow once")+"   "+th.bad("[n] deny")+"   "+th.dim("[d] details"))
+	return roundedBox(lines, width, title, th.info)
 }
 
 func appStatusLine(v liveViewDoc, held bool) string {
@@ -757,11 +795,55 @@ func appStatusLine(v liveViewDoc, held bool) string {
 	} else {
 		parts = append(parts, "watching")
 	}
-	parts = append(parts, "/help")
-	return strings.Join(parts, " · ")
+	// the state in its colour, the rest grey; watching and STALE stand out
+	for i, p := range parts {
+		switch {
+		case i == 0 && strings.Contains(p, "STALE"):
+			parts[i] = th.bad(p)
+		case i == 0:
+			parts[i] = th.activityColor(v.Header.Activity, p)
+		case p == "watching" || strings.HasSuffix(p, "waiting for you"):
+			parts[i] = th.warn(p)
+		default:
+			parts[i] = th.dim(p)
+		}
+	}
+	return strings.Join(parts, th.dim(" · "))
 }
 
 // ---- / commands (phase 1: the window's own; every ks command comes in phase 2) ----
+
+// appHelp is /help: what the keys do, the window's own commands, the
+// shortcuts, and how every ks command runs here, in sections.
+func appHelp(agent string) string {
+	row := func(k, what string) string {
+		return "  " + th.accent(fmt.Sprintf("%-28s", k)) + th.dim(what)
+	}
+	section := func(title string) string { return "\n" + th.bold(title) }
+	lines := []string{
+		section("Keys"),
+		row("Enter", "send what you typed to "+agent),
+		row("Esc", "interrupt its instruction in flight"),
+		row("y / n / d", "answer a permission prompt (with an empty input)"),
+		row("↑ / ↓", "your earlier lines"),
+		row("Tab", "complete a / command"),
+		row("Ctrl-C", "stop a running command; twice on an empty input leaves ("+agent+" keeps working)"),
+		section("This window"),
+		row("/status", "the agent's full state"),
+		row("/take", "take control from another window"),
+		row("/switch <agent> [session]", "open another of your agents without going home"),
+		row("/home", "back to your agents"),
+		row("/quit", "leave the app (agents keep working)"),
+		section("Shortcuts"),
+		"  " + th.accent("/stop /pause /resume /queue /tasks /results /approvals /advisers"),
+		"  " + th.accent("/usage /keys /logs /agents /checkpoints /restore /diff /apply"),
+		section("Every ks command"),
+		row("/<command> [options]", "e.g. /session checkpoints, /result diff <id>, /cruise status <job>"),
+		row("/<command> --help", "its options (or /help <command>); this session and agent are filled in"),
+		"",
+	}
+	return strings.Join(lines, "\n")
+}
 
 type slashResult int
 
@@ -776,18 +858,7 @@ func appSlash(cr hostedCreds, scr *screen, win *liveWindow, a agentRow, line str
 	f := strings.Fields(line)
 	switch f[0] {
 	case "/help":
-		scr.Print(strings.Join([]string{
-			"Enter sends what you typed to " + a.Name + " · Esc interrupts its instruction in flight",
-			"y / n / d answer a permission prompt (with an empty input) · ↑/↓ your earlier lines",
-			"/status   the agent's full state        /take   take control from another window",
-			"/switch <agent> [session]   open another of your agents without going home",
-			"/home     back to your agents           /quit   leave the app (agents keep working)",
-			"/stop /pause /resume /queue /tasks /results /approvals /advisers /usage /keys /logs /agents",
-			"/checkpoints /restore /diff /apply",
-			"and EVERY ks command: /<command> [options], e.g. /session checkpoints, /result diff <id>, /cruise status <job>",
-			"  this session and agent are filled in when the command takes them; /<command> --help shows its options",
-			"Tab completes a / command · Ctrl-C stops a running command; on an empty input, twice leaves this agent",
-		}, "\n"))
+		scr.Print(appHelp(a.Name))
 	case "/status":
 		if v, err := fetchLiveView(cr, a.ID); err == nil {
 			scr.Print(strings.Join(viewLines(v), "\n"))
@@ -828,7 +899,7 @@ func appEventLine(e journalEvent, agentName, account string) (string, bool) {
 			}
 			w := max(6, min(12, displayWidth(agentName)))
 			pad := strings.Repeat(" ", w+1)
-			return sanitize(fmt.Sprintf("%-*s %s", w, fitWidth(agentName, w), strings.ReplaceAll(text, "\n", "\n"+pad))), true
+			return "\n" + th.accentBold(sanitize(fmt.Sprintf("%-*s", w, fitWidth(agentName, w)))) + " " + sanitize(strings.ReplaceAll(text, "\n", "\n"+pad)), true
 		case "instruction":
 			// this person's own messages were shown when they pressed Enter;
 			// an instruction from anyone or anywhere else is shown here
@@ -836,27 +907,27 @@ func appEventLine(e journalEvent, agentName, account string) (string, bool) {
 				return "", false
 			}
 			who, _ := attribution(*t)
-			return sanitize(fmt.Sprintf("%-6s %s", who, strings.ReplaceAll(strings.TrimRight(t.Text, "\n"), "\n", "\n       "))), true
+			return th.info(sanitize(fmt.Sprintf("%-6s", who))) + " " + sanitize(strings.ReplaceAll(strings.TrimRight(t.Text, "\n"), "\n", "\n       ")), true
 		case "tool_started":
 			s := "  ⎿ " + orUnnamedTool(t.ToolName)
 			if d := firstLineOf(t.Text); d != "" {
 				s += ": " + d
 			}
-			return sanitize(s), true
+			return th.dim(sanitize(s)), true
 		case "tool_finished":
-			mark := "✓"
+			mark := th.ok("✓")
 			if t.Failed {
-				mark = "✗"
+				mark = th.bad("✗")
 			}
-			s := "  " + mark + " " + orUnnamedTool(t.ToolName)
+			s := orUnnamedTool(t.ToolName)
 			if t.Failed {
 				if d := firstLineOf(t.Text); d != "" {
 					s += ": " + d
 				}
 			}
-			return sanitize(s), true
+			return "  " + mark + " " + th.dim(sanitize(s)), true
 		default:
-			return sanitize(transcriptLine(*t)), true
+			return th.dim(sanitize(transcriptLine(*t))), true
 		}
 	}
 	var p struct {
@@ -871,21 +942,21 @@ func appEventLine(e journalEvent, agentName, account string) (string, bool) {
 	case "task.finished":
 		switch p.State {
 		case "succeeded":
-			return sanitize("  ● finished (" + e.SubjectID + ")"), true
+			return "  " + th.ok("●") + th.dim(sanitize(" finished ("+e.SubjectID+")")), true
 		case "failed":
-			return sanitize("  ✗ failed (" + e.SubjectID + "): " + firstLineOf(p.Summary)), true
+			return th.bad(sanitize("  ✗ failed (" + e.SubjectID + "): " + firstLineOf(p.Summary))), true
 		default:
-			return sanitize("  ● " + figure(p.State) + " (" + e.SubjectID + ")"), true
+			return th.dim(sanitize("  ● " + figure(p.State) + " (" + e.SubjectID + ")")), true
 		}
 	case "result.recorded":
 		if p.Name == "ks-changeset.json" {
 			return "", false // every turn records one; /results lists them
 		}
-		return sanitize("  ↳ result " + figure(p.Name) + " (/results)"), true
+		return "  " + th.accent("↳") + sanitize(" result "+figure(p.Name)) + th.dim(" (/results)"), true
 	case "queue.held":
-		return sanitize("! the queue is HELD: " + firstLineOf(p.Reason) + " (ks agent queue show " + agentName + ")"), true
+		return th.warn(sanitize("! the queue is HELD: " + firstLineOf(p.Reason) + " (ks agent queue show " + agentName + ")")), true
 	case "session.parked", "session.resumed", "session.stopped":
-		return sanitize(agentEventLine(e)), true
+		return th.dim(sanitize(agentEventLine(e))), true
 	}
 	return "", false
 }

@@ -463,3 +463,24 @@ func TestConfirmByNamingMentionsYesOnlyWhenGiven(t *testing.T) {
 		t.Errorf("with --yes: %q", m)
 	}
 }
+
+// Typing a / command lists the commands that fit under the input, with what
+// each does; prose lists nothing.
+func TestAppSlashSuggestionsAsYouType(t *testing.T) {
+	rows := slashSuggestions("/agent st", 6)
+	all := strings.Join(rows, "\n")
+	for _, want := range []string{"/agent status", "/agent stop"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("/agent st lists %q, lacks %q", all, want)
+		}
+	}
+	if rows := slashSuggestions("/", 3); len(rows) != 4 || !strings.Contains(rows[3], "more (Tab completes)") {
+		t.Errorf("a long list is not cut with a count: %q", rows)
+	}
+	if slashSuggestions("fix the tests", 6) != nil || slashSuggestions("/nosuchthing", 6) != nil {
+		t.Error("suggestions for an instruction, or for nothing that fits")
+	}
+	if got := slashSummary("stop"); got == "" {
+		t.Error("a shortcut has no summary")
+	}
+}

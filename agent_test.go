@@ -1866,7 +1866,7 @@ func TestAnIdleAgentUnderALiveSupervisorIsNotStale(t *testing.T) {
 		{"working", &yes, true}, {"waiting_provider", &yes, true},
 	} {
 		age, stale := agentAge(agentRow{Activity: c.activity, ObservedAt: old, SupervisorLive: c.live}, now)
-		if stale != c.stale || !strings.Contains(age, "10m0s ago") {
+		if stale != c.stale || !strings.Contains(age, "10m ago") {
 			t.Errorf("%s live=%v: %q stale=%v, want stale=%v", c.activity, c.live, age, stale, c.stale)
 		}
 	}
