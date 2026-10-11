@@ -267,18 +267,20 @@ func TestAppConversationReadsLikeAChat(t *testing.T) {
 func TestAppEveryCommandIsASlashCommand(t *testing.T) {
 	ctx := slashContext{sessionID: "session_rec1", agentName: "main"}
 	for _, c := range registry {
+		// --help is only read, so it shows for every command and every group,
+		// the excluded ones included (BACKLOG-323: /agent --help answered
+		// "/agent --help lists them")
+		argv, got, err := slashArgv("/"+c.Name()+" --help", ctx)
+		if err != nil || got != c || strings.Join(argv, " ") != c.Name()+" --help" {
+			t.Errorf("/%s --help runs %v (%v), want %q", c.Name(), argv, err, c.Name()+" --help")
+		}
 		if c.Group {
 			continue
 		}
-		argv, got, err := slashArgv("/"+c.Name()+" --help", ctx)
 		if why, excluded := slashExcluded[c.Name()]; excluded {
-			if err == nil || !strings.Contains(err.Error(), why) || strings.TrimSpace(why) == "" {
+			if _, _, err := slashArgv("/"+c.Name()+" x", ctx); err == nil || !strings.Contains(err.Error(), why) || strings.TrimSpace(why) == "" {
 				t.Errorf("/%s is excluded without saying why: %v", c.Name(), err)
 			}
-			continue
-		}
-		if err != nil || got != c || strings.Join(argv, " ") != c.Name()+" --help" {
-			t.Errorf("/%s --help runs %v (%v), want %q", c.Name(), argv, err, c.Name()+" --help")
 		}
 	}
 	for short, path := range slashShortcuts {
@@ -412,5 +414,73 @@ func TestAppFillsTheAgentOnlyWhereItNamesAnExistingAgent(t *testing.T) {
 		if got := shortDuration(d); got != want {
 			t.Errorf("shortDuration(%v) = %q, want %q", d, got, want)
 		}
+	}
+}
+
+// BACKLOG-323: a ks command typed into the agent's input is held back once
+// with the / command that runs it; prose that starts with "ks" is not.
+func TestAppKsCommandTypedAsAnInstruction(t *testing.T) {
+	for _, c := range []struct {
+		text, slash string
+		ok          bool
+	}{
+		{"ks agent open", "/agent open", true},
+		{"  ks agent stop dev1 --session 5335fa", "/agent stop dev1 --session 5335fa", true},
+		{"ks session delete s1 --plan", "/session delete s1 --plan", true},
+		{"ks is the client, explain it", "", false},
+		{"ks", "", false},
+		{"please run ks agent open", "", false},
+		{"ks agent open\nand then the tests", "", false},
+	} {
+		got, ok := looksLikeKsCommand(c.text)
+		if ok != c.ok || got != c.slash {
+			t.Errorf("%q: %q %v, want %q %v", c.text, got, ok, c.slash, c.ok)
+		}
+	}
+}
+
+// BACKLOG-323: every window command explains itself on --help.
+func TestAppWindowCommandsExplainThemselves(t *testing.T) {
+	for w := range windowCommands {
+		if h := windowCommandHelp(w); !strings.HasPrefix(h, "/"+w) || strings.Contains(h, "is handled by this window") {
+			t.Errorf("/%s --help: %q", w, h)
+		}
+	}
+}
+
+// BACKLOG-323: a confirmation refusal names the flag that confirms and
+// speaks of --yes only when --yes was given.
+func TestConfirmByNamingMentionsYesOnlyWhenGiven(t *testing.T) {
+	saved := out
+	defer func() { out = saved }()
+	out.yes = false
+	m := confirmByNaming("stopping an agent", "--confirm dev1", "nothing was stopped")
+	if strings.Contains(m, "--yes") || !strings.Contains(m, "add --confirm dev1") || !strings.HasSuffix(m, "nothing was stopped") {
+		t.Errorf("without --yes: %q", m)
+	}
+	out.yes = true
+	if m := confirmByNaming("stopping an agent", "--confirm dev1", "nothing was stopped"); !strings.Contains(m, "--yes does not confirm it") {
+		t.Errorf("with --yes: %q", m)
+	}
+}
+
+// Typing a / command lists the commands that fit under the input, with what
+// each does; prose lists nothing.
+func TestAppSlashSuggestionsAsYouType(t *testing.T) {
+	rows := slashSuggestions("/agent st", 6)
+	all := strings.Join(rows, "\n")
+	for _, want := range []string{"/agent status", "/agent stop"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("/agent st lists %q, lacks %q", all, want)
+		}
+	}
+	if rows := slashSuggestions("/", 3); len(rows) != 4 || !strings.Contains(rows[3], "more (Tab completes)") {
+		t.Errorf("a long list is not cut with a count: %q", rows)
+	}
+	if slashSuggestions("fix the tests", 6) != nil || slashSuggestions("/nosuchthing", 6) != nil {
+		t.Error("suggestions for an instruction, or for nothing that fits")
+	}
+	if got := slashSummary("stop"); got == "" {
+		t.Error("a shortcut has no summary")
 	}
 }

@@ -597,7 +597,7 @@ func observedAge(observed string, now time.Time) (string, bool) {
 	if age < 0 {
 		age = 0
 	}
-	return "observed " + age.String() + " ago", age > staleAfter
+	return "observed " + shortDuration(age) + " ago", age > staleAfter
 }
 
 // ---------------------------------------------------------------------

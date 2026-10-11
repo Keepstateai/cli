@@ -56,7 +56,7 @@ func hostedAgentStop(cr hostedCreds, inv *Invocation) {
 		}
 	case out.noInput || !stdinIsTerminal():
 		fail(&cliError{Code: exitUsage, Kind: "confirmation_required",
-			Message:    "stopping an agent is confirmed by naming it; --yes does not confirm it, and nothing was stopped",
+			Message:    confirmByNaming("stopping an agent", "--confirm "+a.Name, "nothing was stopped"),
 			NextAction: fmt.Sprintf("ks agent stop %s --session %s --confirm %s", a.Name, sess.ShortID, a.Name)})
 	default:
 		fmt.Fprintf(os.Stderr, "type %s to stop it, or anything else to leave it working: ", a.Name)

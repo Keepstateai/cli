@@ -549,7 +549,7 @@ func confirmAndApply(root, label, fullSHA string, cs *changeset, inv *Invocation
 			fail(&cliError{Code: exitUsage, Kind: "confirmation_mismatch", Message: fmt.Sprintf("--confirm %q is not this changeset (%s); nothing was changed", given, want)})
 		}
 	case out.noInput || !stdinIsTerminal():
-		fail(&cliError{Code: exitUsage, Kind: "confirmation_required", Message: "applying changes files here and is confirmed by the changeset's digest; --yes does not confirm it, and nothing was changed",
+		fail(&cliError{Code: exitUsage, Kind: "confirmation_required", Message: confirmByNaming("applying changes files here and", "--confirm "+want, "nothing was changed"),
 			NextAction: fmt.Sprintf("%s --confirm %s", confirmCmd, want)})
 	default:
 		fmt.Fprintf(os.Stderr, "type %s to apply, or anything else to stop: ", want)
