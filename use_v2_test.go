@@ -87,7 +87,7 @@ func TestLegacyLifecycleOnAnAgentSessionFollowsThePointer(t *testing.T) {
 			t.Errorf("kill lacks %q:\n%s", want, errs)
 		}
 	}
-	if strings.Contains(errs, `plan {"`) { // BACKLOG-323: the plan is read, not dumped
+	if strings.Contains(errs, `plan {"`) { // the plan is read, not dumped
 		t.Errorf("kill dumps the plan as raw JSON:\n%s", errs)
 	}
 	for _, r := range c.seen() {
