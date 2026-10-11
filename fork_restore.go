@@ -53,7 +53,7 @@ func fprintPlanSection(w io.Writer, plan map[string]any, key, label string) {
 	case map[string]any:
 		keys := make([]string, 0, len(x))
 		for k := range x {
-			if k != "effect" {
+			if k != "effect" && k != "why" {
 				keys = append(keys, k)
 			}
 		}
@@ -64,8 +64,10 @@ func fprintPlanSection(w io.Writer, plan map[string]any, key, label string) {
 			parts = append(parts, k+" "+string(b))
 		}
 		fmt.Fprintf(w, "  %-10s %s\n", label, sanitize(strings.Join(parts, ", ")))
-		if e, _ := x["effect"].(string); e != "" {
-			fmt.Fprintf(w, "  %-10s %s\n", "", sanitize(e))
+		for _, k := range []string{"effect", "why"} { // the explanation, on its own line
+			if e, _ := x[k].(string); e != "" {
+				fmt.Fprintf(w, "  %-10s %s\n", "", sanitize(e))
+			}
 		}
 	}
 }
