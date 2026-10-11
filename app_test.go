@@ -268,7 +268,7 @@ func TestAppEveryCommandIsASlashCommand(t *testing.T) {
 	ctx := slashContext{sessionID: "session_rec1", agentName: "main"}
 	for _, c := range registry {
 		// --help is only read, so it shows for every command and every group,
-		// the excluded ones included (BACKLOG-323: /agent --help answered
+		// the excluded ones included (/agent --help once answered
 		// "/agent --help lists them")
 		argv, got, err := slashArgv("/"+c.Name()+" --help", ctx)
 		if err != nil || got != c || strings.Join(argv, " ") != c.Name()+" --help" {
@@ -417,7 +417,7 @@ func TestAppFillsTheAgentOnlyWhereItNamesAnExistingAgent(t *testing.T) {
 	}
 }
 
-// BACKLOG-323: a ks command typed into the agent's input is held back once
+// A ks command typed into the agent's input is held back once
 // with the / command that runs it; prose that starts with "ks" is not.
 func TestAppKsCommandTypedAsAnInstruction(t *testing.T) {
 	for _, c := range []struct {
@@ -439,7 +439,7 @@ func TestAppKsCommandTypedAsAnInstruction(t *testing.T) {
 	}
 }
 
-// BACKLOG-323: every window command explains itself on --help.
+// Every window command explains itself on --help.
 func TestAppWindowCommandsExplainThemselves(t *testing.T) {
 	for w := range windowCommands {
 		if h := windowCommandHelp(w); !strings.HasPrefix(h, "/"+w) || strings.Contains(h, "is handled by this window") {
@@ -448,7 +448,7 @@ func TestAppWindowCommandsExplainThemselves(t *testing.T) {
 	}
 }
 
-// BACKLOG-323: a confirmation refusal names the flag that confirms and
+// A confirmation refusal names the flag that confirms and
 // speaks of --yes only when --yes was given.
 func TestConfirmByNamingMentionsYesOnlyWhenGiven(t *testing.T) {
 	saved := out
