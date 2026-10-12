@@ -316,8 +316,8 @@ func appNewSession(cr hostedCreds, scr *screen, keys <-chan keyEvent) (*homeRow,
 	if name == "" {
 		name = "main"
 	}
-	if !agentNameSafe.MatchString(name) {
-		scr.Print("an agent name is letters, digits, dot, hyphen or underscore; nothing was created")
+	if err := newNameRefusal(name, "nothing was created"); err != nil {
+		scr.Print(err.Message)
 		return nil, false
 	}
 	keyArg := ""

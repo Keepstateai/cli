@@ -978,6 +978,7 @@ func hosted(run func(cr hostedCreds, inv *Invocation)) func(*Invocation) {
 		if !ok {
 			fail(&cliError{Code: exitAuth, Kind: "not_signed_in", Message: "Not signed in. Run: ks login", NextAction: "ks login"})
 		}
+		checkNewNames(inv) // before the capability check: no request for a name the service refuses
 		requireCapability(cr, inv.Cmd)
 		run(cr, inv)
 	}

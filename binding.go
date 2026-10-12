@@ -431,9 +431,41 @@ func warnDuplicateWork(cr hostedCreds) {
 // ---- renames ----------------------------------------------------------------
 
 func checkName(name string) {
-	if !c04Name.MatchString(name) {
-		fail(&cliError{Code: exitUsage, Kind: "name_invalid",
-			Message: fmt.Sprintf("%q is not a name: 1 to 48 ASCII letters, digits, hyphens or underscores, starting with a letter; nothing was renamed", sanitize(name))})
+	if err := newNameRefusal(name, "nothing was renamed"); err != nil {
+		fail(err)
+	}
+}
+
+// newNameRefusal is the one check of a NEW name this client sends: a
+// session's or an agent's, from a command or the app. It is the service's own
+// rule (c04Name, held to the shared testdata/vectors/name-rule-v1.json), so a
+// name the service would refuse is refused here, before any request.
+// agentNameSafe is only for showing a name inside a suggested command line.
+func newNameRefusal(name, nothing string) *cliError {
+	if c04Name.MatchString(name) {
+		return nil
+	}
+	return &cliError{Code: exitUsage, Kind: "name_invalid",
+		Message: fmt.Sprintf("%q is not a name: 1 to 48 ASCII letters, digits, hyphens or underscores, starting with a letter; %s", sanitize(name), nothing)}
+}
+
+// checkNewNames refuses, before the capability check or any other request,
+// a new name the service would refuse (hosted runs it first).
+func checkNewNames(inv *Invocation) {
+	if inv == nil || inv.Cmd == nil {
+		return
+	}
+	var err *cliError
+	switch inv.Cmd.Name() {
+	case "agent create":
+		err = newNameRefusal(inv.Arg(0), "nothing was created")
+	case "agent rename", "session rename":
+		err = newNameRefusal(inv.Arg(1), "nothing was renamed")
+	case "run":
+		err = runAgentNameRefusal(inv)
+	}
+	if err != nil {
+		fail(err)
 	}
 }
 

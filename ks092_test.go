@@ -45,6 +45,10 @@ var ks092Mutations = []mutation{
 		"\treturn \"unknown (\" + sanitize(s) + \")\"\n",
 		"\treturn \"ready\"\n",
 		"TestKS092UnknownStatesAreNeverASuccessfulDefault"},
+	{"name: a new name is checked by the display rule, looser than the service's, and sent", "binding.go",
+		"\tif c04Name.MatchString(name) {\n\t\treturn nil\n\t}\n",
+		"\tif agentNameSafe.MatchString(name) {\n\t\treturn nil\n\t}\n",
+		"TestANewNameTheServiceRefusesIsAUsageErrorBeforeAnyRequest|TestTheAppRefusesANewAgentNameTheServiceRefusesBeforeAnyRequest"},
 }
 
 // copyTree copies the module (no .git) so a mutation never touches this one.
