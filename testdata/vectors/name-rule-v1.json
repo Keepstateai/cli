@@ -1,0 +1,37 @@
+{
+ "name": "ks-name-rule",
+ "version": 1,
+ "what": "The C04 name rule: what the service accepts as the name of a project, a session, an agent or a key alias, 1 to 48 ASCII letters, digits, hyphens or underscores, starting with a letter. The service's rule is checked against these cases by ctl's tests; the client vendors this file and checks every new name it sends against the same cases, so the two cannot drift apart unnoticed.",
+ "rule": "^[A-Za-z][A-Za-z0-9_-]{0,47}$",
+ "accepted": [
+  "main",
+  "a",
+  "Z",
+  "checkout",
+  "agent-2",
+  "build_and_test",
+  "A1",
+  "x-",
+  "y_",
+  "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUV"
+ ],
+ "refused": [
+  "",
+  "1agent",
+  "9",
+  "a.b",
+  "main.",
+  ".main",
+  "-main",
+  "_main",
+  "a b",
+  "a/b",
+  "a:b",
+  "main\n",
+  " main",
+  "agenté",
+  "éagent",
+  "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVW",
+  "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ab"
+ ]
+}

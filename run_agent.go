@@ -48,6 +48,11 @@ type provisionAnswer struct {
 const runnerProvider = "anthropic"
 
 func hostedRunAgent(cr hostedCreds, inv *Invocation) {
+	// the names first: a name the service would refuse is refused here,
+	// before the capability check, the preflight or the key lookup
+	if err := runAgentNameRefusal(inv); err != nil {
+		fail(err)
+	}
 	requireCapability(cr, &Command{Path: []string{"run", "--agent"}, Needs: "agent.workspace"})
 	var budget *int64
 	if inv.Set("budget-tokens") {
@@ -104,6 +109,25 @@ func hostedRunAgent(cr hostedCreds, inv *Invocation) {
 		fmt.Println(p.Note)
 		fmt.Printf("next: ks agent open %s --session %s   (or: ks agent tell %s \"...\" --session %s)\n", agentRef, rec.ID, agentRef, rec.ID)
 	})
+}
+
+// runAgentNameRefusal checks the new names `ks run --agent` sends: the
+// session's (--name) and its primary agent's (--agent-name), each by the
+// service's rule. An omitted name is the client's own default, which passes.
+func runAgentNameRefusal(inv *Invocation) *cliError {
+	if !inv.Bool("agent") {
+		return nil
+	}
+	for _, f := range []string{"name", "agent-name"} {
+		if !inv.Set(f) {
+			continue
+		}
+		if err := newNameRefusal(inv.Str(f), "nothing was created"); err != nil {
+			err.Message = "--" + f + ": " + err.Message
+			return err
+		}
+	}
+	return nil
 }
 
 // startedWord is what the agent is, as reported: Ready only when it said so.
