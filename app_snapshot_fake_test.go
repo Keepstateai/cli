@@ -36,7 +36,7 @@ const (
 	snapRecovRec  = "session_rec2"
 	snapNewRec    = "session_new1"
 	snapPlainID   = "697ca7f1a5df"
-	snapDisclose  = "resuming starts the session's runtime again, and runtime is charged from the moment it runs; the session's usage shows the standing"
+	snapDisclose  = "resuming starts the session's machine again, and runtime is charged from the moment it runs; the session's usage shows what has been charged so far"
 	snapParkNote  = "the session is saved and stopped. Opening did not wake it; nothing runs and no runtime is charged until you resume it"
 	snapFundsNote = "the account's credits ran out, so the session was saved and paused (never killed); nothing runs and nothing is charged until it is resumed"
 )
@@ -167,7 +167,7 @@ func (c *snapCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"advisers":        map[string]any{"connections": 0, "waiting_consultations": 0, "effect": "withdrawn"},
 			"branches":        map[string]any{"surviving_children": 0, "effect": "forks are separate sessions and are not deleted"},
 			"runtime_cleanup": "the fleet session agentsession0000 is stopped for good by a cleanup operation recorded in the deletion's own commit",
-			"cost":            "no charge for the deletion; retained storage continues to meter under the policy until account deletion",
+			"cost":            "no charge for the deletion",
 			"erasure":         map[string]any{"expected": "complete", "why": "no surviving fork or parent shares this session's content"},
 			"retention":       map[string]any{"checkpoint_content": "erased with the session unless a preservation ruling covers it"},
 		}})

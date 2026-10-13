@@ -26,7 +26,7 @@ func words(s string) string {
 // no line is wider than asked, and a colour open at a break is closed at
 // the end of the line and opened again on the next.
 func TestAppWrapNeverCutsProse(t *testing.T) {
-	text := "resuming starts the session's runtime again, and runtime is charged from the moment it runs; the session's usage shows the standing"
+	text := "resuming starts the session's machine again, and runtime is charged from the moment it runs; the session's usage shows what has been charged so far"
 	for _, width := range []int{20, 33, 60, 200} {
 		lines := wrapText(text, width)
 		for _, l := range lines {
