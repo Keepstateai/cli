@@ -46,7 +46,7 @@ func TestSessionDeletionReportsStopAndContentApart(t *testing.T) {
 	bin, cfg := buildAndAuth(t, srv)
 	env := fastEnv(cfg)
 	out, _, code := auditExec(t, bin, cfg, t.TempDir(), env, "session", "delete", "fleetdel", "--plan")
-	if code != 0 || !strings.Contains(out, "NOTHING was deleted") || !strings.Contains(out, "--execute dplan_1") || len(deletes) != 0 {
+	if code != 0 || !strings.Contains(out, "Nothing has been deleted") || !strings.Contains(out, "--execute dplan_1") || len(deletes) != 0 {
 		t.Fatalf("plan: %d\n%s", code, out)
 	}
 	for _, args := range [][]string{{"--execute", "dplan_1"}, {"--execute", "dplan_1", "--yes"}, {"--execute", "dplan_1", "--confirm", "other"}} {

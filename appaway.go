@@ -8,7 +8,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,7 +64,8 @@ func markSeen(cr hostedCreds, agentID string, seq int64) {
 }
 
 // awaySummary sums up the events after `since` (up to what the window
-// resumes from) and what waits now. Empty when nothing happened.
+// resumes from) and what waits now, as a card kept in the conversation.
+// Empty when nothing happened.
 func awaySummary(events []journalEvent, since int64, waiting int, sinceAt string) string {
 	finished, failed, results, said := 0, 0, 0, 0
 	for _, e := range events {
@@ -90,34 +90,31 @@ func awaySummary(events []journalEvent, since int64, waiting int, sinceAt string
 			said++
 		}
 	}
-	var parts []string
-	plural := func(n int, one, many string) string {
-		if n == 1 {
-			return "1 " + one
-		}
-		return fmt.Sprintf("%d %s", n, many)
+	var rows []string
+	row := func(icon string, tn tone, text string) {
+		rows = append(rows, th.toned(tn, icon)+" "+text)
 	}
 	if finished > 0 {
-		parts = append(parts, plural(finished, "instruction finished", "instructions finished"))
+		row(iconDone, toneOK, plural(finished, "instruction finished", "instructions finished"))
 	}
 	if failed > 0 {
-		parts = append(parts, plural(failed, "did not finish", "did not finish"))
+		row(iconFailed, toneBad, plural(failed, "did not finish", "did not finish"))
 	}
 	if results > 0 {
-		parts = append(parts, plural(results, "result", "results")+" (/results)")
+		row(iconResult, toneNeutral, plural(results, "result", "results")+th.dim(" (/results)"))
 	}
 	if said > 0 && finished == 0 && failed == 0 {
-		parts = append(parts, plural(said, "message from the agent", "messages from the agent"))
+		row(iconState, toneDim, plural(said, "message from the agent", "messages from the agent"))
 	}
 	if waiting > 0 {
-		parts = append(parts, plural(waiting, "permission request waits for you", "permission requests wait for you"))
+		row(iconNeedsYou, toneWarn, th.warn(plural(waiting, "permission request waits for you", "permission requests wait for you")))
 	}
-	if len(parts) == 0 {
+	if len(rows) == 0 {
 		return ""
 	}
-	when := ""
+	c := card{title: "While you were away", tone: toneNeutral, rows: rows}
 	if t, err := time.Parse(time.RFC3339, sinceAt); err == nil {
-		when = " (since " + t.Local().Format("Jan 2 15:04") + ")"
+		c.lines = []string{th.dim("Since you last looked, " + t.Local().Format("Jan 2 15:04") + ":")}
 	}
-	return "While you were away" + when + ": " + strings.Join(parts, " · ")
+	return strings.Join(c.render(appTerminalWidth()), "\n")
 }

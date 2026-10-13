@@ -260,9 +260,10 @@ func appTerminalWidth() int {
 // screen owns the bottom of the terminal. Every write goes through it, so
 // the live region is never torn by a line printed from another goroutine.
 type screen struct {
-	mu    sync.Mutex
-	w     io.Writer
-	width func() int
+	mu     sync.Mutex
+	w      io.Writer
+	width  func() int
+	height func() int
 
 	// the live region, top to bottom: box, rule, input, status
 	box    []string
@@ -285,7 +286,7 @@ type screen struct {
 }
 
 func newScreen(w io.Writer) *screen {
-	return &screen{w: w, width: appTerminalWidth, prompt: "> "}
+	return &screen{w: w, width: appTerminalWidth, height: appTerminalHeight, prompt: "> "}
 }
 
 // erase removes the live region, leaving the cursor at the start of where
@@ -349,6 +350,17 @@ func (s *screen) draw() {
 	}
 	if len(rows) == 0 {
 		rows = append(rows, "")
+	}
+	// the region never grows past the terminal's height: moving back up over
+	// rows that scrolled away cannot erase them. The top goes first; the
+	// input and the keys stay.
+	if s.height != nil {
+		if over := len(rows) - (s.height() - 1); over > 0 && over < len(rows) {
+			rows = rows[over:]
+			if inputRow >= 0 {
+				inputRow = max(0, inputRow-over)
+			}
+		}
 	}
 	for i, r := range rows {
 		if i > 0 {

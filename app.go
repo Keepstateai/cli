@@ -1,13 +1,25 @@
 package main
 
-// app.go: `ks` with no arguments, at a terminal, is an app you stay in
-// (phase 1 of the app plan): a home screen of your agents, and an agent's
-// window with the conversation scrolling above, an input line, inline
-// permission prompts and a status line below. Everything it does goes
-// through the same machinery as the commands -- the control lease, fresh
-// submission ids recorded before sending, the shown-then-decided approval
-// rule, the cancel route for an interrupt -- so the app promises nothing the
-// commands would not.
+// app.go: `ks` with no arguments, at a terminal, is an app you stay in: a
+// home screen of your agents, and an agent's window with the conversation
+// scrolling above, an input line, inline permission prompts and a status
+// line below. Everything it does goes through the same machinery as the
+// commands -- the control lease, fresh submission ids recorded before
+// sending, the shown-then-decided approval rule, the cancel route for an
+// interrupt -- so the app promises nothing the commands would not.
+//
+// How it looks is one system (appui.go, docs/app-design.md): a screen that
+// is a STATE (your agents, a paused session, a session that needs attention,
+// a permission request) is a titled card in the live region at the bottom
+// while it is current, and goes away when it is not; the scrollback keeps
+// what is worth keeping -- the conversation, outcomes, errors.
+//
+// The files: app.go (the app and its home screen), appnew.go (a new agent),
+// appwindow.go (an agent's window), appstates.go (a session that is not
+// running, the permission card, the status line), appconfirm.go (confirm
+// cards for what changes or removes something), appui.go (the components),
+// apptheme.go (colour), appterm.go (keys and the screen), appslash.go (every
+// ks command as a / command), appaway.go (while you were away).
 //
 // Keys: Enter sends; Esc interrupts the instruction in flight; y / n / d
 // answer a permission prompt when the input is empty; Ctrl-C clears the
@@ -15,15 +27,11 @@ package main
 // working; /help lists the / commands.
 
 import (
-	"encoding/json"
 	"fmt"
-	"net/url"
 	"os"
 	"os/signal"
 	"sort"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -31,6 +39,10 @@ import (
 // appSink, when set, receives every progress and emitted line, so nothing
 // printed while the app runs tears its screen.
 var appSink func(string)
+
+// appFlash, when set (an agent's window is open), shows a short note under
+// the input that goes away by itself, for what is not worth keeping.
+var appFlash func(string)
 
 // appWanted: bare ks opens the app only at an interactive terminal, and
 // never for a script, a pipe, --json or --no-input.
@@ -81,10 +93,12 @@ func hostedApp(cr hostedCreds) {
 	go readKeys(os.Stdin, keys)
 
 	scr.Print(strings.Join(appWelcome(cr, appTerminalWidth()), "\n"))
+	last := "" // the agent opened last: home selects it again
 	for {
-		row, act := appHome(cr, scr, keys)
+		row, act := appHome(cr, scr, keys, last)
 		switch act {
 		case appQuit:
+			scr.Print(dimNotice(iconState, toneDim, "Left the app. Your agents keep working; run ks to come back.", appTerminalWidth()))
 			exit(exitOK)
 		case appNew:
 			r, ok := appNewSession(cr, scr, keys)
@@ -93,8 +107,12 @@ func hostedApp(cr hostedCreds) {
 			}
 			row = r
 		}
-		if row != nil && appAgent(cr, scr, keys, row.sess, *row.agent) {
-			exit(exitOK)
+		if row != nil {
+			last = row.agent.ID
+			if appAgent(cr, scr, keys, row.sess, *row.agent) {
+				scr.Print(dimNotice(iconState, toneDim, "Left the app. Your agents keep working; run ks to come back.", appTerminalWidth()))
+				exit(exitOK)
+			}
 		}
 	}
 }
@@ -117,23 +135,14 @@ func loadHome(cr hostedCreds) ([]homeRow, error) {
 			rows = append(rows, homeRow{sess: s})
 			continue
 		}
-		sort.Slice(agents, func(i, j int) bool { return agents[i].IsPrimary && !agents[j].IsPrimary })
+		sort.SliceStable(agents, func(i, j int) bool { return agents[i].IsPrimary && !agents[j].IsPrimary })
 		for i := range agents {
 			a := agents[i]
 			rows = append(rows, homeRow{sess: s, agent: &a})
 		}
 	}
 	// agents that need you first, then the other agents, plain sessions last
-	rank := func(r homeRow) int {
-		switch {
-		case r.agent != nil && needsYou(r.agent.Activity):
-			return 0
-		case r.agent != nil:
-			return 1
-		}
-		return 2
-	}
-	sort.SliceStable(rows, func(i, j int) bool { return rank(rows[i]) < rank(rows[j]) })
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].rank() < rows[j].rank() })
 	return rows, nil
 }
 
@@ -146,82 +155,266 @@ func needsYou(activity string) bool {
 	return false
 }
 
-func homeLine(r homeRow, selected bool, width int) string {
-	mark := "  "
-	if selected {
-		mark = th.accent("❯") + " "
+// sessionState is the row's session as far as anything says it is not
+// running: the agent's own session_runtime first (it is present exactly when
+// the session is not running), then the inventory's word. running is true
+// only when nothing says otherwise.
+func (r homeRow) sessionState() (state string, funds, running bool) {
+	if r.agent != nil && r.agent.SessionRuntime != nil {
+		rt := r.agent.SessionRuntime
+		return rt.State, rt.funds(), rt.State == "running"
 	}
-	var s string
-	if r.agent == nil {
-		s = mark + th.dim(fmt.Sprintf("%-16s plain session %s · %s · no agent (ks attach %s)", "–", r.sess.ShortID,
-			stateLabel("session_runtime", r.sess.RuntimeState), r.sess.ShortID))
-	} else {
-		age, _ := agentAge(*r.agent, time.Now())
-		flag := "  "
-		if needsYou(r.agent.Activity) {
-			flag = th.warn("⚑") + " "
-		}
-		name := fmt.Sprintf("%-14s", fitWidth(r.agent.Name, 14))
-		if selected {
-			name = th.accentBold(name)
-		} else {
-			name = th.bold(name)
-		}
-		s = mark + flag + name + " " + th.dim(r.sess.ShortID+" · "+fitWidth(r.sess.Name, 24)+" · ") +
-			th.activityColor(r.agent.Activity, stateLabel("agent_activity", r.agent.Activity)) + th.dim(" · "+age)
+	if rowFundsParked(r.sess) {
+		return "parked", true, false
 	}
-	return fitWidth(s, width)
+	st := r.sess.RuntimeState
+	return st, false, st == "running" || st == ""
 }
 
-// appWelcome is the app's first screen: what it is, the three keys a
-// person needs first, and which service it talks to.
+// rowNeedsYou: the agent waits on a person, or its session is paused because
+// the account ran out of credit (adding credit is for a person to do).
+func (r homeRow) rowNeedsYou() bool {
+	if r.agent == nil {
+		return false
+	}
+	_, funds, running := r.sessionState()
+	return funds || (running && needsYou(r.agent.Activity))
+}
+
+func (r homeRow) rank() int {
+	switch {
+	case r.rowNeedsYou():
+		return 0
+	case r.agent != nil:
+		return 1
+	}
+	return 2
+}
+
+// sessLabel names a session as the list does: its name and its listed id.
+func sessLabel(s inventoryRow) string {
+	name := sanitize(s.Name)
+	if name == "" || name == s.ShortID {
+		return s.ShortID
+	}
+	return name + " · " + s.ShortID
+}
+
+// homeState is a row's state cell: an icon and words that carry the meaning
+// without colour (a paused session reads Paused, never its agent's frozen
+// last word), and the tone it is drawn in.
+func homeState(r homeRow) (icon string, word string, tn tone) {
+	state, funds, running := r.sessionState()
+	switch {
+	case r.agent == nil:
+		return iconNoAgent, sessionWord(state, ""), toneDim
+	case funds:
+		return iconPaused, "Out of credit", toneWarn
+	case !running && (state == "parked" || state == "stopping" || state == "checkpointing"):
+		return iconPaused, sessionWord(state, ""), toneWarn
+	case !running && (state == "failed" || state == "dead" || state == "recovery_required"):
+		return iconFailed, "Session " + strings.ToLower(sessionWord(state, "")), toneBad
+	case !running:
+		return iconState, "Session " + strings.ToLower(sessionWord(state, "")), toneDim
+	case r.agent.Activity == "failed":
+		return iconFailed, activityWord(r.agent.Activity), toneBad
+	case r.agent.Activity == "recovery_required": // it stopped mid-way: a failure that waits on you
+		return iconNeedsYou, activityWord(r.agent.Activity), toneBad
+	case needsYou(r.agent.Activity):
+		return iconNeedsYou, activityWord(r.agent.Activity), toneWarn
+	}
+	a := r.agent.Activity
+	switch {
+	case a == "working" || a == "starting" || a == "running_tool" || a == "waiting_provider":
+		return iconState, activityWord(a), toneNeutral
+	case a == "ready":
+		return iconState, activityWord(a), toneOK
+	}
+	return iconState, activityWord(a), toneDim
+}
+
+// homeColumns are the list's column widths for a card of inner width.
+func homeColumns(inner int) (name, sess, state int) {
+	if inner >= 88 {
+		return 14, 26, 24
+	}
+	return 12, 20, 22
+}
+
+// homeLine is one row of the list: the selection mark, the state's icon, the
+// agent's name, its session, its state in words and how old that report is.
+func homeLine(r homeRow, selected bool, width int) string {
+	inner := cardWidth(width) - 4
+	nw, sw, stw := homeColumns(inner)
+	mark := "  "
+	if selected {
+		mark = th.accent(iconSelected) + " "
+	}
+	icon, word, tn := homeState(r)
+	if r.agent == nil {
+		name := cell(sanitize(firstNonEmpty(r.sess.Name, r.sess.ShortID)), nw)
+		sess := ""
+		if r.sess.Name != "" && r.sess.Name != r.sess.ShortID {
+			sess = r.sess.ShortID
+		}
+		if selected {
+			name = th.accentBold(name)
+		}
+		return mark + th.dim(icon) + " " + name + "  " + th.dim(cell(sess, sw)) + "  " + th.dim(cell(word, stw))
+	}
+	name := cell(sanitize(r.agent.Name), nw)
+	if selected {
+		name = th.accentBold(name)
+	} else {
+		name = th.bold(name)
+	}
+	age := ""
+	if t, err := time.Parse(time.RFC3339Nano, r.agent.ObservedAt); err == nil {
+		age = shortDuration(max(0, time.Since(t))) + " ago"
+	}
+	line := mark + th.toned(tn, icon) + " " + name + "  " + th.dim(cell(sessLabel(r.sess), sw)) + "  " +
+		th.toned(tn, cell(word, stw)) + "  " + th.dim(age)
+	return fitWidth(line, inner)
+}
+
+// homeList lays the rows out in groups -- needs you, agents, sessions
+// without agents -- and answers the list's lines and the line the selected
+// row is on.
+func homeList(rows []homeRow, sel, width int) ([]string, int) {
+	var out []string
+	selLine := 0
+	group := -1
+	for i, r := range rows {
+		if g := r.rank(); g != group {
+			if group >= 0 {
+				out = append(out, "")
+			}
+			group = g
+			switch g {
+			case 0:
+				out = append(out, th.tonedBold(toneWarn, "Needs you"))
+			case 1:
+				out = append(out, th.bold("Agents"))
+			default:
+				out = append(out, th.dim("Sessions without agents"))
+			}
+		}
+		if i == sel {
+			selLine = len(out)
+		}
+		out = append(out, homeLine(r, i == sel, width))
+	}
+	return out, selLine
+}
+
+// homeCard is the home screen: the list, kept within the terminal's height
+// (a long list scrolls with the selection, saying how much is above and
+// below), and the keys.
+func homeCard(rows []homeRow, sel int, problem string, width, height int) card {
+	c := card{title: "Your agents", tone: toneNeutral,
+		actions: [][2]string{{"↑↓", "choose"}, {"Enter", "open"}, {"n", "new agent"}, {"r", "refresh"}, {"q", "quit"}}}
+	agents := 0
+	for _, r := range rows {
+		if r.agent != nil {
+			agents++
+		}
+	}
+	if agents == 0 && problem == "" {
+		c.head = "You have no agents yet."
+		c.lines = []string{"Press n to start one. It runs in a session of its own and keeps working when you leave."}
+	}
+	list, selLine := homeList(rows, sel, width)
+	room := max(4, height-9) // the card's border, actions and the status line
+	if len(list) > room {
+		start := max(0, min(selLine-room/2, len(list)-room))
+		above, below := start, len(list)-start-room
+		list = list[start : start+room]
+		if above > 0 {
+			list = append([]string{th.dim(fmt.Sprintf("  ↑ %d more", above))}, list[1:]...)
+		}
+		if below > 0 {
+			list = append(list[:len(list)-1], th.dim(fmt.Sprintf("  ↓ %d more", below)))
+		}
+	}
+	c.rows = list
+	c.err = problem
+	return c
+}
+
+// appWelcome is the app's first screen: what it is, and which service it
+// talks to.
 func appWelcome(cr hostedCreds, width int) []string {
-	w := min(width, 64)
+	w := cardWidth(width)
 	lines := []string{
-		th.accent("✻") + " " + th.bold("Welcome to KeepState"),
+		th.accent(iconApp) + " " + th.bold("Welcome to KeepState"),
+		"  Your agents keep working when you leave.",
 		"",
-		"  " + th.dim("agents keep working when you leave"),
-		"  " + th.dim("/help for commands · n starts an agent · q quits"),
-		"",
-		"  " + th.dim("service: ") + sanitize(cr.CTL),
+		"  " + th.dim("Service") + "   " + sanitize(cr.CTL),
 	}
 	return append(roundedBox(lines, w, "", th.accent), "")
 }
 
-func appHome(cr hostedCreds, scr *screen, keys <-chan keyEvent) (*homeRow, appAction) {
+func appHome(cr hostedCreds, scr *screen, keys <-chan keyEvent, last string) (*homeRow, appAction) {
+	scr.update(func() {
+		scr.box, scr.prompt, scr.input, scr.cursor, scr.hint = nil, "", nil, 0, ""
+		scr.status, scr.spin = th.accent(iconState)+" Reading your agents…", true
+	})
 	rows, err := loadHome(cr)
+	problem := ""
 	if err != nil {
-		scr.Print("your sessions could not be read: " + errText(err))
+		problem = "Couldn't read your agents. " + sentence(errText(err)) + " Press r to try again."
 	}
-	sel := 0
-	for sel < len(rows) && rows[sel].agent == nil {
-		sel++
+	sel := -1
+	for i, r := range rows {
+		if r.agent != nil && r.agent.ID == last {
+			sel = i
+		}
 	}
-	if sel == len(rows) {
+	if sel < 0 { // the first agent, or the first row
 		sel = 0
+		for sel < len(rows) && rows[sel].agent == nil {
+			sel++
+		}
+		if sel == len(rows) {
+			sel = 0
+		}
 	}
+	plain := false // the selected plain session's card is showing
 	render := func() {
-		width := appTerminalWidth()
-		box := []string{th.bold("Your agents:")}
-		agents := 0
-		for _, r := range rows {
-			if r.agent != nil {
-				agents++
-			}
-		}
-		if agents == 0 {
-			box = append(box, th.dim("  none yet: press n to start an agent session"))
-		}
-		for i, r := range rows {
-			box = append(box, homeLine(r, i == sel, width))
+		width, height := appTerminalWidth(), appTerminalHeight()
+		var box []string
+		if plain && sel < len(rows) {
+			box = plainSessionCard(rows[sel].sess).render(width)
+		} else {
+			box = homeCard(rows, sel, problem, width, height).render(width)
 		}
 		scr.update(func() {
-			scr.box = box
-			scr.prompt = ""
-			scr.input, scr.cursor = nil, 0
-			scr.status = ""
-			scr.hint = th.keyHints([2]string{"↑/↓", "choose"}, [2]string{"Enter", "open"}, [2]string{"n", "new agent session"}, [2]string{"r", "refresh"}, [2]string{"q", "quit"})
+			scr.box, scr.prompt, scr.input, scr.cursor, scr.hint = box, "", nil, 0, ""
+			scr.status, scr.spin = "", false
 		})
+	}
+	reload := func(spin bool) {
+		if spin {
+			scr.update(func() { scr.status, scr.spin = th.accent(iconState)+" Refreshing…", true })
+		}
+		fresh, err := loadHome(cr)
+		if err != nil {
+			if spin {
+				problem = "Couldn't refresh your agents. " + sentence(errText(err)) + " Press r to try again."
+			}
+			return
+		}
+		keep := ""
+		if sel < len(rows) && rows[sel].agent != nil {
+			keep = rows[sel].agent.ID
+		}
+		rows, problem = fresh, ""
+		sel = min(sel, max(0, len(rows)-1))
+		for i, r := range rows {
+			if keep != "" && r.agent != nil && r.agent.ID == keep {
+				sel = i
+			}
+		}
 	}
 	render()
 	tick := time.NewTicker(10 * time.Second)
@@ -229,19 +422,27 @@ func appHome(cr hostedCreds, scr *screen, keys <-chan keyEvent) (*homeRow, appAc
 	for {
 		select {
 		case <-tick.C:
-			if fresh, err := loadHome(cr); err == nil {
-				rows = fresh
-				if sel >= len(rows) {
-					sel = len(rows) - 1
-				}
-				if sel < 0 {
-					sel = 0
-				}
+			if !plain {
+				reload(false)
 				render()
 			}
 		case k, ok := <-keys:
 			if !ok {
 				return nil, appQuit
+			}
+			if plain { // the plain session's card: n starts an agent, anything else goes back
+				switch {
+				case k.kind == keyRune && (k.r == 'n' || k.r == 'N'):
+					scr.setBox(nil)
+					return nil, appNew
+				case k.kind == keyCtrlC, k.kind == keyCtrlD:
+					scr.setBox(nil)
+					return nil, appQuit
+				case k.kind == keyEsc, k.kind == keyEnter, k.kind == keyLeft, k.kind == keyRune && (k.r == 'q' || k.r == 'Q'):
+					plain = false
+				}
+				render()
+				continue
 			}
 			switch {
 			case k.kind == keyUp || (k.kind == keyRune && k.r == 'k'):
@@ -252,6 +453,10 @@ func appHome(cr hostedCreds, scr *screen, keys <-chan keyEvent) (*homeRow, appAc
 				if sel < len(rows)-1 {
 					sel++
 				}
+			case k.kind == keyHome:
+				sel = 0
+			case k.kind == keyEnd:
+				sel = max(0, len(rows)-1)
 			case k.kind == keyRune && (k.r == 'q' || k.r == 'Q'), k.kind == keyCtrlC, k.kind == keyCtrlD:
 				scr.setBox(nil)
 				return nil, appQuit
@@ -259,20 +464,15 @@ func appHome(cr hostedCreds, scr *screen, keys <-chan keyEvent) (*homeRow, appAc
 				scr.setBox(nil)
 				return nil, appNew
 			case k.kind == keyRune && (k.r == 'r' || k.r == 'R'):
-				if fresh, err := loadHome(cr); err == nil {
-					rows = fresh
-					sel = 0
-				} else {
-					scr.Print("your sessions could not be read: " + errText(err))
-				}
+				reload(true)
 			case k.kind == keyEnter:
 				if len(rows) == 0 {
 					continue
 				}
 				r := rows[sel]
 				if r.agent == nil {
-					scr.Print(th.dim(fmt.Sprintf("%s is a plain session: it has no agents. Its terminal: ks attach %s (outside the app). For an agent: press n.", r.sess.ShortID, r.sess.ShortID)))
-					continue
+					plain = true
+					break
 				}
 				scr.setBox(nil)
 				return &r, appOpen
@@ -282,795 +482,17 @@ func appHome(cr hostedCreds, scr *screen, keys <-chan keyEvent) (*homeRow, appAc
 	}
 }
 
-// ask reads one line in the input row with a prompt; Esc or Ctrl-C cancels.
-func ask(scr *screen, keys <-chan keyEvent, prompt, status string) (string, bool) {
-	scr.update(func() {
-		scr.box, scr.prompt, scr.input, scr.cursor, scr.hint, scr.status = nil, prompt, nil, 0, "", status
-	})
-	for k := range keys {
-		switch k.kind {
-		case keyEnter:
-			return strings.TrimSpace(scr.take()), true
-		case keyEsc, keyCtrlC:
-			scr.take()
-			return "", false
-		case keyPaste:
-			scr.update(func() {
-				for _, r := range strings.ReplaceAll(k.text, "\n", " ") {
-					scr.input = append(scr.input, r)
-				}
-				scr.cursor = len(scr.input)
-			})
-		default:
-			scr.edit(k)
-		}
+// plainSessionCard says what a plain session is and how to reach it.
+func plainSessionCard(s inventoryRow) card {
+	return card{title: "Plain session", tone: toneNeutral, icon: iconNoAgent,
+		head: "Session " + s.ShortID + " has no agents.",
+		lines: []string{"It was started without one (ks run without --agent), so there is nothing to open in the app. " +
+			"Its terminal opens outside the app with ks attach."},
+		facts: []cardFact{
+			{"Session", sessLabel(s)},
+			{"State", sessionWord(s.RuntimeState, s.ParkReason)},
+			{"Terminal", "ks attach " + s.ShortID},
+		},
+		actions: [][2]string{{"n", "start an agent in a new session"}, {"Esc", "back"}},
 	}
-	return "", false
-}
-
-func appNewSession(cr hostedCreds, scr *screen, keys <-chan keyEvent) (*homeRow, bool) {
-	name, ok := ask(scr, keys, "new agent session · the agent's name [main]: ", "Enter to start · Esc to go back")
-	if !ok {
-		return nil, false
-	}
-	if name == "" {
-		name = "main"
-	}
-	if err := newNameRefusal(name, "nothing was created"); err != nil {
-		scr.Print(err.Message)
-		return nil, false
-	}
-	keyArg := ""
-	for {
-		scr.update(func() { scr.status = "starting a machine for " + name + " … (this takes a few seconds)" })
-		rec, p, _, err := startAgentSession(cr, "", name, keyArg, nil)
-		if err != nil {
-			ce := classify(err)
-			scr.Print("not started: " + ce.Message)
-			if ce.Kind == "key_ambiguous" {
-				k, ok := ask(scr, keys, "the key this agent calls with (id): ", "Enter to use it · Esc to go back")
-				if ok && k != "" {
-					keyArg = k
-					continue
-				}
-			}
-			return nil, false
-		}
-		if !p.Ready && !p.Supervised {
-			scr.Print("the agent did not start: " + p.Note)
-			return nil, false
-		}
-		// the session as ks session list shows it: its id there is the one a
-		// person sees everywhere else, never one derived from the record id
-		sess := inventoryRow{ID: rec.ID, RecordID: rec.ID, ShortID: rec.ID, Name: rec.ID, RuntimeState: "running"}
-		if inv, err := fetchInventory(cr, "", false); err == nil {
-			for _, r := range inv {
-				if r.RecordID == rec.ID {
-					sess = r
-					break
-				}
-			}
-		}
-		scr.Print(fmt.Sprintf("agent %s is %s in session %s", name, startedWord(p), sess.ShortID))
-		a := agentRow{ID: p.AgentID, Name: name, SessionID: rec.ID, IsPrimary: true}
-		return &homeRow{sess: sess, agent: &a}, true
-	}
-}
-
-// ---- the agent's window -----------------------------------------------------------
-
-// appSystemLine is how a line the commands print (progress, an outcome, a
-// refusal) reads in the app: grey, so the conversation stands out; a refusal
-// red and the next step amber.
-func appSystemLine(l string) string {
-	t := strings.TrimSpace(l)
-	switch {
-	case strings.HasPrefix(t, "refused:") || strings.HasPrefix(t, "error:"):
-		return th.bad(l)
-	case strings.HasPrefix(t, "Next:"):
-		return th.warn(l)
-	}
-	return th.dim(l)
-}
-
-// appWindowHint is the grey line under the input: what the keys do.
-func appWindowHint() string {
-	return th.keyHints([2]string{"Enter", "send"}, [2]string{"Esc", "interrupt"}, [2]string{"Ctrl-C ×2", "leave (the agent keeps working)"}, [2]string{"/help", "commands"})
-}
-
-// appWindowHeader opens an agent's conversation: a rule carrying the agent's
-// name and its session.
-func appWindowHeader(name string, sess inventoryRow, width int) string {
-	head := th.accentBold("── "+name) + th.dim(fmt.Sprintf(" · session %s (%s) ", sess.ShortID, sanitize(sess.Name)))
-	return "\n" + head + th.subtle(strings.Repeat("─", max(2, width-displayWidth(head))))
-}
-
-// appAgent runs one agent's window; it answers true when the person asked to
-// leave the app altogether, false to go back home.
-func appAgent(cr hostedCreds, scr *screen, keys <-chan keyEvent, sess inventoryRow, a agentRow) bool {
-	w, err := openAgent(cr, sess, a, false)
-	if err != nil {
-		scr.Print("could not open " + a.Name + ": " + errText(err))
-		return false
-	}
-	if w.Runtime != nil && !w.Runtime.Running {
-		return appParked(cr, scr, keys, sess, a, w)
-	}
-	if w.Recovery != nil {
-		scr.Print(fmt.Sprintf("agent %s reads %s: %s", a.Name, stateLabel("agent_activity", w.Recovery.Activity), sanitize(w.Recovery.Note)))
-		for _, ac := range w.Recovery.Actions {
-			scr.Print("  " + sanitize(ac.Label))
-		}
-		return false
-	}
-	scr.Print(appWindowHeader(a.Name, sess, appTerminalWidth()))
-	appBacklog(cr, scr, sess, a, w.Resume.AfterSeq)
-	markSeen(cr, a.ID, w.Resume.AfterSeq)
-	win := &liveWindow{sess: sess, agent: a, lease: w.Lease, app: true}
-	if _, held := win.hold(); !held {
-		scr.Print(th.warn("another window controls this agent: you are watching. /take takes control."))
-	}
-	go win.renew(cr)
-
-	var leaving atomic.Bool
-	var othersNeed atomic.Int64
-	go func() { // other agents that need you, every 15 s
-		for !leaving.Load() {
-			if rows, err := loadHome(cr); err == nil {
-				n := int64(0)
-				for _, r := range rows {
-					if r.agent != nil && r.agent.ID != a.ID && needsYou(r.agent.Activity) {
-						n++
-					}
-				}
-				othersNeed.Store(n)
-			}
-			for i := 0; i < 15 && !leaving.Load(); i++ {
-				time.Sleep(time.Second)
-			}
-		}
-	}()
-	var mu sync.Mutex
-	var shown []approvalRow // the prompt on screen, as recorded shown
-	refresh := func() {
-		v, err := fetchLiveView(cr, a.ID)
-		pending, perr := fetchPendingApprovals(cr, agentSessionID(sess))
-		if leaving.Load() {
-			return
-		}
-		if err == nil {
-			_, held := win.hold()
-			line := appStatusLine(v, held)
-			if n := othersNeed.Load(); n > 0 {
-				line = th.warn(fmt.Sprintf("⚑ %d other agent(s) need you (/switch)", n)) + th.dim(" · ") + line
-			}
-			scr.setStatus(line)
-			scr.setSpin(v.Header.Activity == "working" || v.Header.Activity == "starting")
-		}
-		if perr == nil {
-			mu.Lock()
-			shown = pending
-			mu.Unlock()
-			if len(pending) > 0 {
-				rememberShown(cr, pending) // what is on screen is what a decision must match
-			}
-			scr.setBox(approvalBox(pending, appTerminalWidth()))
-		}
-	}
-	go func() {
-		t := time.NewTicker(3 * time.Second)
-		defer t.Stop()
-		refresh()
-		for range t.C {
-			if leaving.Load() {
-				return
-			}
-			refresh()
-		}
-	}()
-	go func() {
-		_ = streamEvents(cr, agentSessionID(sess), w.Resume.AfterSeq, func(kind string, data []byte) bool {
-			if leaving.Load() {
-				return true
-			}
-			if kind == "event" {
-				var e journalEvent
-				if json.Unmarshal(data, &e) == nil {
-					markSeen(cr, a.ID, e.StreamSeq)
-					if line, ok := appEventLine(e, a.Name, cr.AccountID); ok {
-						scr.Print(line)
-					}
-					for _, l := range recoveryScreenFor(e, a.Name, sess.ShortID) {
-						scr.Print(l)
-					}
-					if isApprovalEvent(e) {
-						go refresh()
-					}
-				}
-			}
-			return kind == "end"
-		})
-	}()
-
-	scr.update(func() {
-		scr.prompt, scr.input, scr.cursor = "> ", nil, 0
-		scr.hint = appWindowHint()
-		scr.suggest = func(in string) []string { return slashSuggestions(in, 6) }
-	})
-	leave := func() {
-		leaving.Store(true)
-		// stop the renewal loop FIRST (lose), then release: a renewal racing
-		// the release would otherwise report control lost after leaving
-		l, held := win.hold()
-		win.lose("left the window")
-		if held {
-			_ = hostedMutate(cr, "DELETE", "/api/v2/control-leases/"+url.PathEscape(l.ID), nil, nil)
-		}
-		scr.update(func() { scr.box, scr.hint, scr.status, scr.suggest, scr.spin = nil, "", "", nil, false })
-		scr.Print(th.dim(fmt.Sprintf("left %s; it keeps working", a.Name)))
-	}
-	var history []string
-	hpos := 0
-	heldKs := "" // a ks command typed as an instruction, held back once
-	var ctrlCArmed time.Time
-	var running atomic.Bool
-	var cancel chan struct{}
-	for k := range keys {
-		switch k.kind {
-		case keyEnter:
-			text := scr.take()
-			if strings.TrimSpace(text) == "" {
-				continue
-			}
-			history = append(history, text)
-			hpos = len(history)
-			if strings.HasPrefix(strings.TrimSpace(text), "/") {
-				line := strings.TrimSpace(text)
-				name := strings.Fields(strings.TrimPrefix(line, "/"))
-				if len(name) > 1 && name[0] == "help" && !strings.HasPrefix(name[1], "-") {
-					// /help agent stop is /agent stop --help
-					line = "/" + strings.Join(name[1:], " ") + " --help"
-					name = append(name[1:], "--help")
-				}
-				if len(name) > 0 && windowCommands[name[0]] && hasHelp(name[1:]) {
-					scr.Print(windowCommandHelp(name[0]))
-					continue
-				}
-				if len(name) > 0 && name[0] == "switch" {
-					if len(name) < 2 {
-						scr.Print("/switch <agent> [session]: open another of your agents; /agents lists this session's")
-						continue
-					}
-					hint := ""
-					if len(name) > 2 {
-						hint = name[2]
-					}
-					target, err := appFindAgent(cr, sess, name[1], hint)
-					if err != nil {
-						scr.Print(err.Error())
-						continue
-					}
-					leave()
-					return appAgent(cr, scr, keys, target.sess, *target.agent)
-				}
-				if len(name) > 0 && !windowCommands[name[0]] {
-					if running.Load() {
-						scr.Print("a command is still running; Ctrl-C stops it")
-						continue
-					}
-					argv, _, err := slashArgv(line, slashContext{sessionID: agentSessionID(sess), agentName: a.Name})
-					if err != nil {
-						scr.Print(th.warn(err.Error()))
-						continue
-					}
-					cancel = make(chan struct{})
-					running.Store(true)
-					scr.setHint(th.accent("running") + th.dim(" ks "+strings.Join(argv, " ")+" · ") + th.keyHints([2]string{"Ctrl-C", "stops it"}))
-					go func(argv []string, c chan struct{}) {
-						runSlash(scr, argv, c)
-						running.Store(false)
-						scr.setHint(appWindowHint())
-						go refresh()
-					}(argv, cancel)
-					continue
-				}
-				switch appSlash(cr, scr, win, a, line) {
-				case slashHome:
-					leave()
-					return false
-				case slashQuit:
-					leave()
-					return true
-				case slashTake:
-					leave()
-					return appAgentTake(cr, scr, keys, sess, a)
-				}
-				continue
-			}
-			if slash, ok := looksLikeKsCommand(text); ok && text != heldKs {
-				heldKs = text
-				scr.Print(th.info(fmt.Sprintf("%q is a ks command, not an instruction: run it here as %s. Nothing was sent to %s; Enter again sends it to %s as written", strings.TrimSpace(text), slash, a.Name, a.Name)))
-				continue
-			}
-			heldKs = ""
-			scr.Print("\n" + th.dim(fmt.Sprintf("%-6s", "you")) + " " + strings.ReplaceAll(sanitize(text), "\n", "\n       "))
-			go win.submitFresh(cr, text)
-		case keyPaste:
-			scr.update(func() {
-				for _, r := range k.text {
-					scr.input = append(scr.input[:scr.cursor], append([]rune{r}, scr.input[scr.cursor:]...)...)
-					scr.cursor++
-				}
-			})
-		case keyEsc:
-			go win.interrupt(cr)
-		case keyTab:
-			in := ""
-			scr.mu.Lock()
-			in = string(scr.input)
-			scr.mu.Unlock()
-			done, cands := completeSlash(in)
-			if len(cands) > 1 {
-				shown := cands
-				if len(shown) > 24 {
-					shown = append(shown[:24:24], fmt.Sprintf("… %d more", len(cands)-24))
-				}
-				scr.Print("  /" + strings.Join(shown, "  /"))
-			}
-			scr.update(func() { scr.input, scr.cursor = []rune(done), len([]rune(done)) })
-		case keyCtrlC, keyCtrlD:
-			if running.Load() && cancel != nil {
-				close(cancel)
-				cancel = nil
-				scr.Print("  stopping the command…")
-				continue
-			}
-			if !scr.inputEmpty() {
-				scr.take()
-				continue
-			}
-			if time.Since(ctrlCArmed) < 2*time.Second {
-				leave()
-				return false
-			}
-			ctrlCArmed = time.Now()
-			scr.setHint("press Ctrl-C again to leave " + a.Name + " (it keeps working)")
-		case keyUp:
-			if hpos > 0 {
-				hpos--
-				h := history[hpos]
-				scr.update(func() { scr.input, scr.cursor = []rune(h), len([]rune(h)) })
-			}
-		case keyDown:
-			if hpos < len(history)-1 {
-				hpos++
-				h := history[hpos]
-				scr.update(func() { scr.input, scr.cursor = []rune(h), len([]rune(h)) })
-			} else {
-				hpos = len(history)
-				scr.take()
-			}
-		case keyRune:
-			mu.Lock()
-			waiting := len(shown)
-			first := approvalRow{}
-			if waiting > 0 {
-				first = shown[0]
-			}
-			mu.Unlock()
-			if waiting > 0 && scr.inputEmpty() {
-				switch k.r {
-				case 'y', 'Y':
-					go func() { win.decide(cr, "approve", first.ID); refresh() }()
-					continue
-				case 'n', 'N':
-					go func() { win.decide(cr, "deny", first.ID); refresh() }()
-					continue
-				case 'd', 'D':
-					scr.Print(approvalHuman(first, "y approves it, n denies it"))
-					for _, f := range first.Affects {
-						scr.Print("  affects: " + sanitize(f))
-					}
-					if first.CostImplication != "" {
-						scr.Print("  cost: " + sanitize(first.CostImplication))
-					}
-					continue
-				}
-			}
-			scr.edit(k)
-		default:
-			scr.edit(k)
-		}
-	}
-	leave()
-	return true
-}
-
-func appAgentTake(cr hostedCreds, scr *screen, keys <-chan keyEvent, sess inventoryRow, a agentRow) bool {
-	if _, err := openAgent(cr, sess, a, true); err != nil {
-		scr.Print("control was not taken: " + errText(err))
-		return false
-	}
-	return appAgent(cr, scr, keys, sess, a)
-}
-
-// appParked is an agent whose session is not running: opening never wakes
-// it; r resumes it because the person asked.
-func appParked(cr hostedCreds, scr *screen, keys <-chan keyEvent, sess inventoryRow, a agentRow, w *agentWindow) bool {
-	scr.Print(fmt.Sprintf("agent %s: the session is %s and was NOT woken. %s", a.Name, stateLabel("session_runtime", w.Runtime.State), sanitize(w.Runtime.Note)))
-	resumable := false
-	for _, ac := range w.Runtime.Actions {
-		if ac.Action == "resume_session" {
-			resumable = true
-			if ac.Discloses != "" {
-				scr.Print("resuming: " + sanitize(ac.Discloses))
-			}
-		}
-	}
-	if !resumable {
-		scr.Print("this session cannot be resumed from here")
-		return false
-	}
-	scr.update(func() {
-		scr.box, scr.prompt, scr.hint, scr.status = nil, "", "", "r resume the session (billing resumes) · Esc back"
-	})
-	for k := range keys {
-		switch {
-		case k.kind == keyRune && (k.r == 'r' || k.r == 'R'):
-			r, err := postResume(cr, agentSessionID(sess))
-			if err != nil {
-				scr.Print("not resumed: " + errText(err))
-				return false
-			}
-			scr.Print(fmt.Sprintf("session %s is resuming (state: %s)", sess.ShortID, figure(r["runtime_state"])))
-			time.Sleep(2 * time.Second)
-			return appAgent(cr, scr, keys, sess, a)
-		case k.kind == keyEsc, k.kind == keyCtrlC, k.kind == keyRune && k.r == 'q':
-			return false
-		}
-	}
-	return true
-}
-
-// ---- prompt box and status line ---------------------------------------------------
-
-func approvalBox(pending []approvalRow, width int) []string {
-	if len(pending) == 0 {
-		return nil
-	}
-	ap := pending[0]
-	title := th.infoBold("Permission")
-	if len(pending) > 1 {
-		title += th.info(fmt.Sprintf(" · 1 of %d waiting", len(pending)))
-	}
-	lines := []string{th.dim("the agent wants to: ") + th.bold(sanitize(actionShown(ap)))}
-	if ap.RequestedForTask != "" {
-		lines = append(lines, th.dim("for instruction "+ap.RequestedForTask+" · expires "+figure(ap.ExpiresAt)))
-	}
-	lines = append(lines, "", th.ok("[y] allow once")+"   "+th.bad("[n] deny")+"   "+th.dim("[d] details"))
-	return roundedBox(lines, width, title, th.info)
-}
-
-func appStatusLine(v liveViewDoc, held bool) string {
-	parts := []string{}
-	if v.Status != nil {
-		st := "● " + figure(v.Status.Label)
-		switch {
-		case v.Status.Stale:
-			st += " (STALE: last known)"
-		case v.Status.AgeSeconds != nil && *v.Status.AgeSeconds > 15:
-			st += " · unchanged " + shortDuration(time.Duration(*v.Status.AgeSeconds)*time.Second)
-		}
-		parts = append(parts, st)
-	} else {
-		parts = append(parts, "● "+stateLabel("agent_activity", v.Header.Activity))
-	}
-	if v.Footer.Queued != nil {
-		parts = append(parts, fmt.Sprintf("queue %d", *v.Footer.Queued))
-	}
-	if v.Footer.PendingApprovals != nil && *v.Footer.PendingApprovals > 0 {
-		parts = append(parts, fmt.Sprintf("%d waiting for you", *v.Footer.PendingApprovals))
-	}
-	if v.Header.LastSavedAt != "" {
-		if t, err := time.Parse(time.RFC3339Nano, v.Header.LastSavedAt); err == nil {
-			parts = append(parts, "saved "+shortDuration(time.Since(t))+" ago")
-		}
-	} else {
-		parts = append(parts, "not saved yet")
-	}
-	if u := v.Usage; u != nil {
-		var tokens int64
-		for _, e := range u.Entries {
-			tokens += e.Tokens
-		}
-		switch {
-		case u.ModelSpend != nil:
-			parts = append(parts, fmt.Sprintf("model $%.2f", float64(*u.ModelSpend)/1e6))
-		case tokens > 0:
-			parts = append(parts, fmt.Sprintf("%d tokens", tokens))
-		}
-	}
-	if held {
-		parts = append(parts, "you control")
-	} else {
-		parts = append(parts, "watching")
-	}
-	// the state in its colour, the rest grey; watching and STALE stand out
-	for i, p := range parts {
-		switch {
-		case i == 0 && strings.Contains(p, "STALE"):
-			parts[i] = th.bad(p)
-		case i == 0:
-			parts[i] = th.activityColor(v.Header.Activity, p)
-		case p == "watching" || strings.HasSuffix(p, "waiting for you"):
-			parts[i] = th.warn(p)
-		default:
-			parts[i] = th.dim(p)
-		}
-	}
-	return strings.Join(parts, th.dim(" · "))
-}
-
-// ---- / commands (phase 1: the window's own; every ks command comes in phase 2) ----
-
-// appHelp is /help: what the keys do, the window's own commands, the
-// shortcuts, and how every ks command runs here, in sections.
-func appHelp(agent string) string {
-	row := func(k, what string) string {
-		return "  " + th.accent(fmt.Sprintf("%-28s", k)) + th.dim(what)
-	}
-	section := func(title string) string { return "\n" + th.bold(title) }
-	lines := []string{
-		section("Keys"),
-		row("Enter", "send what you typed to "+agent),
-		row("Esc", "interrupt its instruction in flight"),
-		row("y / n / d", "answer a permission prompt (with an empty input)"),
-		row("↑ / ↓", "your earlier lines"),
-		row("Tab", "complete a / command"),
-		row("Ctrl-C", "stop a running command; twice on an empty input leaves ("+agent+" keeps working)"),
-		section("This window"),
-		row("/status", "the agent's full state"),
-		row("/take", "take control from another window"),
-		row("/switch <agent> [session]", "open another of your agents without going home"),
-		row("/home", "back to your agents"),
-		row("/quit", "leave the app (agents keep working)"),
-		section("Shortcuts"),
-		"  " + th.accent("/stop /pause /resume /queue /tasks /results /approvals /advisers"),
-		"  " + th.accent("/usage /keys /logs /agents /checkpoints /restore /diff /apply"),
-		section("Every ks command"),
-		row("/<command> [options]", "e.g. /session checkpoints, /result diff <id>, /cruise status <job>"),
-		row("/<command> --help", "its options (or /help <command>); this session and agent are filled in"),
-		"",
-	}
-	return strings.Join(lines, "\n")
-}
-
-type slashResult int
-
-const (
-	slashStay slashResult = iota
-	slashHome
-	slashQuit
-	slashTake
-)
-
-func appSlash(cr hostedCreds, scr *screen, win *liveWindow, a agentRow, line string) slashResult {
-	f := strings.Fields(line)
-	switch f[0] {
-	case "/help":
-		scr.Print(appHelp(a.Name))
-	case "/status":
-		if v, err := fetchLiveView(cr, a.ID); err == nil {
-			scr.Print(strings.Join(viewLines(v), "\n"))
-		} else {
-			scr.Print("the agent's state could not be read: " + errText(err))
-		}
-	case "/home", "/back":
-		return slashHome
-	case "/quit", "/exit":
-		return slashQuit
-	case "/take":
-		if _, held := win.hold(); held {
-			scr.Print("you already control " + a.Name)
-			return slashStay
-		}
-		return slashTake
-	}
-	return slashStay
-}
-
-// ---- the conversation, as a chat -------------------------------------------------
-
-// appEventLine renders one journal event for the app's conversation. The
-// agent's own words are shown whole; a tool step is one short line; the
-// events the status line and the permission prompt already carry are not
-// repeated. ok false means: nothing to print. The words stay inert -- they
-// are rendered, never read as commands (the same rule as the window).
-func appEventLine(e journalEvent, agentName, account string) (string, bool) {
-	if t := transcriptOf(e); t != nil {
-		switch t.Kind {
-		case "assistant_text":
-			text := strings.TrimRight(t.Text, "\n")
-			if text == "" {
-				return "", false
-			}
-			if t.Clipped {
-				text += " […clipped by the service]"
-			}
-			w := max(6, min(12, displayWidth(agentName)))
-			pad := strings.Repeat(" ", w+1)
-			return "\n" + th.accentBold(sanitize(fmt.Sprintf("%-*s", w, fitWidth(agentName, w)))) + " " + sanitize(strings.ReplaceAll(text, "\n", "\n"+pad)), true
-		case "instruction":
-			// this person's own messages were shown when they pressed Enter;
-			// an instruction from anyone or anywhere else is shown here
-			if t.AuthorType == "human" && (account == "" || t.AuthorID == account) {
-				return "", false
-			}
-			who, _ := attribution(*t)
-			return th.info(sanitize(fmt.Sprintf("%-6s", who))) + " " + sanitize(strings.ReplaceAll(strings.TrimRight(t.Text, "\n"), "\n", "\n       ")), true
-		case "tool_started":
-			s := "  ⎿ " + orUnnamedTool(t.ToolName)
-			if d := firstLineOf(t.Text); d != "" {
-				s += ": " + d
-			}
-			return th.dim(sanitize(s)), true
-		case "tool_finished":
-			mark := th.ok("✓")
-			if t.Failed {
-				mark = th.bad("✗")
-			}
-			s := orUnnamedTool(t.ToolName)
-			if t.Failed {
-				if d := firstLineOf(t.Text); d != "" {
-					s += ": " + d
-				}
-			}
-			return "  " + mark + " " + th.dim(sanitize(s)), true
-		default:
-			return th.dim(sanitize(transcriptLine(*t))), true
-		}
-	}
-	var p struct {
-		Type    string `json:"type"`
-		State   string `json:"state"`
-		Summary string `json:"summary"`
-		Name    string `json:"name"`
-		Reason  string `json:"reason"`
-	}
-	_ = json.Unmarshal(e.Payload, &p)
-	switch p.Type {
-	case "task.finished":
-		switch p.State {
-		case "succeeded":
-			return "  " + th.ok("●") + th.dim(sanitize(" finished ("+e.SubjectID+")")), true
-		case "failed":
-			return th.bad(sanitize("  ✗ failed (" + e.SubjectID + "): " + firstLineOf(p.Summary))), true
-		default:
-			return th.dim(sanitize("  ● " + figure(p.State) + " (" + e.SubjectID + ")")), true
-		}
-	case "result.recorded":
-		if p.Name == "ks-changeset.json" {
-			return "", false // every turn records one; /results lists them
-		}
-		return "  " + th.accent("↳") + sanitize(" result "+figure(p.Name)) + th.dim(" (/results)"), true
-	case "queue.held":
-		return th.warn(sanitize("! the queue is HELD: " + firstLineOf(p.Reason) + " (ks agent queue show " + agentName + ")")), true
-	case "session.parked", "session.resumed", "session.stopped":
-		return th.dim(sanitize(agentEventLine(e))), true
-	}
-	return "", false
-}
-
-// appBacklog shows the end of the conversation so far, as the chat renders
-// it; a journal that cannot be read says so and is never shown as silence.
-func appBacklog(cr hostedCreds, scr *screen, sess inventoryRow, a agentRow, upto int64) {
-	agentName := a.Name
-	if upto <= 0 {
-		return
-	}
-	var env struct {
-		Data struct {
-			Items []journalEvent `json:"items"`
-		} `json:"data"`
-	}
-	if err := hostedCall(cr, "GET", "/api/v2/sessions/"+url.PathEscape(agentSessionID(sess))+"/events?limit=400", nil, &env); err != nil {
-		scr.Print("the conversation so far could not be read (that is not the same as nothing having happened): " + errText(err))
-		return
-	}
-	if mark, ok := lastSeen(cr, a.ID); ok && mark.Seq < upto {
-		waiting := 0
-		if pending, err := fetchPendingApprovals(cr, agentSessionID(sess)); err == nil {
-			waiting = len(pending)
-		}
-		var away struct {
-			Data struct {
-				Items []journalEvent `json:"items"`
-			} `json:"data"`
-		}
-		q := fmt.Sprintf("/api/v2/sessions/%s/events?after_seq=%d&limit=400", url.PathEscape(agentSessionID(sess)), mark.Seq)
-		if err := hostedCall(cr, "GET", q, nil, &away); err == nil {
-			if s := awaySummary(away.Data.Items, mark.Seq, waiting, mark.At); s != "" {
-				if len(away.Data.Items) >= 400 {
-					s += " (at least: more happened than one page; ks agent logs)"
-				}
-				scr.Print(s)
-			}
-		}
-	}
-	var lines []string
-	for _, e := range env.Data.Items {
-		if e.StreamSeq > upto {
-			continue
-		}
-		if l, ok := appEventLine(e, agentName, cr.AccountID); ok {
-			lines = append(lines, l)
-		}
-	}
-	if len(lines) > backlogMax {
-		scr.Print(fmt.Sprintf("… %d earlier lines (ks agent logs)", len(lines)-backlogMax))
-		lines = lines[len(lines)-backlogMax:]
-	}
-	for _, l := range lines {
-		scr.Print(l)
-	}
-}
-
-// appFindAgent resolves /switch: this session first, then every session;
-// several agents of one name are listed, never chosen between.
-func appFindAgent(cr hostedCreds, here inventoryRow, name, sessHint string) (homeRow, error) {
-	rows, err := loadHome(cr)
-	if err != nil {
-		return homeRow{}, fmt.Errorf("your agents could not be read: %s", errText(err))
-	}
-	var local, all []homeRow
-	for _, r := range rows {
-		if r.agent == nil || (r.agent.Name != name && r.agent.ID != name) {
-			continue
-		}
-		if sessHint != "" && r.sess.ShortID != sessHint && r.sess.ID != sessHint && r.sess.RecordID != sessHint {
-			continue
-		}
-		all = append(all, r)
-		if r.sess.RecordID == agentSessionID(here) || r.sess.ID == here.ID {
-			local = append(local, r)
-		}
-	}
-	pick := all
-	if len(local) > 0 && sessHint == "" {
-		pick = local
-	}
-	switch len(pick) {
-	case 1:
-		return pick[0], nil
-	case 0:
-		return homeRow{}, fmt.Errorf("no agent of yours is named %q; /home lists them, n there starts one", name)
-	}
-	var where []string
-	for _, r := range pick {
-		where = append(where, r.sess.ShortID)
-	}
-	return homeRow{}, fmt.Errorf("%d agents are named %q (sessions %s); name the session: /switch %s <session>", len(pick), name, strings.Join(where, ", "), name)
-}
-
-// shortDuration is a duration as a person reads it on a status line: 45s,
-// 2m, 1h 5m, 3d 2h -- never Go's 2m0s.
-func shortDuration(d time.Duration) string {
-	if d < time.Minute {
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	}
-	m := int(d.Minutes())
-	switch {
-	case m < 60:
-		return fmt.Sprintf("%dm", m)
-	case m < 24*60:
-		if m%60 == 0 {
-			return fmt.Sprintf("%dh", m/60)
-		}
-		return fmt.Sprintf("%dh %dm", m/60, m%60)
-	}
-	h := m / 60
-	if h%24 == 0 {
-		return fmt.Sprintf("%dd", h/24)
-	}
-	return fmt.Sprintf("%dd %dh", h/24, h%24)
 }

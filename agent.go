@@ -1935,21 +1935,33 @@ func (win *liveWindow) interrupt(cr hostedCreds) {
 		for k, v := range extra {
 			data[k] = v
 		}
-		key, leave := "Ctrl-C", "q"
-		if win.app {
-			key, leave = "Esc", "Ctrl-C twice"
+		emitLine(data, "Ctrl-C: "+human)
+	}
+	// the app says the same things in its own words (Esc interrupts there)
+	sayApp := func(kind, human, app string, tn tone, icon string, extra map[string]any) {
+		if !win.app {
+			say(kind, human, extra)
+			return
 		}
-		human = strings.ReplaceAll(human, "leave with q", "leave with "+leave)
-		human = strings.ReplaceAll(human, "(q leaves)", "("+leave+" leaves)")
-		emitLine(data, key+": "+human)
+		data := map[string]any{"type": kind}
+		for k, v := range extra {
+			data[k] = v
+		}
+		if f := appFlash; f != nil && (kind == "interrupt_nothing" || kind == "interrupt_refused" && tn == toneWarn) {
+			f(th.toned(tn, icon) + " " + app) // nothing happened: a passing note, not a line to keep
+			return
+		}
+		emitLine(data, notice(icon, tn, app, appTerminalWidth()))
 	}
 	if _, held := win.hold(); !held {
-		say("interrupt_refused", "this window is watching, so it interrupts nothing; leave with q", nil)
+		sayApp("interrupt_refused", "this window is watching, so it interrupts nothing; leave with q",
+			"This window is watching, so Esc interrupts nothing. /take takes control.", toneWarn, iconWarn, nil)
 		return
 	}
 	agents, err := fetchAgents(cr, agentSessionID(win.sess))
 	if err != nil {
-		say("interrupt_failed", "the agent could not be read, so nothing was interrupted: "+errText(err), nil)
+		sayApp("interrupt_failed", "the agent could not be read, so nothing was interrupted: "+errText(err),
+			th.bad("Couldn't interrupt: the agent could not be read.")+" "+sentence(errText(err))+" Nothing was interrupted.", toneBad, iconFailed, nil)
 		return
 	}
 	var active string
@@ -1959,17 +1971,20 @@ func (win *liveWindow) interrupt(cr hostedCreds) {
 		}
 	}
 	if active == "" {
-		say("interrupt_nothing", "nothing is running, so nothing was interrupted; leave with q", nil)
+		sayApp("interrupt_nothing", "nothing is running, so nothing was interrupted; leave with q",
+			th.dim("Nothing is running, so there was nothing to interrupt."), toneDim, iconState, nil)
 		return
 	}
 	t, err := fetchTask(cr, active)
 	if err != nil {
-		say("interrupt_failed", "instruction "+active+" could not be read, so nothing was interrupted: "+errText(err), nil)
+		sayApp("interrupt_failed", "instruction "+active+" could not be read, so nothing was interrupted: "+errText(err),
+			th.bad("Couldn't interrupt "+active+": it could not be read.")+" "+sentence(errText(err))+" Nothing was interrupted.", toneBad, iconFailed, nil)
 		return
 	}
 	rec, err := fetchSessionRecord(cr, agentSessionID(win.sess))
 	if err != nil {
-		say("interrupt_failed", "the session could not be read, so nothing was interrupted: "+errText(err), nil)
+		sayApp("interrupt_failed", "the session could not be read, so nothing was interrupted: "+errText(err),
+			th.bad("Couldn't interrupt "+t.ID+": the session could not be read.")+" "+sentence(errText(err))+" Nothing was interrupted.", toneBad, iconFailed, nil)
 		return
 	}
 	body := map[string]any{"expected_revision": t.Revision, "epoch": rec.ExecutionEpoch, "reason": "interrupted from the agent window (Ctrl-C)"}
@@ -1981,10 +1996,13 @@ func (win *liveWindow) interrupt(cr hostedCreds) {
 	resp, rb, err := doBounded(cr, "POST", "/api/v2/tasks/"+url.PathEscape(t.ID)+"/cancel", map[string]string{"Idempotency-Key": newIdempotencyKey()}, mustJSON(body))
 	switch {
 	case err != nil:
-		say("interrupt_unknown", "the interrupt of "+t.ID+" was sent and no answer came back ("+errText(err)+"); whether it arrived is unknown -- ks task show "+t.ID, nil)
+		sayApp("interrupt_unknown", "the interrupt of "+t.ID+" was sent and no answer came back ("+errText(err)+"); whether it arrived is unknown -- ks task show "+t.ID,
+			th.warn("The interrupt of "+t.ID+" was sent, and no answer came back.")+" Whether it arrived is not known; /tasks shows where it stands.", toneWarn, iconWarn, nil)
 		return
 	case resp.StatusCode/100 != 2:
-		say("interrupt_refused", "the interrupt of "+t.ID+" was refused: "+errText(hostedError("POST", "cancel", resp, rb)), nil)
+		why := errText(hostedError("POST", "cancel", resp, rb))
+		sayApp("interrupt_refused", "the interrupt of "+t.ID+" was refused: "+why,
+			th.bad("Couldn't interrupt "+t.ID+".")+" "+sentence(why), toneBad, iconFailed, nil)
 		return
 	}
 	_ = json.Unmarshal(rb, &env)
@@ -1996,7 +2014,11 @@ func (win *liveWindow) interrupt(cr hostedCreds) {
 	if state == "cancelling" {
 		human += " (asked to stop at a safe boundary; not claimed stopped)"
 	}
-	say("interrupted", human+"; the window stays open (q leaves)", map[string]any{"task_id": t.ID, "state": state})
+	app := "Interrupt requested for " + t.ID + ". It reads " + strings.ToLower(taskWord(state)) + "."
+	if state == "cancelling" {
+		app = "Interrupt requested for " + t.ID + ". It stops at the next safe point; it is not stopped yet."
+	}
+	sayApp("interrupted", human+"; the window stays open (q leaves)", app, toneNeutral, iconState, map[string]any{"task_id": t.ID, "state": state})
 }
 
 func mustJSON(v any) []byte {
@@ -2041,12 +2063,12 @@ func readWindowLine(line string) (word, arg string, ok bool) {
 func (win *liveWindow) decide(cr hostedCreds, decision, arg string) {
 	pending, err := fetchPendingApprovals(cr, agentSessionID(win.sess))
 	if err != nil {
-		win.refuse(err)
+		win.refuseAs("decide the permission request", err)
 		return
 	}
 	id, err := chooseApproval(pending, arg)
 	if err != nil {
-		win.refuse(err)
+		win.refuseAs("decide the permission request", err)
 		return
 	}
 	ap, outcome, err := decideApproval(cr, win.sess, id, decision)
@@ -2054,8 +2076,20 @@ func (win *liveWindow) decide(cr hostedCreds, decision, arg string) {
 		win.refuseDecision(err, id)
 		return
 	}
-	emitLine(map[string]any{"type": "approval_decided", "approval": outcome.Approval, "decision": outcome.Decision, "decided_at": outcome.DecidedAt},
-		decisionLine(ap, outcome.Decision))
+	human := decisionLine(ap, outcome.Decision)
+	if win.app {
+		human = appDecisionLine(ap, outcome.Decision)
+	}
+	emitLine(map[string]any{"type": "approval_decided", "approval": outcome.Approval, "decision": outcome.Decision, "decided_at": outcome.DecidedAt}, human)
+}
+
+// appDecisionLine is a decision as the app's conversation keeps it.
+func appDecisionLine(ap approvalRow, decision string) string {
+	what := sanitize(figure(ap.Summary)) + th.dim(" ("+sanitize(figure(ap.Kind))+")")
+	if decision == "deny" {
+		return notice(iconDenied, toneBad, "Denied: "+what+th.dim(". The agent was told."), appTerminalWidth())
+	}
+	return notice(iconDone, toneOK, "Allowed once: "+what+th.dim(". The agent was told."), appTerminalWidth())
 }
 
 // refuseDecision prints a refused decision inside the window. A request
@@ -2066,8 +2100,26 @@ func (win *liveWindow) refuseDecision(err error, id string) {
 	var ce *cliError
 	if errors.As(err, &ce) && ce.Kind == "approval_changed" && id != "" {
 		ce.NextAction = fmt.Sprintf("type %q to approve the action above, or %q to deny it", "a "+id, "d "+id)
+		if win.app {
+			ce.NextAction = "the request as it reads now is on screen; y allows it, n denies it"
+		}
 	}
-	win.refuse(err)
+	win.refuseAs("decide the permission request", err)
+}
+
+// refuseAs is refuse with what was being done, for the app, whose errors read
+// "Couldn't <do it>." then why and what to do. Outside the app it is refuse.
+func (win *liveWindow) refuseAs(what string, err error) {
+	if !win.app {
+		win.refuse(err)
+		return
+	}
+	ce := classify(err)
+	next := ce.NextAction
+	if next != "" {
+		next = sentence(next)
+	}
+	progress("%s", errorLines(what, ce.Message, next, appTerminalWidth()))
 }
 
 // chooseApproval answers the one request a typed argument names among the
@@ -2157,18 +2209,18 @@ func (win *liveWindow) submitFresh(cr hostedCreds, text string) {
 		if reason == "" {
 			reason = "this window is watching; another window holds control"
 		}
-		win.refuse(&cliError{Code: exitConflict, Kind: "not_controller", Message: reason + ", so nothing was sent to the agent", NextAction: "/take"})
+		win.refuseAs("send your message", &cliError{Code: exitConflict, Kind: "not_controller", Message: reason + ", so nothing was sent to the agent", NextAction: "/take takes control"})
 		return
 	}
 	path := "/api/v2/agents/" + url.PathEscape(win.agent.ID) + "/tasks"
 	id, err := newSubmissionID()
 	if err != nil {
-		win.refuse(err)
+		win.refuseAs("send your message", err)
 		return
 	}
 	op := localOp{Key: "kssub_" + id, Submission: id, Method: "POST", Path: path, BodySHA: sha256Hex([]byte(text)), CTL: cr.CTL, CreatedAt: time.Now().UTC().Format(time.RFC3339)}
 	if err := recordOperation(op); err != nil {
-		win.refuse(fmt.Errorf("could not record the message locally before sending it (%v); nothing was sent", err))
+		win.refuseAs("send your message", fmt.Errorf("could not record the message locally before sending it (%v); nothing was sent", err))
 		return
 	}
 	win.submitAs(cr, text, id, lease)
@@ -2193,16 +2245,19 @@ func (win *liveWindow) submitAs(cr hostedCreds, text, sid string, lease agentLea
 			win.displaced(sanitize(he.Message))
 			return
 		}
-		win.refuse(err)
+		win.refuseAs("send your message", err)
 		return
 	}
 	t := env.Data
 	human := fmt.Sprintf("sent: task %s at queue position %d (%s)", t.ID, t.QueueSeq, figure(t.State))
-	if win.app {
-		human = fmt.Sprintf("       %s · task %s", stateLabel("task_state", t.State), t.ID)
-	}
 	if t.Replayed {
 		human = fmt.Sprintf("already sent: task %s at queue position %d (%s); the same instruction was submitted once", t.ID, t.QueueSeq, figure(t.State))
+	}
+	if win.app { // the id is in /tasks; the conversation says only where it stands
+		human = "       " + th.dim(taskWord(t.State))
+		if t.Replayed {
+			human = "       " + th.dim("Already sent; the same message was submitted once")
+		}
 	}
 	emitLine(map[string]any{"type": "instruction_sent", "submission_id": sid, "replayed": t.Replayed, "task": t.taskRow}, human)
 }
@@ -2212,6 +2267,11 @@ func (win *liveWindow) submitAs(cr hostedCreds, text, sid string, lease agentLea
 // watching is a real thing to be doing; it simply steers nothing.
 func (win *liveWindow) displaced(detail string) {
 	if !win.lose("control of this agent moved to another window") {
+		return
+	}
+	if win.app {
+		progress("%s", notice(iconWarn, toneWarn, th.warn("Control of "+sanitize(win.agent.Name)+" moved to another window.")+
+			" Nothing was sent. You are watching now; /take takes control back.", appTerminalWidth()))
 		return
 	}
 	progress("control moved to another window: %s", detail)
@@ -2247,6 +2307,11 @@ func (win *liveWindow) renew(cr hostedCreds) {
 				return
 			}
 			if win.lose("this window's control could not be renewed") {
+				if win.app {
+					progress("%s", notice(iconWarn, toneWarn, th.warn("Lost control of "+sanitize(win.agent.Name)+": it could not be renewed ("+detail+").")+
+						" You are watching now, and nothing you type is sent; /take takes control back.", appTerminalWidth()))
+					return
+				}
 				progress("the control of agent %s could not be renewed: %s", win.agent.Name, detail)
 				progress("this window no longer holds control and will submit nothing as the controller; it is watching now")
 				progress("to steer from here again: %s", win.takeControlLine())

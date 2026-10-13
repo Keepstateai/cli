@@ -87,6 +87,42 @@ func useV2Pointer(err error) (ws, next, message string, ok bool) {
 // same thing through the workspace lifecycle. A kill is NEVER turned into a
 // deletion: it becomes a deletion PLAN, which changes nothing, and the
 // deletion stays the plan-plus-confirm the v2 verb requires.
+// planKill is ks kill on an agent session: a deletion plan, shown as a short
+// summary, confirmed by typing the session's id at a terminal, or refused
+// with the exact command that deletes it. Nothing is deleted unconfirmed.
+func planKill(cr hostedCreds, sess inventoryRow) {
+	var env struct {
+		Data struct {
+			ID        string         `json:"id"`
+			ExpiresAt string         `json:"expires_at"`
+			Plan      map[string]any `json:"plan"`
+		} `json:"data"`
+	}
+	if perr := hostedCall(cr, "POST", "/api/v2/sessions/"+url.PathEscape(sess.RecordID)+"/deletion-plan", map[string]any{}, &env); perr != nil {
+		die(perr)
+	}
+	d := env.Data
+	if !out.json {
+		printDeletionSummary(os.Stderr, sess.ShortID, d.ExpiresAt, d.Plan)
+		fmt.Fprintf(os.Stderr, "The whole plan: ks session delete %s --plan --json\n", sess.ShortID)
+	}
+	// the type-to-confirm law: in a terminal, the person confirms this plan
+	// by typing the session's name, exactly as --confirm would name it
+	if !out.json && !out.noInput && stdinIsTerminal() {
+		fmt.Fprintf(os.Stderr, "Type %s to delete this session now, or anything else to keep it: ", sess.ShortID)
+		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+		if c := strings.TrimSpace(line); c != "" && (c == sess.ShortID || c == sess.RecordID || c == sess.ID) {
+			executeSessionDelete(cr, sess, d.ID)
+			return
+		}
+		fail(&cliError{Code: exitUsage, Kind: "confirmation_declined", Detail: d,
+			Message: fmt.Sprintf("session %s was not named; nothing was deleted", sess.ShortID)})
+	}
+	fail(&cliError{Code: exitConflict, Kind: "ks_agent_session_use_v2", Detail: d,
+		Message:    fmt.Sprintf("session %s was not deleted: an agent session is deleted only by a plan you confirm, and the plan above changed nothing", sess.ShortID),
+		NextAction: fmt.Sprintf("ks session delete %s --execute %s --confirm %s", sess.ShortID, d.ID, sess.ShortID)})
+}
+
 func followUseV2(cr hostedCreds, err error, verb string, inv *Invocation) bool {
 	ws, next, msg, ok := useV2Pointer(err)
 	if !ok {
@@ -109,40 +145,12 @@ func followUseV2(cr hostedCreds, err error, verb string, inv *Invocation) bool {
 			fmt.Println(ws)
 		})
 	case "kill":
-		progress("a kill of an agent session is a DELETION through a plan you confirm; planning it instead (this changes nothing)")
-		var env struct {
-			Data struct {
-				ID        string         `json:"id"`
-				ExpiresAt string         `json:"expires_at"`
-				Plan      map[string]any `json:"plan"`
-			} `json:"data"`
-		}
-		if perr := hostedCall(cr, "POST", "/api/v2/sessions/"+url.PathEscape(ws)+"/deletion-plan", map[string]any{}, &env); perr != nil {
-			die(perr)
-		}
-		d := env.Data
+		progress("an agent session is deleted through a plan you confirm; planning it instead (this changes nothing)")
 		sess, rerr := resolveSession(cr, ws)
 		if rerr != nil || sess.RecordID == "" {
 			sess = inventoryRow{ShortID: ws, RecordID: ws}
 		}
-		if !out.json {
-			printDeletionPlan(os.Stderr, d.ID, sess.ShortID, d.ExpiresAt, d.Plan)
-		}
-		// the type-to-confirm law: in a terminal, the person confirms this plan
-		// by typing the session's name, exactly as --confirm would name it
-		if !out.json && !out.noInput && stdinIsTerminal() {
-			fmt.Fprintf(os.Stderr, "type %s to delete this session now, or anything else to keep it: ", sess.ShortID)
-			line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-			if c := strings.TrimSpace(line); c != "" && (c == sess.ShortID || c == sess.RecordID || c == sess.ID) {
-				executeSessionDelete(cr, sess, d.ID)
-				return true
-			}
-			fail(&cliError{Code: exitUsage, Kind: "confirmation_declined", Detail: d,
-				Message: fmt.Sprintf("session %s was not named; nothing was deleted", sess.ShortID)})
-		}
-		fail(&cliError{Code: exitConflict, Kind: "ks_agent_session_use_v2", Detail: d,
-			Message:    fmt.Sprintf("session %s was NOT killed: an agent session is deleted only by a plan you confirm, and the plan above changed nothing", sess.ShortID),
-			NextAction: fmt.Sprintf("ks session delete %s --execute %s --confirm %s", sess.ShortID, d.ID, sess.ShortID)})
+		planKill(cr, sess)
 	case "fork":
 		extra := ""
 		if inv.Set("steer") {
