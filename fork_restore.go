@@ -237,9 +237,12 @@ func hostedCheckpointPolicy(cr hostedCreds, inv *Invocation) {
 // content is never called erased.
 func hostedSessionDelete(cr hostedCreds, inv *Invocation) {
 	plan, exec := inv.Bool("plan"), strings.TrimSpace(inv.Str("execute"))
-	if plan == (exec != "") {
+	if plan && exec != "" {
 		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "a deletion is planned first (--plan) and executed by naming that plan (--execute PLAN): one of the two. Nothing was deleted"})
 	}
+	// with neither, it plans: the first step is always the plan, and it
+	// changes nothing
+	plan = exec == ""
 	sess := sessionRecordOf(cr, inv)
 	base := "/api/v2/sessions/" + url.PathEscape(sess.RecordID)
 	if plan {
@@ -255,8 +258,9 @@ func hostedSessionDelete(cr hostedCreds, inv *Invocation) {
 		}
 		d := env.Data
 		emit(d, func() {
-			printDeletionPlan(os.Stdout, d.ID, sess.ShortID, d.ExpiresAt, d.Plan)
-			fmt.Printf("delete exactly this: ks session delete %s --execute %s --confirm %s\n", sess.ShortID, d.ID, sess.ShortID)
+			printDeletionSummary(os.Stdout, sess.ShortID, d.ExpiresAt, d.Plan)
+			fmt.Printf("The whole plan: ks session delete %s --plan --json\n", sess.ShortID)
+			fmt.Printf("To delete exactly this: ks session delete %s --execute %s --confirm %s\n", sess.ShortID, d.ID, sess.ShortID)
 		})
 		return
 	}
@@ -309,7 +313,8 @@ func executeSessionDelete(cr hostedCreds, sess inventoryRow, exec string) {
 	if json.Unmarshal(d.RuntimeCleanup, &cleanup) != nil {
 		_ = json.Unmarshal(d.RuntimeCleanup, &cleanupText)
 	}
-	emit(map[string]any{"deleted": d.Deleted, "executed_at": d.ExecutedAt, "runtime_cleanup": d.RuntimeCleanup, "retention": d.Retention}, func() {
+	emit(map[string]any{"deleted": d.Deleted, "executed_at": d.ExecutedAt, "runtime_cleanup": d.RuntimeCleanup, "retention": d.Retention,
+		"agents_removed": d.AgentsRemoved, "tasks_cancelled": d.TasksCancelled, "results_deleted": d.ResultsDeleted}, func() {
 		fmt.Printf("session %s deleted as records at %s: %d agent(s) removed, %d instruction(s) cancelled, %d result(s) deleted\n", sess.ShortID, figure(d.ExecutedAt), d.AgentsRemoved, d.TasksCancelled, d.ResultsDeleted)
 		switch {
 		case cleanup.RuntimeStop != nil:
@@ -330,10 +335,103 @@ func executeSessionDelete(cr hostedCreds, sess inventoryRow, exec string) {
 	})
 }
 
+// deletionSummary is a session's deletion plan in a few plain sentences: what
+// stops, what is removed, what happens to its saved content, and that it
+// cannot be undone. The whole plan stays in --json (and on d in the app).
+func deletionSummary(plan map[string]any) []string {
+	num := func(section, key string) int64 {
+		m, _ := plan[section].(map[string]any)
+		switch n := m[key].(type) {
+		case float64:
+			return int64(n)
+		case int64:
+			return n
+		case int:
+			return int64(n)
+		}
+		return 0
+	}
+	var out []string
+	if rt, _ := plan["runtime_cleanup"].(string); strings.Contains(rt, "not applicable") {
+		out = append(out, "Nothing is running, so no machine is stopped.")
+	} else if rt != "" {
+		out = append(out, "Its machine is stopped for good.")
+	}
+	var parts []string
+	if n := num("agents", "count"); n > 0 {
+		parts = append(parts, plural(int(n), "agent", "agents")+" (each keeps its history)")
+	}
+	if n := num("tasks", "queued_or_held"); n > 0 {
+		parts = append(parts, plural(int(n), "waiting instruction", "waiting instructions"))
+	}
+	if n := num("results", "count"); n > 0 {
+		parts = append(parts, plural(int(n), "result", "results"))
+	}
+	if n := num("approvals", "pending"); n > 0 {
+		parts = append(parts, plural(int(n), "permission request", "permission requests"))
+	}
+	if n := num("advisers", "connections"); n > 0 {
+		parts = append(parts, plural(int(n), "adviser connection", "adviser connections"))
+	}
+	if len(parts) > 0 {
+		out = append(out, "It removes "+joinAnd(parts)+".")
+	}
+	if n := num("tasks", "running"); n > 0 {
+		out = append(out, plural(int(n), "running instruction is", "running instructions are")+" asked to stop.")
+	}
+	e, _ := plan["erasure"].(map[string]any)
+	switch e["expected"] {
+	case "complete":
+		out = append(out, "Its saved content is erased.")
+	case "partial":
+		out = append(out, "Saved content it shares with other sessions stays theirs; the rest is erased.")
+	default: // the retention terms, as the plan states them
+		switch r := plan["retention"].(type) {
+		case string:
+			out = append(out, "Saved content: "+sanitize(r)+".")
+		case map[string]any:
+			if c, _ := r["checkpoint_content"].(string); c != "" {
+				out = append(out, "Saved content: "+sanitize(c)+".")
+			}
+		}
+	}
+	if n := num("branches", "surviving_children"); n > 0 {
+		out = append(out, plural(int(n), "fork of it is a separate session and is", "forks of it are separate sessions and are")+" not deleted.")
+	}
+	return append(out, "This cannot be undone.")
+}
+
+func joinAnd(parts []string) string {
+	if len(parts) < 2 {
+		return strings.Join(parts, "")
+	}
+	return strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
+}
+
+// planCost is the plan's own word on what the deletion costs.
+func planCost(plan map[string]any) string {
+	c, _ := plan["cost"].(string)
+	return sanitize(c)
+}
+
+// printDeletionSummary is the plan as the command line shows it by default.
+func printDeletionSummary(w io.Writer, short, expires string, plan map[string]any) {
+	fmt.Fprintf(w, "Deletion plan for session %s. Nothing has been deleted.\n", short)
+	for _, l := range deletionSummary(plan) {
+		fmt.Fprintf(w, "  %s\n", l)
+	}
+	if c := planCost(plan); c != "" {
+		fmt.Fprintf(w, "  Cost: %s\n", sentence(c))
+	}
+	if expires != "" {
+		fmt.Fprintf(w, "  The plan expires at %s.\n", figure(expires))
+	}
+}
+
 // printDeletionPlan shows a deletion plan as one readable line per section,
 // the retention terms last. Nothing was deleted when it is shown.
 func printDeletionPlan(w io.Writer, id, short, expires string, plan map[string]any) {
-	fmt.Fprintf(w, "deletion plan %s for session %s: NOTHING was deleted (plan expires %s)\n", id, short, figure(expires))
+	fmt.Fprintf(w, "Deletion plan %s for session %s. Nothing has been deleted; the plan expires at %s.\n", id, short, figure(expires))
 	keys := make([]string, 0, len(plan))
 	for k := range plan {
 		if k != "retention" {

@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -143,8 +144,10 @@ func TestTheAppRefusesANewAgentNameTheServiceRefusesBeforeAnyRequest(t *testing.
 		if got := c.take(); len(got) != 0 {
 			t.Errorf("the app sent %d request(s) for the name %q before refusing it: %v", len(got), name, got)
 		}
-		if !strings.Contains(b.String(), "starting with a letter") {
-			t.Errorf("the app's refusal of %q does not state the rule: %q", name, tail(b.String(), 300))
+		// the card wraps its text to the terminal: read it as words
+		shown := strings.Join(strings.Fields(strings.NewReplacer("│", " ", "╭", " ", "╰", " ", "─", " ").Replace(regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`).ReplaceAllString(b.String(), ""))), " ")
+		if !strings.Contains(shown, "starting with a letter") {
+			t.Errorf("the app's refusal of %q does not state the rule: %q", name, tail(shown, 600))
 		}
 	}
 }

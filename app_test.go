@@ -145,16 +145,16 @@ func TestAppStatusLine(t *testing.T) {
 	}{Label: "Ready", AgeSeconds: &age}
 	v.Footer.Queued, v.Footer.PendingApprovals = &q, &p
 	line := appStatusLine(v, true)
-	for _, want := range []string{"● Ready · unchanged 5m", "queue 1", "2 waiting for you", "not saved yet", "you control"} {
+	for _, want := range []string{"● Ready, unchanged for 5m", "1 queued", "2 requests wait for you", "not saved yet", "you control"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("status %q lacks %q", line, want)
 		}
 	}
-	if strings.Contains(line, "$0") || strings.Contains(line, "STALE") {
+	if strings.Contains(line, "$0") || strings.Contains(line, "stale") {
 		t.Errorf("status %q invents a figure or a staleness", line)
 	}
 	v.Status.Stale = true
-	if line := appStatusLine(v, false); !strings.Contains(line, "STALE") || !strings.Contains(line, "watching") {
+	if line := appStatusLine(v, false); !strings.Contains(line, "stale") || !strings.Contains(line, "watching") {
 		t.Errorf("stale, watching: %q", line)
 	}
 }
@@ -165,7 +165,8 @@ func TestAppApprovalBox(t *testing.T) {
 	}
 	rows := approvalBox([]approvalRow{{ID: "apr_1", Kind: "tool", Summary: "Bash: git push origin main", RequestedForTask: "task_1", ExpiresAt: "2026-09-29T12:00:00Z"}, {ID: "apr_2"}}, 60)
 	all := strings.Join(rows, "\n")
-	for _, want := range []string{"Permission", "[y] allow once", "[n] deny", "1 of 2 waiting", "task_1"} {
+	// the action in full (what is decided is what was shown), the count, the keys
+	for _, want := range []string{"Permission", "y allow once", "n deny", "d details", "1 of 2 waiting", "Bash: git push origin main"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("box lacks %q:\n%s", want, all)
 		}
@@ -196,18 +197,18 @@ func TestAppEndToEndInAPseudoTerminal(t *testing.T) {
 	bin, cfg := buildAndAuth(t, srv)
 	env := map[string]string{"XDG_CONFIG_HOME": cfg, "KS_HTTP_TIMEOUT_MS": "2000", "TERM": "xterm-256color"}
 	spec := map[string]any{"argv": []string{bin}, "env": env, "timeout": 15, "steps": [][]string{
-		{"Your agents:", "\r"},
-		{"[y] allow once", "fix the login test\r"},
-		{"task tsk_new1", "\x1b"},
-		{"Esc:", "y"},
-		{"approved", "/help\r"},
+		{"Your agents", "\r"},
+		{"allow once", "fix the login test\r"},
+		{"Queued", "\x1b"},
+		{"Interrupt requested", "y"},
+		{"Allowed once", "/help\r"},
 		{"/take", "/agent list\r"},
-		{"$ ks agent list --session", "/nosuch\r"},
+		{"ks agent list --session", "/nosuch\r"},
 		{"is not a ks command", "/switch twin\r"},
 		{"2 agents are named \"twin\"", "/switch agt_twin0001\r"},
-		{"── twin", "\x03"},
-		{"press Ctrl-C again", "\x03"},
-		{"left twin", "q"},
+		{"Left main", "\x03", "new"},
+		{"Press Ctrl-C again", "\x03"},
+		{"Left twin", "q"},
 	}}
 	f := filepath.Join(t.TempDir(), "spec.json")
 	b, _ := json.Marshal(spec)
@@ -250,7 +251,7 @@ func TestAppConversationReadsLikeAChat(t *testing.T) {
 		// this person's own message was shown on Enter; not twice
 		{`{"type":"agent.transcript","kind":"instruction","author_type":"human","author_id":"acct_me","text":"fix it"}`, "", false},
 		{`{"type":"agent.transcript","kind":"instruction","author_type":"agent","author_id":"agent_2","text":"check this"}`, "agent agent_2", true},
-		{`{"type":"task.finished","state":"failed","summary":"the runner stopped"}`, "✗ failed", true},
+		{`{"type":"task.finished","state":"failed","summary":"the runner stopped"}`, "✗ Failed: the runner stopped.", true},
 		{`{"type":"agent.activity","activity":"working"}`, "", false},
 		{`{"type":"approval.requested"}`, "", false},
 	}

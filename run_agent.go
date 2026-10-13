@@ -186,6 +186,11 @@ type createdRecord struct {
 	PrimaryAgentID string `json:"primary_agent_id"`
 }
 
+// startObserver, when set (the app), is told each step of starting an agent
+// session -- "session", "key" (its last four), "machine", "phase:<name>"
+// ("true" when done) -- in place of the progress lines the command prints.
+var startObserver func(step, detail string)
+
 // startAgentSession is steps 2 to 4 of ks run --agent, for the command and
 // for the app alike: preflight, the key, the record, its binding and the
 // machine. It returns errors rather than exiting; progress goes where
@@ -230,7 +235,11 @@ func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *i
 		return none, provisionAnswer{}, key, err
 	}
 	rec := created.Data
-	progress("session %s created with its primary agent; starting a machine for it", rec.ID)
+	if startObserver != nil {
+		startObserver("session", "")
+	} else {
+		progress("session %s created with its primary agent; starting a machine for it", rec.ID)
+	}
 
 	// ---- 3a. the session's binding: that key is used or nothing is ---------
 	var bound struct {
@@ -243,7 +252,12 @@ func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *i
 		return rec, provisionAnswer{}, key, err
 	}
 	rec.Revision = bound.Data.Revision
-	progress("  %s calls go through your key %s (…%s)", runnerProvider, key.ID, key.Last4)
+	if startObserver != nil {
+		startObserver("key", key.Last4)
+		startObserver("machine", "")
+	} else {
+		progress("  %s calls go through your key %s (…%s)", runnerProvider, key.ID, key.Last4)
+	}
 
 	// ---- 4. the machine and the agent in it --------------------------------
 	req := map[string]any{"expected_revision": rec.Revision}
@@ -258,6 +272,10 @@ func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *i
 	}
 	p := prov.Data
 	for _, ph := range p.Phases {
+		if startObserver != nil {
+			startObserver("phase:"+ph.Phase, fmt.Sprint(ph.Done))
+			continue
+		}
 		mark := "done"
 		if !ph.Done {
 			mark = "NOT DONE"

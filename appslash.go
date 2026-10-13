@@ -13,6 +13,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -101,16 +102,17 @@ func slashArgv(line string, ctx slashContext) ([]string, *Command, error) {
 	if err != nil || len(words) == 0 {
 		return nil, nil, fmt.Errorf("an empty or unclosed command; /help lists them")
 	}
+	words = commandCase(words)
 	if exp, ok := slashShortcuts[words[0]]; ok {
 		words = append(append([]string{}, exp...), words[1:]...)
 	}
-	c, rest, sugg := lookup(registry, words)
+	c, rest, _ := lookup(registry, words)
 	if c == nil {
-		msg := fmt.Sprintf("/%s is not a ks command", words[0])
-		if sugg != "" {
-			msg += "; " + sugg
+		msg := fmt.Sprintf("/%s is not a ks command.", words[0])
+		if near := nearestSlash(strings.Join(words[:min(len(words), 2)], " ")); near != "" {
+			msg += " Did you mean /" + near + "?"
 		}
-		return nil, nil, fmt.Errorf("%s (/help lists them)", msg)
+		return nil, nil, fmt.Errorf("%s /help lists them", msg)
 	}
 	if hasHelp(rest) {
 		// help is only read: a group lists its commands, and a command the
@@ -173,6 +175,49 @@ func slashArgv(line string, ctx slashContext) ([]string, *Command, error) {
 	return argv, c, nil
 }
 
+// commandCase lowers the words that name a command (/Stop is /stop, /Agent
+// List is /agent list); its arguments keep their case.
+func commandCase(words []string) []string {
+	out := append([]string{}, words...)
+	for n := min(3, len(out)); n > 0; n-- {
+		low := append([]string{}, out...)
+		for i := 0; i < n; i++ {
+			if strings.HasPrefix(low[i], "-") {
+				return out
+			}
+			low[i] = strings.ToLower(low[i])
+		}
+		if _, ok := slashShortcuts[low[0]]; ok && n == 1 {
+			return low
+		}
+		if windowCommands[low[0]] && n == 1 {
+			return low
+		}
+		if c, _, _ := lookup(registry, low[:n]); c != nil && len(c.Path) == n {
+			return low
+		}
+	}
+	return out
+}
+
+// nearestSlash is the / name closest to what was typed, when one is close.
+func nearestSlash(typed string) string {
+	typed = strings.ToLower(typed)
+	best, bestD := "", 3
+	for _, n := range slashNames() {
+		d := editDistance(typed, n)
+		if first := strings.Fields(typed); len(first) > 1 {
+			if d2 := editDistance(first[0], n); d2 < d {
+				d = d2
+			}
+		}
+		if d < bestD || (d == bestD && best != "" && n < best) {
+			best, bestD = n, d
+		}
+	}
+	return best
+}
+
 func (c *Command) flagNamed(name string) *Flag {
 	for i := range c.Flags {
 		if c.Flags[i].Name == name {
@@ -205,26 +250,44 @@ func hasHelp(args []string) bool {
 	return false
 }
 
+// slashConfirm is a confirmation a / command asked for: what it said, and
+// the ks command that confirms it.
+type slashConfirm struct {
+	message string
+	next    string
+}
+
+// childEnv is the environment a / command runs in: told it runs in the app
+// (its refusals read in the app's words), and two columns narrower than the
+// terminal, because its lines are shown indented by two.
+func childEnv() []string {
+	return append(os.Environ(), "KS_IN_APP=1", fmt.Sprintf("COLUMNS=%d", max(20, appTerminalWidth()-2)))
+}
+
 // runSlash runs the command as a child of this binary, streaming its output
-// into the conversation; cancel (Ctrl-C) stops it. It answers the exit code.
-func runSlash(scr *screen, argv []string, cancel <-chan struct{}) int {
+// into the conversation; cancel (Ctrl-C) stops it. It answers the exit code,
+// and the confirmation the command asked for, if it asked for one (the app
+// then asks the person itself).
+func runSlash(scr *screen, argv []string, cancel <-chan struct{}) (int, *slashConfirm) {
+	width := appTerminalWidth()
 	self, err := os.Executable()
 	if err != nil {
-		scr.Print("this binary could not be found to run the command: " + err.Error())
-		return 1
+		scr.Print(errorLines("run the command", "this program could not find itself to run it: "+err.Error(), "", width))
+		return 1, nil
 	}
-	scr.Print("\n" + th.accent("$ ks "+strings.Join(quoteWords(argv), " ")))
+	scr.Print("\n" + strings.Join(wrapHang(th.accent("$")+" ", "  ", th.accent("ks "+strings.Join(quoteWords(argv), " ")), width), "\n"))
 	cmd := exec.Command(self, append(argv, "--no-input")...)
-	// its lines are shown indented by two: it is told two columns less, so
-	// nothing it prints wraps
-	cmd.Env = append(os.Environ(), fmt.Sprintf("COLUMNS=%d", max(20, appTerminalWidth()-2)))
+	cmd.Env = childEnv()
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
 	if err := cmd.Start(); err != nil {
-		scr.Print("the command could not start: " + err.Error())
-		return 1
+		scr.Print(errorLines("start the command", err.Error(), "", width))
+		return 1, nil
 	}
 	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var confirm *slashConfirm
+	explained := false // the command said what went wrong itself
 	for _, r := range []io.Reader{stdout, stderr} {
 		wg.Add(1)
 		go func(r io.Reader) {
@@ -232,7 +295,22 @@ func runSlash(scr *screen, argv []string, cancel <-chan struct{}) int {
 			sc := bufio.NewScanner(r)
 			sc.Buffer(make([]byte, 0, 64<<10), 1<<20)
 			for sc.Scan() {
-				scr.Print("  " + slashOutputLine(sc.Text()))
+				l := sc.Text()
+				if strings.HasPrefix(l, appConfirmMarker) {
+					var m struct{ Message, Next string }
+					if json.Unmarshal([]byte(strings.TrimPrefix(l, appConfirmMarker)), &m) == nil {
+						mu.Lock()
+						confirm = &slashConfirm{message: m.Message, next: m.Next}
+						mu.Unlock()
+					}
+					continue
+				}
+				if strings.HasPrefix(l, iconFailed+" ") || strings.HasPrefix(l, "error:") {
+					mu.Lock()
+					explained = true
+					mu.Unlock()
+				}
+				scr.Print(slashOutputLine("  " + l))
 			}
 		}(r)
 	}
@@ -249,10 +327,36 @@ func runSlash(scr *screen, argv []string, cancel <-chan struct{}) int {
 	close(done)
 	if ee, ok := err.(*exec.ExitError); ok {
 		code := ee.ExitCode()
-		scr.Print(th.bad(fmt.Sprintf("  (exit %d)", code)))
-		return code
+		if confirm == nil && !explained {
+			scr.Print(notice(iconFailed, toneBad, th.bad(fmt.Sprintf("The command stopped without finishing (exit code %d).", code)), width))
+		}
+		return code, confirm
 	}
-	return 0
+	return 0, nil
+}
+
+// runSlashJSON runs a command quietly for its JSON answer, for a step the app
+// shows in its own words (an agent stop, a deletion). The answer is the
+// command's own: data, or the error it refused with.
+func runSlashJSON(argv []string) (json.RawMessage, *cliError) {
+	self, err := os.Executable()
+	if err != nil {
+		return nil, &cliError{Message: "this program could not find itself to run the command: " + err.Error()}
+	}
+	cmd := exec.Command(self, append(argv, "--json", "--no-input", "--quiet")...)
+	cmd.Env = childEnv()
+	outb, _ := cmd.Output()
+	var env struct {
+		Data  json.RawMessage `json:"data"`
+		Error *cliError       `json:"error"`
+	}
+	if json.Unmarshal(outb, &env) != nil {
+		return nil, &cliError{Message: "the command gave no answer that could be read", WorkStarted: workUnknown}
+	}
+	if env.Error != nil {
+		return nil, env.Error
+	}
+	return env.Data, nil
 }
 
 func quoteWords(ws []string) []string {
@@ -325,14 +429,14 @@ func completeSlash(input string) (string, []string) {
 
 // windowHelp explains each command the window handles itself.
 var windowHelp = map[string]string{
-	"help":   "/help lists what this window does; /help <command> shows a ks command's options, as /<command> --help does",
-	"status": "/status shows the agent's full state: its activity, its current task, its queue and who holds control",
-	"home":   "/home goes back to your agents; this agent keeps working",
-	"back":   "/back goes back to your agents; this agent keeps working",
-	"quit":   "/quit leaves the app; every agent keeps working",
-	"exit":   "/exit leaves the app; every agent keeps working",
+	"help":   "/help lists what this window does. /help <command> shows a ks command's options, as /<command> --help does",
+	"status": "/status shows the agent's full state: its activity, its current instruction, its queue and who holds control",
+	"home":   "/home goes back to your agents. This agent keeps working",
+	"back":   "/back goes back to your agents. This agent keeps working",
+	"quit":   "/quit leaves the app. Every agent keeps working",
+	"exit":   "/exit leaves the app. Every agent keeps working",
 	"take":   "/take takes control of this agent from another window that holds it",
-	"switch": "/switch <agent> [session] opens another of your agents without going home; /agents lists this session's",
+	"switch": "/switch <agent> [session] opens another of your agents without going home. /agents lists this session's",
 }
 
 func windowCommandHelp(name string) string {
@@ -362,7 +466,7 @@ func looksLikeKsCommand(text string) (string, bool) {
 func slashOutputLine(l string) string {
 	t := strings.TrimSpace(l)
 	switch {
-	case strings.HasPrefix(t, "error:") || strings.HasPrefix(t, "refused:"):
+	case strings.HasPrefix(t, "error:") || strings.HasPrefix(t, "refused:") || strings.HasPrefix(t, iconFailed+" "):
 		return th.bad(l)
 	case strings.HasPrefix(t, "Next:"):
 		return th.warn(l)

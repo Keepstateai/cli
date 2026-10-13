@@ -244,6 +244,8 @@ func fail(err error) {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetEscapeHTML(false)
 		_ = enc.Encode(map[string]any{"schema_version": 2, "request_id": out.requestID, "error": ce})
+	} else if appChild() {
+		failInApp(ce)
 	} else {
 		if d, ok := ce.Detail.(errorDetail); ok {
 			for _, line := range d.detailLines() {
@@ -267,6 +269,52 @@ func fail(err error) {
 		}
 	}
 	os.Exit(ce.Code)
+}
+
+// appChild: this process is a / command running inside the app (the app sets
+// KS_IN_APP for the commands it runs). Its refusals then read in the app's
+// words: what went wrong and what to do next, as a / command. The contract
+// lines a script reads (Remote work started, Next: ks ...) stay exactly as
+// they are everywhere else, and --json is untouched.
+func appChild() bool { return os.Getenv("KS_IN_APP") == "1" }
+
+// appConfirmMarker starts the line a / command prints when it needs a
+// confirmation the app can ask for itself: the app shows a confirm card and,
+// on yes, runs the command that confirms it. Never shown to a person.
+const appConfirmMarker = "\x1eks-confirm "
+
+func failInApp(ce *cliError) {
+	if ce.Kind == "confirmation_required" && ce.NextAction != "" {
+		b, _ := json.Marshal(map[string]string{"message": ce.Message, "next": ce.NextAction})
+		fmt.Fprintln(os.Stderr, appConfirmMarker+string(b))
+		os.Exit(ce.Code)
+	}
+	if d, ok := ce.Detail.(errorDetail); ok {
+		for _, line := range d.detailLines() {
+			fmt.Fprintln(os.Stderr, line)
+		}
+	}
+	fmt.Fprintln(os.Stderr, iconFailed+" "+sentence(ce.Message))
+	switch ce.WorkStarted {
+	case workYes:
+		fmt.Fprintln(os.Stderr, "  It had already started on the service.")
+	case workUnknown:
+		fmt.Fprintln(os.Stderr, "  Whether it started on the service is not known, so don't run it again blindly.")
+	}
+	if ce.OperationID != "" {
+		fmt.Fprintln(os.Stderr, "  /operation show "+ce.OperationID+" shows where it stands.")
+	}
+	if ce.NextAction != "" {
+		fmt.Fprintln(os.Stderr, "  Next: "+asSlash(ce.NextAction))
+	}
+}
+
+var ksCommandWords = regexp.MustCompile(`(^|[\s(:"'])ks ([a-z])`)
+
+// asSlash rewrites the ks commands in a next step as the / commands that
+// run them in the app.
+func asSlash(s string) string {
+	return ksCommandWords.ReplaceAllString(s, "$1/$2")
 }
 
 var (

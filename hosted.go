@@ -212,6 +212,12 @@ func hostedRun(cr hostedCreds, inv *Invocation) {
 
 func hostedKill(cr hostedCreds, inv *Invocation) {
 	id := inv.Arg(0)
+	// an agent session (one with a workspace record) is deleted through a
+	// plan; the legacy route would only refuse it, so it is not asked
+	if sess, err := resolveSession(cr, id); err == nil && sess.RecordID != "" {
+		planKill(cr, sess)
+		return
+	}
 	path := "/api/sessions/" + id
 	if inv.Bool("force") {
 		path += "?force=1"

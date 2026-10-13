@@ -81,8 +81,8 @@ func TestLegacyLifecycleOnAnAgentSessionFollowsThePointer(t *testing.T) {
 	if code != exitConflict {
 		t.Fatalf("kill: exit %d\n%s", code, errs)
 	}
-	for _, want := range []string{"[ks_agent_session_use_v2]", "deletion plan dpl_1 for session session_ag: NOTHING was deleted",
-		"session session_ag was NOT killed", "ks session delete session_ag --execute dpl_1 --confirm session_ag"} {
+	for _, want := range []string{"[ks_agent_session_use_v2]", "Deletion plan for session session_ag. Nothing has been deleted.",
+		"session session_ag was not deleted", "ks session delete session_ag --execute dpl_1 --confirm session_ag"} {
 		if !strings.Contains(errs, want) {
 			t.Errorf("kill lacks %q:\n%s", want, errs)
 		}
