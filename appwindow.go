@@ -417,6 +417,14 @@ func appWindow(cr hostedCreds, scr *screen, keys <-chan keyEvent, sess inventory
 				}
 				continue
 			}
+			if strings.HasPrefix(strings.TrimSpace(text), "@") {
+				// a question to a connected adviser: it answers here, and it
+				// is never an instruction to this agent
+				heldKs = ""
+				scr.Print("\n" + strings.Join(wrapHang(th.bold(fmt.Sprintf("%-6s", "you"))+" ", "       ", sanitize(text), width), "\n"))
+				go win.askAdviser(cr, strings.TrimSpace(text))
+				continue
+			}
 			if slash, ok := looksLikeKsCommand(text); ok && text != heldKs {
 				heldKs = text
 				scr.Print(notice(iconWarn, toneInfo, fmt.Sprintf("%q is a ks command, so it was not sent to %s. Run it here as %s, or press Enter again to send it to %s as written.",
@@ -550,6 +558,7 @@ func appHelp(agent string, width int) string {
 	}
 	section("Keys")
 	rows = append(rows, row("Enter", "Send what you typed to "+agent+".")...)
+	rows = append(rows, row("@<adviser> <question>", "Ask a connected agent (/advisers lists them). It answers here and never works in "+agent+"'s workspace.")...)
 	rows = append(rows, row("Esc", "Interrupt the instruction it is working on.")...)
 	rows = append(rows, row("y / n / d", "Allow, deny or show a permission request (with an empty input).")...)
 	rows = append(rows, row("↑ / ↓", "Your earlier lines.")...)

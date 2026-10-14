@@ -45,7 +45,8 @@ func TestTranscriptEntriesRenderByAttribution(t *testing.T) {
 // explained in the window; nothing was asked in any case.
 func TestConsultRefusalsReadPlainly(t *testing.T) {
 	for code, want := range map[string]string{
-		"ks_adviser_parked":         "never wakes it",
+		"ks_adviser_parked":         "woken by a question",
+		"ks_adviser_not_woken":      "could not wake it",
 		"ks_consult_recipients_cap": "consultation cap",
 		"ks_deadline_too_long":      "deadline",
 		"ks_consult_budget":         "token budget",

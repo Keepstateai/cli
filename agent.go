@@ -1225,8 +1225,10 @@ func transcriptLine(t transcriptEntry) string {
 // what it means for a person watching. Nothing was asked in any of them.
 func consultRefusalHint(text string) string {
 	switch {
+	case strings.Contains(text, "ks_adviser_not_woken"):
+		return "the adviser is paused and the question could not wake it (the message says why: no machine, the free tier's one session, an account out of credit, or a machine stopped for good); nothing was asked"
 	case strings.Contains(text, "ks_adviser_parked"):
-		return "the adviser is parked and a question never wakes it: a person resumes it (ks agent resume <adviser> --session <its session>), then it may be asked"
+		return "the adviser is being saved or is stopped, so this question did not reach it: a paused adviser is woken by a question once its save is complete, or a person resumes it (ks agent resume <adviser> --session <its session>)"
 	case strings.Contains(text, "ks_consult_recipients_cap"):
 		return "the consultation cap was reached (advisers per instruction, or consultations open at once); nothing was asked"
 	case strings.Contains(text, "ks_deadline_too_long"):
@@ -1856,9 +1858,9 @@ func (win *liveWindow) legend() string {
 		return "this window reads nothing typed into it (--no-input); decide requests with ks agent approve <id> --session " + win.sess.ShortID
 	}
 	if _, held := win.hold(); !held {
-		return "type \"a <id>\" to approve a request or \"d <id>\" to deny it, \"advice\" for the advice drawer; this window is watching, so it queues no instruction (" + win.takeControlLine() + ")"
+		return "type \"a <id>\" to approve a request or \"d <id>\" to deny it, \"advice\" for the advice drawer; this window is watching, so it queues no instruction and asks no adviser (" + win.takeControlLine() + ")"
 	}
-	return "type \"a <id>\" to approve a request, \"d <id>\" to deny it, \"advice\" for the advice drawer, anything else to send it to the agent as an instruction; Ctrl-C interrupts the instruction in flight; \"q\" leaves the window"
+	return "type \"a <id>\" to approve a request, \"d <id>\" to deny it, \"advice\" for the advice drawer, \"@<adviser> <question>\" to ask a connected adviser (never an instruction), anything else to send it to the agent as an instruction; Ctrl-C interrupts the instruction in flight; \"q\" leaves the window"
 }
 
 // refuse prints one refusal inside a window that stays open. A window is
@@ -1909,6 +1911,11 @@ func (win *liveWindow) readInput(cr hostedCreds, restore func()) {
 		}
 		line := strings.TrimSpace(raw)
 		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "@") {
+			// a question to a connected adviser, never an instruction
+			win.askAdviser(cr, line)
 			continue
 		}
 		switch word, arg, ok := readWindowLine(line); {

@@ -80,6 +80,14 @@ type agentCtl struct {
 	resumes        int
 	resumeStopping bool // the first resume is refused: the save is still completing
 	saveFails      bool // the pause's save fails (KS-051): answered through the operation record
+
+	// a person's consultation (ks agent ask, "@handle question" in a window):
+	// the drawer of connected advisers, the bodies the consultation route
+	// received, how many times the consultation was read back, and whether
+	// the adviser was paused, so the question wakes it first
+	consultBodies []string
+	consultReads  int
+	consultWake   bool
 }
 
 func newAgentCtl() *agentCtl {
@@ -442,6 +450,59 @@ func (c *agentCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"status": map[string]any{"label": "Ready", "age_seconds": 2, "stale": false, "stale_after_seconds": 15},
 			"usage":  map[string]any{"model_microusd": nil, "model_standing": "unavailable", "entries": []any{map[string]any{"kind": "model", "source": "gateway meter", "tokens": 1234}}},
 		})
+	case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/advisers") && strings.HasPrefix(r.URL.Path, "/api/v2/agents/"):
+		// the drawer: three live connections, two of whose advisers share a name
+		party := func(id, name, sess, sessName string) map[string]any {
+			return map[string]any{"agent_id": id, "agent_name": name, "session_id": sess, "session_name": sessName}
+		}
+		entry := func(grant string, adviser map[string]any, readiness string) map[string]any {
+			return map[string]any{"grant_id": grant, "grant_revision": 1, "expires_at": "2026-09-27T00:00:00Z", "adviser": adviser, "readiness": readiness,
+				"queued_requests": []string{}, "sharing": map[string]any{"questions_shared": 0, "replies_received": 0, "policy": "question_only"}, "budget": "sufficient"}
+		}
+		env(200, map[string]any{"agent_id": agentID(), "advisers": []map[string]any{
+			entry("grant_rev", party("agt_rev00001", "reviewer", "session_rev", "review"), "not_dispatchable"),
+			entry("grant_ops1", party("agt_ops00001", "ops", "session_bill", "billing"), "ready"),
+			entry("grant_ops2", party("agt_ops00002", "ops", "session_infra", "infra"), "busy"),
+		}, "note": "only connections a person made from this agent"})
+	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/consultations") && strings.HasPrefix(r.URL.Path, "/api/v2/agents/"):
+		raw, _ := readAllBody(r)
+		c.mu.Lock()
+		c.consultBodies = append(c.consultBodies, string(raw))
+		wake := c.consultWake
+		c.mu.Unlock()
+		doc := map[string]any{"id": "csl_0001", "state": "requested", "source_agent_id": agentID(), "target_agent_id": "agt_rev00001",
+			"grant_id": "grant_rev", "grant_revision": 1, "deadline": time.Now().UTC().Add(10 * time.Minute).Format(time.RFC3339), "context_hashes": []string{}}
+		if wake {
+			doc["adviser_wake"] = "waking"
+		}
+		env(201, doc)
+	case r.Method == "GET" && r.URL.Path == "/api/v2/consultations/csl_0001":
+		c.mu.Lock()
+		c.consultReads++
+		reads, wake := c.consultReads, c.consultWake
+		c.mu.Unlock()
+		doc := map[string]any{"id": "csl_0001", "state": "requested", "label": "Pending",
+			"asker":         map[string]any{"agent_id": "agt_main0001", "agent_name": "main", "session_id": agentSessionRecord, "session_name": "checkout"},
+			"adviser":       map[string]any{"agent_id": "agt_rev00001", "agent_name": "reviewer", "session_id": "session_rev", "session_name": "review"},
+			"task_standing": "none", "requested_at": "2026-09-20T12:03:00Z", "deadline": "2026-09-20T12:13:00Z",
+			"context":  map[string]any{"policy": "question_only", "hashes": []string{}, "grant_id": "grant_rev", "grant_revision": 1},
+			"question": "is this approach sound?", "response": nil, "note": "no reply yet; nothing is shown in its place"}
+		switch {
+		case reads == 1 && wake:
+			doc["adviser_wake"] = map[string]any{"state": "waking", "started_at": "2026-09-20T12:03:00Z"}
+			doc["label"] = "Pending (waking the adviser)"
+		case reads == 2 && wake:
+			doc["state"], doc["label"] = "delivered", "Pending (the adviser is answering)"
+			doc["adviser_wake"] = map[string]any{"state": "woken", "started_at": "2026-09-20T12:03:00Z", "woke_at": "2026-09-20T12:03:40Z"}
+		case reads >= 3 || (!wake && reads >= 2):
+			doc["state"], doc["label"], doc["received_at"] = "replied", "Replied", "2026-09-20T12:04:10Z"
+			doc["response"] = map[string]any{"text": "Looks sound.\nTwo notes:\n- keep the tests\n- name the rollback point", "by": "agt_rev00001", "verification": "unverified"}
+			doc["note"] = "the adviser's own words, attributed; advice is unverified and authorises nothing"
+			if wake {
+				doc["adviser_wake"] = map[string]any{"state": "woken", "started_at": "2026-09-20T12:03:00Z", "woke_at": "2026-09-20T12:03:40Z"}
+			}
+		}
+		env(200, doc)
 	case r.Method == "PUT" && strings.HasPrefix(r.URL.Path, "/api/v2/control-leases/"):
 		c.mu.Lock()
 		c.renewals++

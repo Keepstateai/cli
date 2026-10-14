@@ -1755,6 +1755,20 @@
    "status": "available",
    "surface": "hosted",
    "note": "Reads GET /api/v2/sessions/{id} and sends PATCH /api/v2/sessions/{id} with runner_model and expected_revision; gated on agent.workspace. The service accepts the change while the session is parked or has no machine yet (ks_session_not_paused otherwise, ks_session_killed once it has ended) and only a model GET /api/v2/models offers (ks_model_invalid names the offered ones)."
+  },
+  {
+   "verb": "agent ask",
+   "aliases": [],
+   "usage": "ks agent ask <name> <question> [--session ID]",
+   "summary": "ask one of an agent's connected advisers a question, as a person, and wait for its answer: \"@<adviser> <question>\"",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    }
+   ]
   }
  ]
 }
