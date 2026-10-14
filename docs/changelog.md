@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.22 (2026-10-14)
 
 Parity with the browser console, found by checking the client against it.
 
