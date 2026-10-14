@@ -1,0 +1,114 @@
+// A person asks a connected adviser from the terminal: ks agent ask, and
+// "@handle question" typed into a window. The handle names exactly one live
+// connection (the adviser's name, or session/name when two connected
+// agents share a name); a line that starts with @ is never sent to the
+// agent as an instruction, and the reply is the adviser's own words,
+// advice only and unverified.
+package main
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
+
+func TestAgentAskSendsAPersonConsultationAndWaitsForTheReply(t *testing.T) {
+	c, bin, cfg := agentFixture(t)
+	c.mu.Lock()
+	c.consultWake = true // the adviser is paused: the question wakes it
+	c.mu.Unlock()
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "agent", "ask", "main", "@reviewer is this approach sound?", "--session", agentSessionShort)
+	if code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	c.mu.Lock()
+	bodies := append([]string(nil), c.consultBodies...)
+	c.mu.Unlock()
+	if len(bodies) != 1 {
+		t.Fatalf("consultations sent: %v", bodies)
+	}
+	var body map[string]any
+	_ = json.Unmarshal([]byte(bodies[0]), &body)
+	if body["grant_id"] != "grant_rev" || body["question"] != "is this approach sound?" || body["request_id"] == "" || body["request_id"] == nil {
+		t.Fatalf("the consultation body: %s", bodies[0])
+	}
+	for _, want := range []string{"asked reviewer for main", "waking the adviser", "reviewer's words, advice only, unverified",
+		"Looks sound.", "Two notes:", "- keep the tests", "- name the rollback point"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the answer lacks %q:\n%s%s", want, out, errs)
+		}
+	}
+	if c.sawRequest("POST /api/v2/agents/agt_main0001/tasks") {
+		t.Error("a question to an adviser was sent to the agent as an instruction")
+	}
+	// --json: one object per line, the last the consultation itself
+	out, _, code = auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "agent", "ask", "main", "@billing/ops is the invoice right?", "--session", agentSessionShort, "--json")
+	if code != 0 {
+		t.Fatalf("--json: exit %d\n%s", code, out)
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	var last map[string]any
+	for _, l := range lines {
+		var doc map[string]any
+		if err := json.Unmarshal([]byte(l), &doc); err != nil {
+			t.Fatalf("line is not JSON: %v (%q)", err, l)
+		}
+		last = doc
+	}
+	if last["state"] != "replied" || last["response"] == nil {
+		t.Fatalf("the last line is not the replied consultation: %v", last)
+	}
+	c.mu.Lock()
+	second := c.consultBodies[1]
+	c.mu.Unlock()
+	if !strings.Contains(second, `"grant_id":"grant_ops1"`) {
+		t.Fatalf("session/name did not pick the one adviser: %s", second)
+	}
+}
+
+func TestAgentAskRefusesAHandleThatNamesNobodyOrTwoAndNeverInstructs(t *testing.T) {
+	c, bin, cfg := agentFixture(t)
+	dir := t.TempDir()
+	for _, tc := range []struct{ line, want string }{
+		{"@nobody hello", "no connected agent is called @nobody"},
+		{"@ops hello", "two connected agents are called ops"},
+		{"@reviewer", "write the question after @reviewer"},
+		{"hello there", "starts with its handle"},
+	} {
+		_, errs, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "agent", "ask", "main", tc.line, "--session", agentSessionShort)
+		if code != exitUsage || !strings.Contains(errs, tc.want) {
+			t.Errorf("%q: exit %d, want %q in:\n%s", tc.line, code, tc.want, errs)
+		}
+		if (tc.line == "@nobody hello" || tc.line == "@ops hello") && !strings.Contains(errs, "@billing/ops") {
+			t.Errorf("%q: the known handles are not listed:\n%s", tc.line, errs)
+		}
+	}
+	if c.sawRequest("POST /api/v2/agents/agt_main0001/consultations") || c.sawRequest("POST /api/v2/agents/agt_main0001/tasks") {
+		t.Errorf("a refused line was sent: %v", c.seen())
+	}
+}
+
+// In a window, a line that starts with @ goes to the connected adviser it
+// names, and never to the agent as an instruction; one that names no
+// adviser is refused with the known handles.
+func TestAgentWindowRoutesAnAtLineToTheAdviserNeverToTheAgent(t *testing.T) {
+	c, bin, cfg := agentFixture(t)
+	c.mu.Lock()
+	c.endless = true
+	c.mu.Unlock()
+	w := openWindow(t, bin, cfg, "agent", "open", "main", "--session", agentSessionShort)
+	waitUntil(t, "an event", func() bool { return strings.Contains(w.so.String(), "42") })
+	w.typeLine(t, "@nobody is this safe?")
+	w.waitFor(t, "no connected agent is called @nobody")
+	w.typeLine(t, "@reviewer is this safe?")
+	w.waitFor(t, "asked reviewer for main")
+	w.waitFor(t, "reviewer's words, advice only, unverified")
+	w.waitFor(t, "- name the rollback point")
+	if c.sawRequest("POST /api/v2/agents/agt_main0001/tasks") {
+		t.Errorf("an @ line reached the agent as an instruction: %v", c.seen())
+	}
+	if !c.sawRequest("POST /api/v2/agents/agt_main0001/consultations") {
+		t.Errorf("the question was not sent as a consultation: %v", c.seen())
+	}
+	w.detach(t)
+}

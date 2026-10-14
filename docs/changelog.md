@@ -1,5 +1,42 @@
 # Changelog
 
+## Unreleased
+
+Parity with the browser console, found by checking the client against it.
+
+- `ks adviser connect` sends only the limits you name; a connection with none
+  named is sized by the service for one turn of the adviser's model, and the
+  answer prints the resolved limits and where they came from (`limits_from`).
+- Model choice: `ks run --agent --model <id>` starts the agent on a model
+  `ks cruise models` lists as offered and names it on the run's own line;
+  `ks session model <session> [<model>]` reads a session's model and whether
+  it can change now, or changes it while the session is paused, in effect
+  from its next resume (the service's refusals are printed with the next
+  action); `ks session show` prints a `runner model` line; `ks cruise models`
+  prints each model's plain name and whether it is offered to sessions, with
+  the note of a withheld model.
+- `ks agent ask <name> "@<adviser> <question>"` asks one of the agent's
+  connected advisers as a person and waits for the reply, saying when the
+  question wakes a paused adviser; the reply is headed as the adviser's words,
+  advice only, unverified. In `ks agent open` and in the app a line that
+  starts with `@` takes the same path and is never sent to the agent as an
+  instruction; one that names no connected adviser is refused with the known
+  handles.
+- `ks agent history <name> [--last N]` prints the conversation in any session
+  state, with the whole text of every entry. The backlog of `ks agent open`
+  and of the app is now the journal's tail: the events route pages forward
+  only, and one page with a limit was the oldest rows.
+- Every session and agent state is printed as the console's word beside the
+  raw state: `Paused (parked)`, `Running (running)`, `Saving (stopping)`,
+  `Starting (provisioning)`, `Ended (dead)`, `Failed (failed)`, `Needs
+  recovery (recovery_required)`. The app's home says Paused for an agent whose
+  session is parked. `ks session list` lists ended sessions by default, in a
+  final Ended group.
+- `ks session usage` prints the receipt the console prints, from the
+  service's summary: charges so far, running time, saved data, model use
+  (with No charge and the reason), the budget spent and left; a figure the
+  meter did not answer reads unavailable, never 0. The entries stay under it.
+
 ## v0.1.19
 
 Found by checking every documentation page against the client.

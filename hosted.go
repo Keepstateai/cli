@@ -184,7 +184,7 @@ func hostedRun(cr hostedCreds, inv *Invocation) {
 		hostedRunAgent(cr, inv)
 		return
 	}
-	for _, f := range []string{"name", "agent-name", "task", "open"} {
+	for _, f := range []string{"name", "agent-name", "task", "open", "model"} {
 		if inv.Set(f) {
 			fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--" + f + " belongs to an agent session", NextAction: "ks run --agent --" + f + " ..."})
 		}

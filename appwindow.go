@@ -417,6 +417,14 @@ func appWindow(cr hostedCreds, scr *screen, keys <-chan keyEvent, sess inventory
 				}
 				continue
 			}
+			if strings.HasPrefix(strings.TrimSpace(text), "@") {
+				// a question to a connected adviser: it answers here, and it
+				// is never an instruction to this agent
+				heldKs = ""
+				scr.Print("\n" + strings.Join(wrapHang(th.bold(fmt.Sprintf("%-6s", "you"))+" ", "       ", sanitize(text), width), "\n"))
+				go win.askAdviser(cr, strings.TrimSpace(text))
+				continue
+			}
 			if slash, ok := looksLikeKsCommand(text); ok && text != heldKs {
 				heldKs = text
 				scr.Print(notice(iconWarn, toneInfo, fmt.Sprintf("%q is a ks command, so it was not sent to %s. Run it here as %s, or press Enter again to send it to %s as written.",
@@ -550,6 +558,7 @@ func appHelp(agent string, width int) string {
 	}
 	section("Keys")
 	rows = append(rows, row("Enter", "Send what you typed to "+agent+".")...)
+	rows = append(rows, row("@<adviser> <question>", "Ask a connected agent (/advisers lists them). It answers here and never works in "+agent+"'s workspace.")...)
 	rows = append(rows, row("Esc", "Interrupt the instruction it is working on.")...)
 	rows = append(rows, row("y / n / d", "Allow, deny or show a permission request (with an empty input).")...)
 	rows = append(rows, row("↑ / ↓", "Your earlier lines.")...)
@@ -774,12 +783,10 @@ func appBacklog(cr hostedCreds, scr *screen, sess inventoryRow, a agentRow, upto
 	if upto <= 0 {
 		return
 	}
-	var env struct {
-		Data struct {
-			Items []journalEvent `json:"items"`
-		} `json:"data"`
-	}
-	if err := hostedCall(cr, "GET", "/api/v2/sessions/"+url.PathEscape(agentSessionID(sess))+"/events?limit=400", nil, &env); err != nil {
+	// the END of the journal, paged forward to the resume point (the
+	// route pages forward only; one page with a limit is the oldest rows)
+	past, _, err := readSessionJournal(cr, agentSessionID(sess), upto, 400)
+	if err != nil {
 		scr.Print(errorLines("read the conversation so far", errText(err), "That is not the same as nothing having happened. /logs shows the journal.", width))
 		return
 	}
@@ -804,16 +811,13 @@ func appBacklog(cr hostedCreds, scr *screen, sess inventoryRow, a agentRow, upto
 		}
 	}
 	var lines []string
-	for _, e := range env.Data.Items {
-		if e.StreamSeq > upto {
-			continue
-		}
+	for _, e := range past {
 		if l, ok := appEventLine(e, agentName, cr.AccountID); ok {
 			lines = append(lines, l)
 		}
 	}
 	if len(lines) > backlogMax {
-		scr.Print(dimNotice("…", toneDim, fmt.Sprintf("%d earlier lines are not shown here. /logs shows them.", len(lines)-backlogMax), width))
+		scr.Print(dimNotice("…", toneDim, fmt.Sprintf("%d earlier lines are not shown here. /agent history shows the whole conversation.", len(lines)-backlogMax), width))
 		lines = lines[len(lines)-backlogMax:]
 	}
 	for _, l := range lines {

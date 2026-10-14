@@ -67,6 +67,15 @@ type consultationDoc struct {
 	Response       *adviceResponse `json:"response"`
 	DeclinedReason string          `json:"declined_reason,omitempty"`
 	Note           string          `json:"note"`
+	// AdviserWake is present when the question woke a paused adviser:
+	// waking, woken or failed, when the wake began and when the adviser ran.
+	AdviserWake *consultWakeDoc `json:"adviser_wake,omitempty"`
+}
+
+type consultWakeDoc struct {
+	State     string `json:"state"`
+	StartedAt string `json:"started_at,omitempty"`
+	WokeAt    string `json:"woke_at,omitempty"`
 }
 
 // taskAdviceDoc is the advice set exactly as the service gives it. It has

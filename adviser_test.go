@@ -88,9 +88,10 @@ func (c *adviserCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		c.mu.Lock()
 		c.posts = append(c.posts, body)
 		c.mu.Unlock()
+		limits, from := resolvedGrantLimits(body["limits"])
 		env(201, map[string]any{"id": "grant_0001", "source_agent_id": body["source_agent_id"], "target_agent_id": body["target_agent_id"],
 			"scope": "advice", "expires_at": "2026-09-27T00:00:00Z", "grant_revision": 1, "approved_by": "acct_x", "live": true,
-			"limits": body["limits"], "context_policy": "question_only",
+			"limits": limits, "limits_from": from, "context_policy": "question_only",
 			"source_agent_name": "main", "source_session_name": "checkout", "target_agent_name": "main", "target_session_name": "reviewer"})
 	case r.Method == "GET" && r.URL.Path == "/api/v2/adviser-grants":
 		c.mu.Lock()
@@ -103,6 +104,35 @@ func (c *adviserCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		env(404, nil)
 	}
+}
+
+// adviserModel is the model the fake's adviser session runs; a connection
+// made with no limits named is sized for one turn of it.
+const adviserModel = "claude-haiku-4-5-20251001"
+
+// resolvedGrantLimits mirrors the service's resolveGrantOn: the limits a
+// grant carries are the figures the person named, filled from the defaults
+// for the adviser's model where they named nothing, and limits_from says
+// which ("named" when both token limits were named).
+func resolvedGrantLimits(raw any) (map[string]any, string) {
+	named, _ := raw.(map[string]any)
+	num := func(k string, def float64) float64 {
+		if v, ok := named[k].(float64); ok && v > 0 {
+			return v
+		}
+		return def
+	}
+	out := map[string]any{
+		"max_consultations":                  num("max_consultations", 50),
+		"max_tokens_per_consultation":        num("max_tokens_per_consultation", 232768),
+		"max_output_tokens_per_consultation": num("max_output_tokens_per_consultation", 32768),
+	}
+	t, _ := named["max_tokens_per_consultation"].(float64)
+	o, _ := named["max_output_tokens_per_consultation"].(float64)
+	if t > 0 && o > 0 {
+		return out, "named"
+	}
+	return out, "default for " + adviserModel
 }
 
 // postAt answers a copy of the i-th grant body the fixture received, read
@@ -142,7 +172,7 @@ func TestAConnectionIsGrantedOnlyAfterBothEndsAreShownAndTheAdviserIsConfirmed(t
 	if code != exitUsage || !strings.Contains(errs, "--confirm reviewer/main") || c.postCount() != 0 {
 		t.Fatalf("unconfirmed connect: %d out=%q err=%q posts=%d", code, out, errs, c.postCount())
 	}
-	for _, want := range []string{"checkout/main", "reviewer/main", "session session_rev", "project proj_1", "question", "16,384", "expires", "nothing was connected"} {
+	for _, want := range []string{"checkout/main", "reviewer/main", "session session_rev", "project proj_1", "question", "one turn of the adviser's model", "expires", "nothing was connected"} {
 		if !strings.Contains(errs, want) && !strings.Contains(out, want) {
 			t.Errorf("the confirmation does not show %q:\n%s", want, errs)
 		}
@@ -164,8 +194,9 @@ func TestAConnectionIsGrantedOnlyAfterBothEndsAreShownAndTheAdviserIsConfirmed(t
 		t.Fatalf("ambiguous adviser: %d %s", code, errs)
 	}
 
-	// confirmed: ONE grant, with the limits and the question-only policy; the
-	// --json stdout is exactly one envelope and the display went to stderr
+	// confirmed: ONE grant, with the one limit named and the question-only
+	// policy; the --json stdout is exactly one envelope and the display went
+	// to stderr
 	out, errs, code = auditExec(t, bin, cfg, dir, env, "adviser", "connect", "reviewer/main", "--session", "fleetsrc0000",
 		"--confirm", "reviewer/main", "--max-consultations", "3", "--expires", "2h", "--json")
 	if code != 0 || c.postCount() != 1 {
@@ -186,14 +217,42 @@ func TestAConnectionIsGrantedOnlyAfterBothEndsAreShownAndTheAdviserIsConfirmed(t
 	if p == nil {
 		t.Fatal("no grant body was received")
 	}
+	// only the limit the person named is sent: the token limits are the
+	// service's to size, for one turn of the adviser's model
 	lim, _ := p["limits"].(map[string]any)
 	if p["source_agent_id"] != "agent_src" || p["target_agent_id"] != "agent_rev" || p["context_policy"] != "question_only" ||
-		lim["max_consultations"] != float64(3) || lim["max_tokens_per_consultation"] != float64(16384) || p["expires_seconds"] != float64(7200) {
+		lim["max_consultations"] != float64(3) || p["expires_seconds"] != float64(7200) {
 		t.Fatalf("the grant sent: %v", p)
 	}
-	// by id as well
-	if _, errs, code := auditExec(t, bin, cfg, dir, env, "adviser", "connect", "agent_rev", "--session", "fleetsrc0000", "--confirm", "agent_rev"); code != 0 || c.postCount() != 2 {
+	if _, sent := lim["max_tokens_per_consultation"]; sent {
+		t.Fatalf("a token limit nobody named was sent: %v", lim)
+	}
+	if _, sent := lim["max_output_tokens_per_consultation"]; sent {
+		t.Fatalf("an output limit nobody named was sent: %v", lim)
+	}
+	// by id as well, with nothing named: no limits object at all, and the
+	// answer prints the service's resolved figures and where they came from
+	out, errs, code = auditExec(t, bin, cfg, dir, env, "adviser", "connect", "agent_rev", "--session", "fleetsrc0000", "--confirm", "agent_rev")
+	if code != 0 || c.postCount() != 2 {
 		t.Fatalf("connect by id: %d %s", code, errs)
+	}
+	if _, sent := c.postAt(1)["limits"]; sent {
+		t.Fatalf("a connection with no limits named sent a limits object: %v", c.postAt(1))
+	}
+	if want := "limits: 232,768 tokens and 32,768 output per consultation, 50 consultations (default for " + adviserModel + ")"; !strings.Contains(out, want) {
+		t.Fatalf("the answer does not print the resolved limits and their source:\n%s", out)
+	}
+	// both token limits named: the service answers them as named
+	out, errs, code = auditExec(t, bin, cfg, dir, env, "adviser", "connect", "agent_rev", "--session", "fleetsrc0000", "--confirm", "agent_rev",
+		"--max-tokens", "20000", "--max-output-tokens", "4000")
+	if code != 0 || c.postCount() != 3 {
+		t.Fatalf("connect with named limits: %d %s", code, errs)
+	}
+	if lim, _ := c.postAt(2)["limits"].(map[string]any); lim["max_tokens_per_consultation"] != float64(20000) || lim["max_output_tokens_per_consultation"] != float64(4000) || lim["max_consultations"] != nil {
+		t.Fatalf("the named limits sent: %v", c.postAt(2))
+	}
+	if !strings.Contains(out, "limits: 20,000 tokens and 4,000 output per consultation, 50 consultations (named)") {
+		t.Fatalf("the answer does not print the named limits:\n%s", out)
 	}
 }
 

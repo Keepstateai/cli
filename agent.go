@@ -431,11 +431,13 @@ func agentLine(a agentRow) string {
 	if task == "" {
 		task = "none"
 	}
-	activity := stateCell("agent_activity", a.Activity)
+	// the state a person reads: the session's, when it is not running (the
+	// agent's own word is then frozen), else the agent's activity
+	activity := stateWords("agent_activity", a.Activity)
 	if a.SessionRuntime != nil {
-		activity = "frozen"
+		activity = stateWords("session_runtime", a.SessionRuntime.State)
 	}
-	line := fmt.Sprintf("%-16s %-16s %-11s %-8s %s", clip(a.Name, 16), clip(a.ID, 16), clip(activity, 11), agentRole(a), task)
+	line := fmt.Sprintf("%-16s %-16s %-24s %-8s %s", clip(a.Name, 16), clip(a.ID, 16), clip(activity, 24), agentRole(a), task)
 	if a.Controller != "" || a.Consultation != "" {
 		line += fmt.Sprintf("  control %s · advice %s", figure(a.Controller), figure(a.Consultation))
 	}
@@ -443,7 +445,7 @@ func agentLine(a agentRow) string {
 	case rt.funds():
 		line += "  " + fundsPausedLine
 	case rt != nil:
-		line += "  session " + sanitize(stateLabel("session_runtime", rt.State)) + ": not running"
+		line += "  not running; the agent's last word was " + stateWords("agent_activity", a.Activity)
 	}
 	return line
 }
@@ -459,7 +461,7 @@ func hostedAgentList(cr hostedCreds, inv *Invocation) {
 			fmt.Printf("No agents in session %s.\n", sess.ShortID)
 			return
 		}
-		fmt.Printf("%-16s %-16s %-11s %-8s %s\n", "AGENT", "ID", "ACTIVITY", "ROLE", "CURRENT TASK")
+		fmt.Printf("%-16s %-16s %-24s %-8s %s\n", "AGENT", "ID", "STATE", "ROLE", "CURRENT TASK")
 		for _, a := range agents {
 			fmt.Println(agentLine(a))
 		}
@@ -508,9 +510,9 @@ func hostedAgentStatus(cr hostedCreds, inv *Invocation) {
 				fmt.Println(l)
 			}
 			if a.SessionRuntime != nil {
-				fmt.Printf("  activity       FROZEN at %s (%s): the last word before the session stopped, not current\n", stateLabel("agent_activity", a.Activity), age)
+				fmt.Printf("  activity       FROZEN at %s (%s): the last word before the session stopped, not current\n", stateWords("agent_activity", a.Activity), age)
 			} else {
-				fmt.Printf("  activity       %s (%s)\n", stateLabel("agent_activity", a.Activity), age)
+				fmt.Printf("  activity       %s (%s)\n", stateWords("agent_activity", a.Activity), age)
 			}
 			if a.Activity == "recovery_required" {
 				fmt.Printf("  RECOVERY       its runner stopped and what it was doing is unknown: this agent is NOT ready; decide: ks agent queue show %s --session %s\n", a.Name, sess.ShortID)
@@ -857,7 +859,7 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 			progress("session %s is resuming because you asked with --resume (state: %s)", sess.ShortID, figure(r["runtime_state"]))
 		} else {
 			if inv.Bool("resume") {
-				fail(&cliError{Code: exitConflict, Kind: "not_resumable", Message: fmt.Sprintf("session %s is %s and cannot be resumed: %s", sess.ShortID, stateLabel("session_runtime", w.Runtime.State), sanitize(w.Runtime.Note))})
+				fail(&cliError{Code: exitConflict, Kind: "not_resumable", Message: fmt.Sprintf("session %s is %s and cannot be resumed: %s", sess.ShortID, stateWords("session_runtime", w.Runtime.State), sanitize(w.Runtime.Note))})
 			}
 			emit(map[string]any{"session": sess.ID, "agent": w.Agent, "runtime": w.Runtime, "recovery": w.Recovery, "woken": false, "session_runtime": a.SessionRuntime}, func() {
 				if a.SessionRuntime.funds() {
@@ -867,7 +869,7 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 						fmt.Println(l)
 					}
 				}
-				fmt.Printf("agent %s (%s) in session %s: the session is %s and was NOT woken\n", a.Name, a.ID, sess.ShortID, stateLabel("session_runtime", w.Runtime.State))
+				fmt.Printf("agent %s (%s) in session %s: the session is %s and was NOT woken\n", a.Name, a.ID, sess.ShortID, stateWords("session_runtime", w.Runtime.State))
 				fmt.Printf("  %s\n", sanitize(w.Runtime.Note))
 				if w.Runtime.LastSavedAt != "" {
 					fmt.Printf("  last saved %s (%s)\n", w.Runtime.LastSavedAt, figure(w.Runtime.CheckpointID))
@@ -879,7 +881,7 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 	}
 	if w.Recovery != nil {
 		emit(map[string]any{"session": sess.ID, "agent": w.Agent, "runtime": w.Runtime, "recovery": w.Recovery}, func() {
-			fmt.Printf("agent %s (%s) in session %s reads %s: %s\n", a.Name, a.ID, sess.ShortID, stateLabel("agent_activity", w.Recovery.Activity), sanitize(w.Recovery.Note))
+			fmt.Printf("agent %s (%s) in session %s reads %s: %s\n", a.Name, a.ID, sess.ShortID, stateWords("agent_activity", w.Recovery.Activity), sanitize(w.Recovery.Note))
 			printOpenActions(w.Recovery.Actions, a.Name, sess)
 		})
 		return
@@ -892,7 +894,7 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 	// piped stdout carries the agent's events and nothing else
 	age, stale := agentAge(w.Agent, time.Now())
 	progress("agent %s (%s) in session %s · %s (%s) · %s · %s · %d queued",
-		a.Name, a.ID, sess.ShortID, stateLabel("agent_activity", w.Agent.Activity), age, joined, controlLine(w), w.QueueDepth)
+		a.Name, a.ID, sess.ShortID, stateWords("agent_activity", w.Agent.Activity), age, joined, controlLine(w), w.QueueDepth)
 	if stale {
 		progress("STALE: no observation of this agent for more than %s; the status above is the last known one", staleAfter)
 	}
@@ -902,7 +904,7 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 		if rt.funds() {
 			progress("%s; the status above is frozen at the saved point", fundsPausedLine)
 		} else {
-			progress("the session is %s: %s", stateLabel("session_runtime", rt.State), sanitize(rt.Note))
+			progress("the session is %s: %s", stateWords("session_runtime", rt.State), sanitize(rt.Note))
 		}
 	}
 
@@ -934,7 +936,7 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 			"approvals_pending": pending,
 		}, func() {
 			fmt.Printf("agent %s (%s) in session %s\n", a.Name, a.ID, sess.ShortID)
-			fmt.Printf("  activity       %s\n", figure(w.Agent.Activity))
+			fmt.Printf("  activity       %s\n", stateWords("agent_activity", w.Agent.Activity))
 			fmt.Printf("  control        %s\n", controlLine(w))
 			fmt.Printf("  queue          %d queued\n", w.QueueDepth)
 			switch {
@@ -996,39 +998,29 @@ func heldSummary(cr hostedCreds, agentID string, sess inventoryRow) (string, str
 const backlogMax = 30
 
 // showBacklog renders the tail of the conversation that already happened,
-// marked as history. It is best effort in exactly one direction: a journal
-// that cannot be read costs the screen its history and SAYS so, and is
-// never rendered as an agent that has said nothing.
+// marked as history: the journal is paged forward to the point the window
+// resumes from and the last entries before it are shown, whole. It is best
+// effort in exactly one direction: a journal that cannot be read costs the
+// screen its history and SAYS so, and is never rendered as an agent that
+// has said nothing.
 func showBacklog(cr hostedCreds, sess inventoryRow, upto int64) {
 	if upto <= 0 {
 		return
 	}
-	var env struct {
-		Data struct {
-			Items []journalEvent `json:"items"`
-		} `json:"data"`
-	}
-	q := url.Values{"limit": {"400"}}
-	if err := hostedCall(cr, "GET", "/api/v2/sessions/"+url.PathEscape(agentSessionID(sess))+"/events?"+q.Encode(), nil, &env); err != nil {
+	past, total, err := readSessionJournal(cr, agentSessionID(sess), upto, backlogMax)
+	if err != nil {
 		progress("what already happened could not be read, so none of it is shown; that is not the same as nothing having happened: %s", sanitize(err.Error()))
 		return
-	}
-	var past []journalEvent
-	for _, e := range env.Data.Items {
-		if e.StreamSeq <= upto {
-			past = append(past, e)
-		}
 	}
 	if len(past) == 0 {
 		return
 	}
-	if len(past) > backlogMax {
-		progress("... %d earlier entries are in the journal and are not printed here", len(past)-backlogMax)
-		past = past[len(past)-backlogMax:]
+	if total > len(past) {
+		progress("... %d earlier entries are in the journal and are not printed here (ks agent history <name> shows them)", total-len(past))
 	}
 	progress("--- what already happened (history; nothing below is arriving now) ---")
 	for _, e := range past {
-		emitLine(e, agentEventLine(e))
+		emitLine(e, agentEventFull(e))
 	}
 	progress("--- live from here ---")
 }
@@ -1161,11 +1153,19 @@ func transcriptOf(e journalEvent) *transcriptEntry {
 }
 
 // transcriptLine renders one conversation entry as a person reads it, with
-// a marker that says which kind of thing it was. A kind this client does
-// not know is shown as itself rather than dropped: a line nobody rendered
-// is a line a watcher never learns existed.
-func transcriptLine(t transcriptEntry) string {
+// a marker that says which kind of thing it was: the first line of its
+// text, for a live window. A kind this client does not know is shown as
+// itself rather than dropped: a line nobody rendered is a line a watcher
+// never learns existed.
+func transcriptLine(t transcriptEntry) string { return transcriptText(t, false) }
+
+// transcriptText is transcriptLine with, when full, the whole text of a
+// conversation entry (its lines kept) rather than the first line.
+func transcriptText(t transcriptEntry, full bool) string {
 	mark, body := "·", firstLineOf(t.Text)
+	if full {
+		body = strings.TrimRight(strings.TrimSpace(t.Text), "\n")
+	}
 	switch t.Kind {
 	case "assistant_text":
 		mark = "agent"
@@ -1225,8 +1225,10 @@ func transcriptLine(t transcriptEntry) string {
 // what it means for a person watching. Nothing was asked in any of them.
 func consultRefusalHint(text string) string {
 	switch {
+	case strings.Contains(text, "ks_adviser_not_woken"):
+		return "the adviser is paused and the question could not wake it (the message says why: no machine, the free tier's one session, an account out of credit, or a machine stopped for good); nothing was asked"
 	case strings.Contains(text, "ks_adviser_parked"):
-		return "the adviser is parked and a question never wakes it: a person resumes it (ks agent resume <adviser> --session <its session>), then it may be asked"
+		return "the adviser is being saved or is stopped, so this question did not reach it: a paused adviser is woken by a question once its save is complete, or a person resumes it (ks agent resume <adviser> --session <its session>)"
 	case strings.Contains(text, "ks_consult_recipients_cap"):
 		return "the consultation cap was reached (advisers per instruction, or consultations open at once); nothing was asked"
 	case strings.Contains(text, "ks_deadline_too_long"):
@@ -1856,9 +1858,9 @@ func (win *liveWindow) legend() string {
 		return "this window reads nothing typed into it (--no-input); decide requests with ks agent approve <id> --session " + win.sess.ShortID
 	}
 	if _, held := win.hold(); !held {
-		return "type \"a <id>\" to approve a request or \"d <id>\" to deny it, \"advice\" for the advice drawer; this window is watching, so it queues no instruction (" + win.takeControlLine() + ")"
+		return "type \"a <id>\" to approve a request or \"d <id>\" to deny it, \"advice\" for the advice drawer; this window is watching, so it queues no instruction and asks no adviser (" + win.takeControlLine() + ")"
 	}
-	return "type \"a <id>\" to approve a request, \"d <id>\" to deny it, \"advice\" for the advice drawer, anything else to send it to the agent as an instruction; Ctrl-C interrupts the instruction in flight; \"q\" leaves the window"
+	return "type \"a <id>\" to approve a request, \"d <id>\" to deny it, \"advice\" for the advice drawer, \"@<adviser> <question>\" to ask a connected adviser (never an instruction), anything else to send it to the agent as an instruction; Ctrl-C interrupts the instruction in flight; \"q\" leaves the window"
 }
 
 // refuse prints one refusal inside a window that stays open. A window is
@@ -1909,6 +1911,11 @@ func (win *liveWindow) readInput(cr hostedCreds, restore func()) {
 		}
 		line := strings.TrimSpace(raw)
 		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "@") {
+			// a question to a connected adviser, never an instruction
+			win.askAdviser(cr, line)
 			continue
 		}
 		switch word, arg, ok := readWindowLine(line); {

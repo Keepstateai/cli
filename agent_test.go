@@ -27,6 +27,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -80,6 +81,22 @@ type agentCtl struct {
 	resumes        int
 	resumeStopping bool // the first resume is refused: the save is still completing
 	saveFails      bool // the pause's save fails (KS-051): answered through the operation record
+
+	// a person's consultation (ks agent ask, "@handle question" in a window):
+	// the drawer of connected advisers, the bodies the consultation route
+	// received, how many times the consultation was read back, and whether
+	// the adviser was paused, so the question wakes it first
+	consultBodies []string
+	consultReads  int
+	consultWake   bool
+
+	// the journal: explicit rows (stream_seq by position), else backlog
+	// generated entries; the events route pages FORWARD only, as the
+	// service does (after_seq or a cursor, at most 1000 per page), and
+	// resumeAt is where the open says the window resumes from (41 when 0)
+	journal    []map[string]any
+	resumeAt   int64
+	eventPages int
 }
 
 func newAgentCtl() *agentCtl {
@@ -292,9 +309,15 @@ func (c *agentCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		c.mu.Lock()
 		lease := c.leaseDoc()
 		c.mu.Unlock()
+		c.mu.Lock()
+		at := c.resumeAt
+		c.mu.Unlock()
+		if at == 0 {
+			at = 41
+		}
 		env(200, map[string]any{"agent": found, "reconnected": reconnected,
 			"lease":  lease,
-			"resume": map[string]any{"after_seq": 41, "cursor": "cur_41"}, "queue_depth": 2})
+			"resume": map[string]any{"after_seq": at, "cursor": fmt.Sprintf("cur_%d", at)}, "queue_depth": 2})
 	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/tasks"):
 		raw, _ := readAllBody(r)
 		var body map[string]any
@@ -442,6 +465,59 @@ func (c *agentCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"status": map[string]any{"label": "Ready", "age_seconds": 2, "stale": false, "stale_after_seconds": 15},
 			"usage":  map[string]any{"model_microusd": nil, "model_standing": "unavailable", "entries": []any{map[string]any{"kind": "model", "source": "gateway meter", "tokens": 1234}}},
 		})
+	case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/advisers") && strings.HasPrefix(r.URL.Path, "/api/v2/agents/"):
+		// the drawer: three live connections, two of whose advisers share a name
+		party := func(id, name, sess, sessName string) map[string]any {
+			return map[string]any{"agent_id": id, "agent_name": name, "session_id": sess, "session_name": sessName}
+		}
+		entry := func(grant string, adviser map[string]any, readiness string) map[string]any {
+			return map[string]any{"grant_id": grant, "grant_revision": 1, "expires_at": "2026-09-27T00:00:00Z", "adviser": adviser, "readiness": readiness,
+				"queued_requests": []string{}, "sharing": map[string]any{"questions_shared": 0, "replies_received": 0, "policy": "question_only"}, "budget": "sufficient"}
+		}
+		env(200, map[string]any{"agent_id": agentID(), "advisers": []map[string]any{
+			entry("grant_rev", party("agt_rev00001", "reviewer", "session_rev", "review"), "not_dispatchable"),
+			entry("grant_ops1", party("agt_ops00001", "ops", "session_bill", "billing"), "ready"),
+			entry("grant_ops2", party("agt_ops00002", "ops", "session_infra", "infra"), "busy"),
+		}, "note": "only connections a person made from this agent"})
+	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/consultations") && strings.HasPrefix(r.URL.Path, "/api/v2/agents/"):
+		raw, _ := readAllBody(r)
+		c.mu.Lock()
+		c.consultBodies = append(c.consultBodies, string(raw))
+		wake := c.consultWake
+		c.mu.Unlock()
+		doc := map[string]any{"id": "csl_0001", "state": "requested", "source_agent_id": agentID(), "target_agent_id": "agt_rev00001",
+			"grant_id": "grant_rev", "grant_revision": 1, "deadline": time.Now().UTC().Add(10 * time.Minute).Format(time.RFC3339), "context_hashes": []string{}}
+		if wake {
+			doc["adviser_wake"] = "waking"
+		}
+		env(201, doc)
+	case r.Method == "GET" && r.URL.Path == "/api/v2/consultations/csl_0001":
+		c.mu.Lock()
+		c.consultReads++
+		reads, wake := c.consultReads, c.consultWake
+		c.mu.Unlock()
+		doc := map[string]any{"id": "csl_0001", "state": "requested", "label": "Pending",
+			"asker":         map[string]any{"agent_id": "agt_main0001", "agent_name": "main", "session_id": agentSessionRecord, "session_name": "checkout"},
+			"adviser":       map[string]any{"agent_id": "agt_rev00001", "agent_name": "reviewer", "session_id": "session_rev", "session_name": "review"},
+			"task_standing": "none", "requested_at": "2026-09-20T12:03:00Z", "deadline": "2026-09-20T12:13:00Z",
+			"context":  map[string]any{"policy": "question_only", "hashes": []string{}, "grant_id": "grant_rev", "grant_revision": 1},
+			"question": "is this approach sound?", "response": nil, "note": "no reply yet; nothing is shown in its place"}
+		switch {
+		case reads == 1 && wake:
+			doc["adviser_wake"] = map[string]any{"state": "waking", "started_at": "2026-09-20T12:03:00Z"}
+			doc["label"] = "Pending (waking the adviser)"
+		case reads == 2 && wake:
+			doc["state"], doc["label"] = "delivered", "Pending (the adviser is answering)"
+			doc["adviser_wake"] = map[string]any{"state": "woken", "started_at": "2026-09-20T12:03:00Z", "woke_at": "2026-09-20T12:03:40Z"}
+		case reads >= 3 || (!wake && reads >= 2):
+			doc["state"], doc["label"], doc["received_at"] = "replied", "Replied", "2026-09-20T12:04:10Z"
+			doc["response"] = map[string]any{"text": "Looks sound.\nTwo notes:\n- keep the tests\n- name the rollback point", "by": "agt_rev00001", "verification": "unverified"}
+			doc["note"] = "the adviser's own words, attributed; advice is unverified and authorises nothing"
+			if wake {
+				doc["adviser_wake"] = map[string]any{"state": "woken", "started_at": "2026-09-20T12:03:00Z", "woke_at": "2026-09-20T12:03:40Z"}
+			}
+		}
+		env(200, doc)
 	case r.Method == "PUT" && strings.HasPrefix(r.URL.Path, "/api/v2/control-leases/"):
 		c.mu.Lock()
 		c.renewals++
@@ -501,18 +577,51 @@ func (c *agentCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		env(200, map[string]any{"items": items, "observed_at": "x"})
 	case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/events") && strings.HasPrefix(r.URL.Path, "/api/v2/sessions/"):
 		c.mu.Lock()
-		n := c.backlog
+		c.eventPages++
+		n, journal := c.backlog, c.journal
 		c.mu.Unlock()
-		rows := []map[string]any{}
-		for i := 0; i < n; i++ {
-			rows = append(rows, map[string]any{
-				"event_id": fmt.Sprintf("bk_%d", i), "stream_seq": i + 1,
-				"subject_type": "agent", "subject_id": "agt_main0001",
-				"observed_at": fmt.Sprintf("2026-09-22T11:00:0%dZ", i),
-				"payload": map[string]any{"type": "agent.transcript",
-					"kind": "assistant_text", "text": fmt.Sprintf("an earlier line %d", i)}})
+		all := journal
+		if all == nil {
+			for i := 0; i < n; i++ {
+				all = append(all, map[string]any{
+					"event_id":     fmt.Sprintf("bk_%d", i),
+					"subject_type": "agent", "subject_id": "agt_main0001",
+					"observed_at": fmt.Sprintf("2026-09-22T11:%02d:%02dZ", (i/60)%60, i%60),
+					"payload": map[string]any{"type": "agent.transcript",
+						"kind": "assistant_text", "text": fmt.Sprintf("an earlier line %d", i)}})
+			}
 		}
-		env(200, map[string]any{"items": rows, "next_cursor": "", "observed_at": "x"})
+		// forward paging as the service does it: after_seq, else an opaque
+		// cursor this fake spells seq:N, at most 1000 rows a page, and a
+		// next_cursor only when more rows follow
+		after := int64(0)
+		if cur := r.URL.Query().Get("cursor"); strings.HasPrefix(cur, "seq:") {
+			after, _ = strconv.ParseInt(strings.TrimPrefix(cur, "seq:"), 10, 64)
+		} else if a := r.URL.Query().Get("after_seq"); a != "" {
+			after, _ = strconv.ParseInt(a, 10, 64)
+		}
+		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+		if limit <= 0 || limit > 1000 {
+			limit = 1000
+		}
+		rows := []map[string]any{}
+		next := ""
+		for i, row := range all {
+			seq := int64(i + 1)
+			if seq <= after {
+				continue
+			}
+			if len(rows) == limit {
+				next = fmt.Sprintf("seq:%d", seq-1)
+				break
+			}
+			out := map[string]any{"stream_seq": seq}
+			for k, v := range row {
+				out[k] = v
+			}
+			rows = append(rows, out)
+		}
+		env(200, map[string]any{"items": rows, "next_cursor": next, "observed_at": "x"})
 	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/v2/sessions/") && !strings.Contains(r.URL.Path, "/events/"):
 		c.mu.Lock()
 		c.stateReads++
@@ -606,7 +715,7 @@ func TestAgentListAndStatusReadTheSessionsAgents(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("status: exit %d\n%s%s", code, out, errs)
 	}
-	for _, want := range []string{"agent main (agt_main0001)", "activity       working", "queue          1 waiting", "current task   tsk_1 (running) at queue position 7"} {
+	for _, want := range []string{"agent main (agt_main0001)", "activity       Working (working)", "queue          1 waiting", "current task   tsk_1 (running) at queue position 7"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("status output lacks %q:\n%s", want, out)
 		}

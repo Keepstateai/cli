@@ -77,6 +77,47 @@ func unknownPublished(set *capabilitySet) []string {
 	return out
 }
 
+// consoleWords are the browser console's words for the states, per kind:
+// one word a person reads, beside the raw state this client and --json use.
+var consoleWords = map[string]map[string]string{
+	"session_runtime": {
+		"running": "Running", "checkpointing": "Running",
+		"parked": "Paused", "stopped": "Paused",
+		"stopping":     "Saving",
+		"provisioning": "Starting", "resuming": "Starting",
+		"failed":            "Failed",
+		"recovery_required": "Needs recovery",
+		"dead":              "Ended", "deleting": "Ended", "deleted": "Ended",
+	},
+	"agent_activity": {
+		"starting": "Starting", "ready": "Ready", "idle": "Ready", "working": "Working",
+		"waiting_provider": "Waiting for provider", "running_tool": "Running tool",
+		"waiting_approval": "Waiting for approval", "waiting_advice": "Waiting for advice",
+		"paused": "Paused", "stopped": "Paused", "failed": "Failed",
+		"recovery_required": "Needs recovery", "removed": "Removed",
+	},
+}
+
+// consoleWord is the console's word for a state of a kind, "Status unknown"
+// for one it has no word for.
+func consoleWord(kind, raw string) string {
+	if w, ok := consoleWords[kind][raw]; ok {
+		return w
+	}
+	return "Status unknown"
+}
+
+// stateWords renders a state as the console's word beside the raw state,
+// "Paused (parked)", wherever a session's or an agent's state is printed:
+// the word is what a person reads, the raw state is what --json and the
+// filters use. An absent state reads "Status unknown (unavailable)".
+func stateWords(kind, raw string) string {
+	if raw == "" {
+		return consoleWord(kind, raw) + " (unavailable)"
+	}
+	return consoleWord(kind, raw) + " (" + sanitize(raw) + ")"
+}
+
 // stateCell is stateLabel for a narrow table column: an unknown state reads
 // "unknown" there, and its word is in --json and in the show verbs.
 func stateCell(kind, s string) string {

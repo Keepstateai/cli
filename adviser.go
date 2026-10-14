@@ -36,23 +36,27 @@ type grantLimits struct {
 }
 
 type adviserGrant struct {
-	ID                string      `json:"id"`
-	SourceAgentID     string      `json:"source_agent_id"`
-	TargetAgentID     string      `json:"target_agent_id"`
-	Scope             string      `json:"scope"`
-	ExpiresAt         string      `json:"expires_at"`
-	GrantRevision     int64       `json:"grant_revision"`
-	ApprovedBy        string      `json:"approved_by"`
-	RevokedAt         string      `json:"revoked_at,omitempty"`
-	Live              bool        `json:"live"`
-	Limits            grantLimits `json:"limits"`
-	ContextPolicy     string      `json:"context_policy"`
-	SourceAgentName   string      `json:"source_agent_name,omitempty"`
-	SourceSessionID   string      `json:"source_session_id,omitempty"`
-	SourceSessionName string      `json:"source_session_name,omitempty"`
-	TargetAgentName   string      `json:"target_agent_name,omitempty"`
-	TargetSessionID   string      `json:"target_session_id,omitempty"`
-	TargetSessionName string      `json:"target_session_name,omitempty"`
+	ID            string      `json:"id"`
+	SourceAgentID string      `json:"source_agent_id"`
+	TargetAgentID string      `json:"target_agent_id"`
+	Scope         string      `json:"scope"`
+	ExpiresAt     string      `json:"expires_at"`
+	GrantRevision int64       `json:"grant_revision"`
+	ApprovedBy    string      `json:"approved_by"`
+	RevokedAt     string      `json:"revoked_at,omitempty"`
+	Live          bool        `json:"live"`
+	Limits        grantLimits `json:"limits"`
+	// LimitsFrom says where the limits came from: "named" when the person
+	// named both token limits, or "default for <model>" when the service
+	// sized the connection for one turn of the adviser's model.
+	LimitsFrom        string `json:"limits_from,omitempty"`
+	ContextPolicy     string `json:"context_policy"`
+	SourceAgentName   string `json:"source_agent_name,omitempty"`
+	SourceSessionID   string `json:"source_session_id,omitempty"`
+	SourceSessionName string `json:"source_session_name,omitempty"`
+	TargetAgentName   string `json:"target_agent_name,omitempty"`
+	TargetSessionID   string `json:"target_session_id,omitempty"`
+	TargetSessionName string `json:"target_session_name,omitempty"`
 }
 
 // grantState is the one word a person reads: live, revoked or expired.
@@ -162,9 +166,49 @@ func resolveAdviserTarget(cr hostedCreds, arg string) (agentRow, error) {
 	return resolveAgent(cr, sess, agentArg)
 }
 
-func limitsLine(l grantLimits) string {
-	return fmt.Sprintf("at most %d consultation(s); per consultation %s tokens, %s of them output",
-		l.MaxConsultations, commas(l.MaxTokensPerConsultation), commas(l.MaxOutputTokensPerConsultation))
+// namedLimits are the limits a person named on the command line, in the
+// service's field names, and nothing else: a figure nobody named is the
+// service's to size, for one turn of the adviser's model.
+func namedLimits(inv *Invocation) map[string]any {
+	named := map[string]any{}
+	for flag, field := range map[string]string{"max-consultations": "max_consultations", "max-tokens": "max_tokens_per_consultation", "max-output-tokens": "max_output_tokens_per_consultation"} {
+		if inv.Set(flag) {
+			named[field] = inv.Int(flag)
+		}
+	}
+	return named
+}
+
+// limitsShown says, before anything is sent, what the connection will
+// admit: the figures the person named, and that the service sizes the rest
+// for one turn of the adviser's model (the resolved figures come back on
+// the answer and are printed there).
+func limitsShown(named map[string]any) string {
+	if len(named) == 0 {
+		return "the service's defaults: one turn of the adviser's model, its context plus the output the runner asks for (the figures are printed on the answer)"
+	}
+	var parts []string
+	if n, ok := named["max_consultations"].(int64); ok {
+		parts = append(parts, fmt.Sprintf("at most %d consultation(s)", n))
+	}
+	if n, ok := named["max_tokens_per_consultation"].(int64); ok {
+		parts = append(parts, commas(n)+" tokens per consultation")
+	}
+	if n, ok := named["max_output_tokens_per_consultation"].(int64); ok {
+		parts = append(parts, commas(n)+" output tokens per consultation")
+	}
+	return strings.Join(parts, "; ") + "; the rest the service's default for one turn of the adviser's model"
+}
+
+// resolvedLimitsLine is the answer's limits as the service resolved them,
+// and where they came from.
+func resolvedLimitsLine(g adviserGrant) string {
+	from := g.LimitsFrom
+	if from == "" {
+		from = "as the service recorded them"
+	}
+	return fmt.Sprintf("limits: %s tokens and %s output per consultation, %d consultations (%s)",
+		commas(g.Limits.MaxTokensPerConsultation), commas(g.Limits.MaxOutputTokensPerConsultation), g.Limits.MaxConsultations, sanitize(from))
 }
 
 // confirmGrant decides whether the person confirmed THIS adviser. It returns
@@ -239,16 +283,7 @@ func hostedAdviserConnect(cr hostedCreds, inv *Invocation) {
 	if perr != nil || ttl <= 0 || ttl > 30*24*time.Hour {
 		fail(&cliError{Code: exitUsage, Kind: "usage", Message: fmt.Sprintf("--expires %q is not a duration between 1s and 720h", expires), NextAction: "--expires 24h"})
 	}
-	lim := grantLimits{MaxConsultations: 50, MaxTokensPerConsultation: 16384, MaxOutputTokensPerConsultation: 4096}
-	if inv.Set("max-consultations") {
-		lim.MaxConsultations = inv.Int("max-consultations")
-	}
-	if inv.Set("max-tokens") {
-		lim.MaxTokensPerConsultation = inv.Int("max-tokens")
-	}
-	if inv.Set("max-output-tokens") {
-		lim.MaxOutputTokensPerConsultation = inv.Int("max-output-tokens")
-	}
+	named := namedLimits(inv)
 	// WHAT IS ABOUT TO BE GRANTED, shown before anything is sent
 	// shown on stderr even under --quiet: this is the decision's own display,
 	// not progress, and a confirmation of something not shown is no
@@ -259,15 +294,18 @@ func hostedAdviserConnect(cr hostedCreds, inv *Invocation) {
 	shown("  adviser   %s", to.line())
 	shown("  scope     advice only, one round per consultation; a reply authorises nothing")
 	shown("  shares    the question %s writes, and nothing of its transcript or files", from.label())
-	shown("  limits    %s", limitsLine(lim))
+	shown("  limits    %s", limitsShown(named))
 	shown("  expires   in %s; revoke at any time with ks adviser disconnect <grant>", ttl)
 	shown("  paid by   model use for advice is metered to the ADVISER's session (%s) under its own key", to.SessionName)
 	confirmGrant(to, inv.Str("confirm"))
 
 	body := map[string]any{"source_agent_id": src.ID, "target_agent_id": tgt.ID, "scope": "advice",
-		"context_policy": "question_only", "expires_seconds": int64(ttl / time.Second),
-		"limits": map[string]any{"max_consultations": lim.MaxConsultations, "max_tokens_per_consultation": lim.MaxTokensPerConsultation,
-			"max_output_tokens_per_consultation": lim.MaxOutputTokensPerConsultation}}
+		"context_policy": "question_only", "expires_seconds": int64(ttl / time.Second)}
+	if len(named) > 0 {
+		// only what was named: the service sizes the rest for one turn of
+		// the adviser's model, and says so on the answer (limits_from)
+		body["limits"] = named
+	}
 	var env struct {
 		Data adviserGrant `json:"data"`
 	}
@@ -277,6 +315,7 @@ func hostedAdviserConnect(cr hostedCreds, inv *Invocation) {
 	g := env.Data
 	emit(map[string]any{"grant": g, "from": from, "adviser": to, "confirmed": true}, func() {
 		fmt.Printf("connected: %s may consult %s (grant %s, revision %d, %s)\n", from.label(), to.label(), g.ID, g.GrantRevision, grantState(g))
+		fmt.Println(resolvedLimitsLine(g))
 		fmt.Printf("expires %s; withdraw with: ks adviser disconnect %s\n", g.ExpiresAt, g.ID)
 	})
 }
