@@ -181,7 +181,7 @@ func TestFundsParkReadsPausedOnEverySurface(t *testing.T) {
 		}
 	}
 	// the tables show the pause in their cells, not only in a footnote
-	if out := run("session", "list"); !regexp.MustCompile(`agentsession00\s+paused\s+frozen\s+paused`).MatchString(out) {
+	if out := run("session", "list"); !regexp.MustCompile(`agentsession00\s+Paused \(stopping\)\s+frozen\s+paused`).MatchString(out) {
 		t.Errorf("session list cells:\n%s", out)
 	}
 	if out := run("task", "list", "--session", agentSessionShort); !regexp.MustCompile(`tsk_live\s+3 paused`).MatchString(out) ||
@@ -194,7 +194,7 @@ func TestFundsParkReadsPausedOnEverySurface(t *testing.T) {
 	if len(lines) < 2 || !strings.Contains(lines[1], fundsPausedLine) {
 		t.Errorf("the pause is not the first thing status says:\n%s", out)
 	}
-	for _, want := range []string{"FROZEN at working", "add credit     in the console (the service's action: POST /api/billing/checkout)", "then resume    ks agent resume main --session " + agentSessionShort, "NOT moving"} {
+	for _, want := range []string{"FROZEN at Working (working)", "add credit     in the console (the service's action: POST /api/billing/checkout)", "then resume    ks agent resume main --session " + agentSessionShort, "NOT moving"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("status lacks %q:\n%s", want, out)
 		}
@@ -236,7 +236,7 @@ func TestOrdinaryParkIsNotCalledOutOfCredit(t *testing.T) {
 	if strings.Contains(out, "out of credit") {
 		t.Errorf("an ordinary park reads out of credit:\n%s", out)
 	}
-	for _, want := range []string{"session        parked: the session is parked", "next           POST /api/v2/sessions/session_rec1/resume", "FROZEN at working"} {
+	for _, want := range []string{"session        Paused (parked): the session is parked", "next           POST /api/v2/sessions/session_rec1/resume", "FROZEN at Working (working)"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("lacks %q:\n%s", want, out)
 		}
@@ -250,7 +250,7 @@ func TestRunningSessionIsUnchanged(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d\n%s%s", code, out, errs)
 	}
-	if strings.Contains(out, "paused") || strings.Contains(out, "FROZEN") || !strings.Contains(out, "activity       working") {
+	if strings.Contains(out, "paused") || strings.Contains(out, "FROZEN") || !strings.Contains(out, "activity       Working (working)") {
 		t.Errorf("a running session is shown as paused:\n%s", out)
 	}
 }

@@ -81,7 +81,7 @@ func runtimeLines(rt *sessionRuntimeDoc, resumeHint string) []string {
 		}
 		return out
 	}
-	out = append(out, fmt.Sprintf("  session        %s: %s", sanitize(stateLabel("session_runtime", rt.State)), sanitize(notRecorded(rt.Note))))
+	out = append(out, fmt.Sprintf("  session        %s: %s", stateWords("session_runtime", rt.State), sanitize(notRecorded(rt.Note))))
 	if rt.Reason != "" {
 		out = append(out, "  park reason    "+sanitize(rt.Reason))
 	}

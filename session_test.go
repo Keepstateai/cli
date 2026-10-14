@@ -19,6 +19,7 @@ import (
 // inventory of n sessions, remembering every request.
 type inventoryCtl struct {
 	n     int
+	dead  int          // ended sessions, listed only with all=1 or state=dead, as the service does
 	pages atomic.Int32 // read by the test while the server may still be serving
 	// noFleetState answers the way the service has since 2026-09-20: rows
 	// carry no fleet_state (the engine's own vocabulary is not exposed).
@@ -64,6 +65,14 @@ func (c *inventoryCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				"last_checkpoint_id": map[bool]string{true: "ckpt_1", false: ""}[i%3 == 1], "agent_activity": activity, "task_state": task, "key_alias": "unavailable", "observed_at": "2026-09-20T12:00:00Z"})
 			if c.noFleetState {
 				delete(items[len(items)-1], "fleet_state")
+			}
+		}
+		if start+limit >= c.n && (r.URL.Query().Get("all") == "1" || r.URL.Query().Get("state") == "dead") && r.URL.Query().Get("state") != "running" && r.URL.Query().Get("state") != "parked" {
+			for i := 0; i < c.dead; i++ {
+				id := fmt.Sprintf("%08x%024x", 7000+i, 7000+i)
+				items = append(items, map[string]any{"id": id, "short_id": id[:10], "name": "old" + strconv.Itoa(i), "runtime_state": "dead", "image": "base",
+					"budget_tokens": 500000, "execution_epoch": 1, "created_at": "2026-09-19T00:00:00Z", "last_activity_at": "2026-09-19T10:00:00Z",
+					"agent_activity": "ready", "task_state": "none", "key_alias": "unavailable", "observed_at": "2026-09-20T12:00:00Z"})
 			}
 		}
 		next := ""

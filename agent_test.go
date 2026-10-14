@@ -715,7 +715,7 @@ func TestAgentListAndStatusReadTheSessionsAgents(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("status: exit %d\n%s%s", code, out, errs)
 	}
-	for _, want := range []string{"agent main (agt_main0001)", "activity       working", "queue          1 waiting", "current task   tsk_1 (running) at queue position 7"} {
+	for _, want := range []string{"agent main (agt_main0001)", "activity       Working (working)", "queue          1 waiting", "current task   tsk_1 (running) at queue position 7"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("status output lacks %q:\n%s", want, out)
 		}

@@ -126,24 +126,30 @@ func ago(ts string) string {
 }
 
 // renderInventory lays the rows out for a width: 80 columns keep identity,
-// state, activity, task and last activity; 120 add name, key and the last
-// save. No column is ever wider than its slot, so fields do not overlap.
-func renderInventory(rows []inventoryRow, width int) string {
+// state (the console's word beside the raw state), activity, task and last
+// activity; 120 add name, key and the last save. No column is ever wider
+// than its slot, so fields do not overlap. The header is printed when asked
+// for, so a second group can follow the first under the same one.
+func renderInventory(rows []inventoryRow, width int, header bool) string {
 	var b strings.Builder
-	wide := width >= 110
+	wide := width >= 120
 	if wide {
-		fmt.Fprintf(&b, "%-14s %-16s %-8s %-10s %-11s %-16s %-16s %-16s\n", "SESSION", "NAME", "STATE", "AGENT", "TASK", "LAST ACTIVITY", "LAST SAVE", "KEY")
+		if header {
+			fmt.Fprintf(&b, "%-14s %-14s %-18s %-10s %-11s %-16s %-16s %-14s\n", "SESSION", "NAME", "STATE", "AGENT", "TASK", "LAST ACTIVITY", "LAST SAVE", "KEY")
+		}
 		for _, r := range rows {
-			fmt.Fprintf(&b, "%-14s %-16s %-8s %-10s %-11s %-16s %-16s %-16s\n", clip(r.ShortID, 14), clip(r.Name, 16), clip(invState(r), 8), clip(invAgent(r), 10), clip(invTask(r), 11), ago(r.LastActivityAt), ago(r.LastCheckpointAt), clip(r.KeyAlias, 16))
+			fmt.Fprintf(&b, "%-14s %-14s %-18s %-10s %-11s %-16s %-16s %-14s\n", clip(r.ShortID, 14), clip(r.Name, 14), clip(invState(r), 18), clip(invAgent(r), 10), clip(invTask(r), 11), ago(r.LastActivityAt), ago(r.LastCheckpointAt), clip(r.KeyAlias, 14))
 		}
 	} else {
-		fmt.Fprintf(&b, "%-14s %-8s %-11s %-11s %-16s %s\n", "SESSION", "STATE", "AGENT", "TASK", "LAST ACTIVITY", "SAVED")
+		if header {
+			fmt.Fprintf(&b, "%-14s %-18s %-11s %-11s %-16s %s\n", "SESSION", "STATE", "AGENT", "TASK", "LAST ACTIVITY", "SAVED")
+		}
 		for _, r := range rows {
 			saved := "no"
 			if r.LastCheckpointID != "" {
 				saved = "yes"
 			}
-			fmt.Fprintf(&b, "%-14s %-8s %-11s %-11s %-16s %s\n", clip(r.ShortID, 14), clip(invState(r), 8), clip(invAgent(r), 11), clip(invTask(r), 11), ago(r.LastActivityAt), saved)
+			fmt.Fprintf(&b, "%-14s %-18s %-11s %-11s %-16s %s\n", clip(r.ShortID, 14), clip(invState(r), 18), clip(invAgent(r), 11), clip(invTask(r), 11), ago(r.LastActivityAt), saved)
 		}
 	}
 	for _, r := range rows {
@@ -154,14 +160,26 @@ func renderInventory(rows []inventoryRow, width int) string {
 	return b.String()
 }
 
-// invState, invAgent and invTask are a row's cells. A funds-parked session
-// reads paused, its agent's frozen word reads frozen, and a task that last
-// read running reads paused: none of them is moving (the funds park).
+// sessionEnded: the session's record or runtime is over (the console's
+// Ended): dead, deleting or deleted.
+func sessionEnded(state string) bool {
+	switch state {
+	case "dead", "deleting", "deleted":
+		return true
+	}
+	return false
+}
+
+// invState, invAgent and invTask are a row's cells. The state is the
+// console's word beside the raw state; a funds-parked session reads paused
+// (its footnote says out of credit), its agent's frozen word reads frozen,
+// and a task that last read running reads paused: none of them is moving
+// (the funds park).
 func invState(r inventoryRow) string {
 	if rowFundsParked(r) {
-		return "paused"
+		return "Paused (" + sanitize(r.RuntimeState) + ")"
 	}
-	return stateCell("session_runtime", r.RuntimeState)
+	return stateWords("session_runtime", r.RuntimeState)
 }
 
 func invAgent(r inventoryRow) string {
@@ -183,12 +201,14 @@ func hostedSessionList(cr hostedCreds, inv *Invocation) {
 	if state != "" && state != "running" && state != "parked" && state != "dead" {
 		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--state is running, parked or dead", NextAction: "ks session list --state running"})
 	}
-	rows, err := fetchInventory(cr, state, inv.Bool("all"))
+	// ended sessions are listed too, in a final group (--all is kept for
+	// the scripts that pass it; it changes nothing now)
+	rows, err := fetchInventory(cr, state, true)
 	if err != nil {
 		die(err)
 	}
 	rows, parkProblem := withParkReasons(cr, rows)
-	doc := map[string]any{"sessions": rows, "count": len(rows), "state_filter": state, "all": inv.Bool("all")}
+	doc := map[string]any{"sessions": rows, "count": len(rows), "state_filter": state, "all": true}
 	if parkProblem != "" {
 		doc["park_reasons_unreadable"] = parkProblem
 	}
@@ -201,7 +221,25 @@ func hostedSessionList(cr hostedCreds, inv *Invocation) {
 			}
 			return
 		}
-		fmt.Print(renderInventory(rows, termColumns()))
+		width := termColumns()
+		var live, ended []inventoryRow
+		for _, r := range rows {
+			if state == "" && sessionEnded(r.RuntimeState) {
+				ended = append(ended, r)
+			} else {
+				live = append(live, r)
+			}
+		}
+		if len(live) > 0 {
+			fmt.Print(renderInventory(live, width, true))
+		}
+		if len(ended) > 0 {
+			if len(live) > 0 {
+				fmt.Println()
+			}
+			fmt.Println("Ended")
+			fmt.Print(renderInventory(ended, width, len(live) == 0))
+		}
 		if parkProblem != "" {
 			fmt.Println(parkProblem)
 		}
@@ -270,8 +308,8 @@ func hostedSessionShow(cr hostedCreds, inv *Invocation) {
 		if rowFundsParked(r) {
 			fmt.Printf("  state          %s\n", fundsPausedLine)
 			fmt.Printf("  why            the account's credits ran out, so the funds interlock saved this session and paused it (it was never killed); nothing runs and nothing is charged while it is parked\n")
-			fmt.Printf("  fleet state    %s\n", stateLabel("session_runtime", r.RuntimeState))
-			fmt.Printf("  agent          %s (frozen at the saved point; not current)\n", stateLabel("agent_activity", r.AgentActivity))
+			fmt.Printf("  fleet state    %s\n", stateWords("session_runtime", r.RuntimeState))
+			fmt.Printf("  agent          %s (frozen at the saved point; not current)\n", stateWords("agent_activity", r.AgentActivity))
 			fmt.Printf("  task           %s (frozen; nothing is moving)\n", r.TaskState)
 			fmt.Printf("  then resume    ks wake %s (after adding credit)\n", r.ShortID)
 		} else if parkProblem != "" {
@@ -279,14 +317,14 @@ func hostedSessionShow(cr hostedCreds, inv *Invocation) {
 		}
 		if !rowFundsParked(r) {
 			if r.FleetState != "" {
-				fmt.Printf("  state          %s (fleet: %s)\n", r.RuntimeState, r.FleetState)
+				fmt.Printf("  state          %s (fleet: %s)\n", stateWords("session_runtime", r.RuntimeState), sanitize(r.FleetState))
 			} else {
-				fmt.Printf("  state          %s\n", stateLabel("session_runtime", r.RuntimeState))
+				fmt.Printf("  state          %s\n", stateWords("session_runtime", r.RuntimeState))
 			}
 			if r.ParkReason != "" {
 				fmt.Printf("  park reason    %s\n", sanitize(r.ParkReason))
 			}
-			fmt.Printf("  agent          %s\n", stateLabel("agent_activity", r.AgentActivity))
+			fmt.Printf("  agent          %s\n", stateWords("agent_activity", r.AgentActivity))
 			fmt.Printf("  task           %s\n", r.TaskState)
 		}
 		fmt.Printf("  key            %s\n", r.KeyAlias)

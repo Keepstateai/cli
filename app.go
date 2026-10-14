@@ -200,45 +200,47 @@ func sessLabel(s inventoryRow) string {
 	return name + " · " + s.ShortID
 }
 
-// homeState is a row's state cell: an icon and words that carry the meaning
-// without colour (a paused session reads Paused, never its agent's frozen
-// last word), and the tone it is drawn in.
+// homeState is a row's state cell: an icon and the console's word beside
+// the raw state ("Paused (parked)"), which carry the meaning without colour,
+// and the tone it is drawn in. A session that is not running reads its own
+// state, never its agent's frozen last word.
 func homeState(r homeRow) (icon string, word string, tn tone) {
 	state, funds, running := r.sessionState()
 	switch {
 	case r.agent == nil:
-		return iconNoAgent, sessionWord(state, ""), toneDim
+		return iconNoAgent, stateWords("session_runtime", state), toneDim
 	case funds:
-		return iconPaused, "Out of credit", toneWarn
+		return iconPaused, "Out of credit (" + sanitize(state) + ")", toneWarn
 	case !running && (state == "parked" || state == "stopping" || state == "checkpointing"):
-		return iconPaused, sessionWord(state, ""), toneWarn
+		return iconPaused, stateWords("session_runtime", state), toneWarn
 	case !running && (state == "failed" || state == "dead" || state == "recovery_required"):
-		return iconFailed, "Session " + strings.ToLower(sessionWord(state, "")), toneBad
+		return iconFailed, stateWords("session_runtime", state), toneBad
 	case !running:
-		return iconState, "Session " + strings.ToLower(sessionWord(state, "")), toneDim
+		return iconState, stateWords("session_runtime", state), toneDim
 	case r.agent.Activity == "failed":
-		return iconFailed, activityWord(r.agent.Activity), toneBad
+		return iconFailed, stateWords("agent_activity", r.agent.Activity), toneBad
 	case r.agent.Activity == "recovery_required": // it stopped mid-way: a failure that waits on you
-		return iconNeedsYou, activityWord(r.agent.Activity), toneBad
+		return iconNeedsYou, stateWords("agent_activity", r.agent.Activity), toneBad
 	case needsYou(r.agent.Activity):
-		return iconNeedsYou, activityWord(r.agent.Activity), toneWarn
+		return iconNeedsYou, stateWords("agent_activity", r.agent.Activity), toneWarn
 	}
 	a := r.agent.Activity
 	switch {
 	case a == "working" || a == "starting" || a == "running_tool" || a == "waiting_provider":
-		return iconState, activityWord(a), toneNeutral
+		return iconState, stateWords("agent_activity", a), toneNeutral
 	case a == "ready":
-		return iconState, activityWord(a), toneOK
+		return iconState, stateWords("agent_activity", a), toneOK
 	}
-	return iconState, activityWord(a), toneDim
+	return iconState, stateWords("agent_activity", a), toneDim
 }
 
-// homeColumns are the list's column widths for a card of inner width.
+// homeColumns are the list's column widths for a card of inner width; the
+// state column holds the console's word and the raw state.
 func homeColumns(inner int) (name, sess, state int) {
 	if inner >= 88 {
-		return 14, 26, 24
+		return 14, 22, 36
 	}
-	return 12, 20, 22
+	return 12, 18, 26
 }
 
 // homeLine is one row of the list: the selection mark, the state's icon, the

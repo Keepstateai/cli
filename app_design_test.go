@@ -127,7 +127,7 @@ func TestAppHomeNeverShowsAFundsPausedAgentAsRunning(t *testing.T) {
 	r := homeRow{sess: inventoryRow{ShortID: "9c41e0", Name: "billing", RuntimeState: "parked"},
 		agent: &agentRow{Name: "ops", Activity: "working", SessionRuntime: &sessionRuntimeDoc{State: "parked", Reason: parkReasonFunds}}}
 	icon, word, _ := homeState(r)
-	if word != "Out of credit" || icon != iconPaused || !r.rowNeedsYou() {
+	if word != "Out of credit (parked)" || icon != iconPaused || !r.rowNeedsYou() {
 		t.Errorf("funds-paused row: %s %s needs-you=%v", icon, word, r.rowNeedsYou())
 	}
 	line := words(homeLine(r, false, 100))
@@ -136,7 +136,7 @@ func TestAppHomeNeverShowsAFundsPausedAgentAsRunning(t *testing.T) {
 	}
 	parked := homeRow{sess: inventoryRow{ShortID: "5335fa", RuntimeState: "parked"}, agent: &agentRow{Name: "dev1", Activity: "waiting_approval",
 		SessionRuntime: &sessionRuntimeDoc{State: "parked"}}}
-	if _, word, _ := homeState(parked); word != "Paused" || parked.rowNeedsYou() {
+	if _, word, _ := homeState(parked); word != "Paused (parked)" || parked.rowNeedsYou() {
 		t.Errorf("a paused session's agent reads %q (needs you %v)", word, parked.rowNeedsYou())
 	}
 	plain := homeRow{sess: inventoryRow{ShortID: "697ca7", Name: "697ca7", RuntimeState: "running"}}

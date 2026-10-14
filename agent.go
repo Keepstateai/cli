@@ -431,11 +431,13 @@ func agentLine(a agentRow) string {
 	if task == "" {
 		task = "none"
 	}
-	activity := stateCell("agent_activity", a.Activity)
+	// the state a person reads: the session's, when it is not running (the
+	// agent's own word is then frozen), else the agent's activity
+	activity := stateWords("agent_activity", a.Activity)
 	if a.SessionRuntime != nil {
-		activity = "frozen"
+		activity = stateWords("session_runtime", a.SessionRuntime.State)
 	}
-	line := fmt.Sprintf("%-16s %-16s %-11s %-8s %s", clip(a.Name, 16), clip(a.ID, 16), clip(activity, 11), agentRole(a), task)
+	line := fmt.Sprintf("%-16s %-16s %-24s %-8s %s", clip(a.Name, 16), clip(a.ID, 16), clip(activity, 24), agentRole(a), task)
 	if a.Controller != "" || a.Consultation != "" {
 		line += fmt.Sprintf("  control %s · advice %s", figure(a.Controller), figure(a.Consultation))
 	}
@@ -443,7 +445,7 @@ func agentLine(a agentRow) string {
 	case rt.funds():
 		line += "  " + fundsPausedLine
 	case rt != nil:
-		line += "  session " + sanitize(stateLabel("session_runtime", rt.State)) + ": not running"
+		line += "  not running; the agent's last word was " + stateWords("agent_activity", a.Activity)
 	}
 	return line
 }
@@ -459,7 +461,7 @@ func hostedAgentList(cr hostedCreds, inv *Invocation) {
 			fmt.Printf("No agents in session %s.\n", sess.ShortID)
 			return
 		}
-		fmt.Printf("%-16s %-16s %-11s %-8s %s\n", "AGENT", "ID", "ACTIVITY", "ROLE", "CURRENT TASK")
+		fmt.Printf("%-16s %-16s %-24s %-8s %s\n", "AGENT", "ID", "STATE", "ROLE", "CURRENT TASK")
 		for _, a := range agents {
 			fmt.Println(agentLine(a))
 		}
@@ -508,9 +510,9 @@ func hostedAgentStatus(cr hostedCreds, inv *Invocation) {
 				fmt.Println(l)
 			}
 			if a.SessionRuntime != nil {
-				fmt.Printf("  activity       FROZEN at %s (%s): the last word before the session stopped, not current\n", stateLabel("agent_activity", a.Activity), age)
+				fmt.Printf("  activity       FROZEN at %s (%s): the last word before the session stopped, not current\n", stateWords("agent_activity", a.Activity), age)
 			} else {
-				fmt.Printf("  activity       %s (%s)\n", stateLabel("agent_activity", a.Activity), age)
+				fmt.Printf("  activity       %s (%s)\n", stateWords("agent_activity", a.Activity), age)
 			}
 			if a.Activity == "recovery_required" {
 				fmt.Printf("  RECOVERY       its runner stopped and what it was doing is unknown: this agent is NOT ready; decide: ks agent queue show %s --session %s\n", a.Name, sess.ShortID)
@@ -857,7 +859,7 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 			progress("session %s is resuming because you asked with --resume (state: %s)", sess.ShortID, figure(r["runtime_state"]))
 		} else {
 			if inv.Bool("resume") {
-				fail(&cliError{Code: exitConflict, Kind: "not_resumable", Message: fmt.Sprintf("session %s is %s and cannot be resumed: %s", sess.ShortID, stateLabel("session_runtime", w.Runtime.State), sanitize(w.Runtime.Note))})
+				fail(&cliError{Code: exitConflict, Kind: "not_resumable", Message: fmt.Sprintf("session %s is %s and cannot be resumed: %s", sess.ShortID, stateWords("session_runtime", w.Runtime.State), sanitize(w.Runtime.Note))})
 			}
 			emit(map[string]any{"session": sess.ID, "agent": w.Agent, "runtime": w.Runtime, "recovery": w.Recovery, "woken": false, "session_runtime": a.SessionRuntime}, func() {
 				if a.SessionRuntime.funds() {
@@ -867,7 +869,7 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 						fmt.Println(l)
 					}
 				}
-				fmt.Printf("agent %s (%s) in session %s: the session is %s and was NOT woken\n", a.Name, a.ID, sess.ShortID, stateLabel("session_runtime", w.Runtime.State))
+				fmt.Printf("agent %s (%s) in session %s: the session is %s and was NOT woken\n", a.Name, a.ID, sess.ShortID, stateWords("session_runtime", w.Runtime.State))
 				fmt.Printf("  %s\n", sanitize(w.Runtime.Note))
 				if w.Runtime.LastSavedAt != "" {
 					fmt.Printf("  last saved %s (%s)\n", w.Runtime.LastSavedAt, figure(w.Runtime.CheckpointID))
@@ -879,7 +881,7 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 	}
 	if w.Recovery != nil {
 		emit(map[string]any{"session": sess.ID, "agent": w.Agent, "runtime": w.Runtime, "recovery": w.Recovery}, func() {
-			fmt.Printf("agent %s (%s) in session %s reads %s: %s\n", a.Name, a.ID, sess.ShortID, stateLabel("agent_activity", w.Recovery.Activity), sanitize(w.Recovery.Note))
+			fmt.Printf("agent %s (%s) in session %s reads %s: %s\n", a.Name, a.ID, sess.ShortID, stateWords("agent_activity", w.Recovery.Activity), sanitize(w.Recovery.Note))
 			printOpenActions(w.Recovery.Actions, a.Name, sess)
 		})
 		return
@@ -892,7 +894,7 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 	// piped stdout carries the agent's events and nothing else
 	age, stale := agentAge(w.Agent, time.Now())
 	progress("agent %s (%s) in session %s · %s (%s) · %s · %s · %d queued",
-		a.Name, a.ID, sess.ShortID, stateLabel("agent_activity", w.Agent.Activity), age, joined, controlLine(w), w.QueueDepth)
+		a.Name, a.ID, sess.ShortID, stateWords("agent_activity", w.Agent.Activity), age, joined, controlLine(w), w.QueueDepth)
 	if stale {
 		progress("STALE: no observation of this agent for more than %s; the status above is the last known one", staleAfter)
 	}
@@ -902,7 +904,7 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 		if rt.funds() {
 			progress("%s; the status above is frozen at the saved point", fundsPausedLine)
 		} else {
-			progress("the session is %s: %s", stateLabel("session_runtime", rt.State), sanitize(rt.Note))
+			progress("the session is %s: %s", stateWords("session_runtime", rt.State), sanitize(rt.Note))
 		}
 	}
 
@@ -934,7 +936,7 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 			"approvals_pending": pending,
 		}, func() {
 			fmt.Printf("agent %s (%s) in session %s\n", a.Name, a.ID, sess.ShortID)
-			fmt.Printf("  activity       %s\n", figure(w.Agent.Activity))
+			fmt.Printf("  activity       %s\n", stateWords("agent_activity", w.Agent.Activity))
 			fmt.Printf("  control        %s\n", controlLine(w))
 			fmt.Printf("  queue          %d queued\n", w.QueueDepth)
 			switch {

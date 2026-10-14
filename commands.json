@@ -430,7 +430,7 @@
     "ls"
    ],
    "usage": "ks session list [--state STATE] [--all]",
-   "summary": "your sessions, newest activity first: state, agent, task, last activity, last save",
+   "summary": "your sessions, newest activity first: state (the console's word beside the raw state), agent, task, last activity, last save; ended sessions in a final group",
    "status": "available",
    "surface": "hosted",
    "flags": [
@@ -440,7 +440,7 @@
     },
     {
      "flag": "--all",
-     "summary": "include dead sessions"
+     "summary": "accepted for the scripts that pass it: ended sessions are listed by default now, in a final Ended group"
     }
    ]
   },

@@ -93,7 +93,7 @@ func hostedSessionModel(cr hostedCreds, inv *Invocation) {
 		emit(map[string]any{"session": sess.ID, "record": rec.ID, "runner_model": rec.RunnerModel, "runtime_state": rec.RuntimeState,
 			"revision": rec.Revision, "can_change_now": can, "standing": standing}, func() {
 			fmt.Printf("session %s runs %s\n", sess.ShortID, sanitize(notRecorded(rec.RunnerModel)))
-			fmt.Printf("  state          %s\n", stateLabel("session_runtime", rec.RuntimeState))
+			fmt.Printf("  state          %s\n", stateWords("session_runtime", rec.RuntimeState))
 			fmt.Printf("  change         %s\n", standing)
 			fmt.Printf("  offered        ks cruise models lists the models a session may run; change: ks session model %s <model>\n", sess.ShortID)
 		})
