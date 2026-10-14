@@ -903,15 +903,15 @@
     },
     {
      "flag": "--max-consultations N",
-     "summary": "how many consultations the connection carries (default 50)"
+     "summary": "how many consultations the connection carries; default the service's (50)"
     },
     {
      "flag": "--max-tokens N",
-     "summary": "input plus output tokens admitted per consultation (default 16384)"
+     "summary": "input plus output tokens admitted per consultation; default the service's: one turn of the adviser's model, its context plus the output the runner asks for"
     },
     {
      "flag": "--max-output-tokens N",
-     "summary": "output tokens admitted per consultation (default 4096)"
+     "summary": "output tokens admitted per consultation; default the service's: the output one turn of the adviser's model asks for"
     }
    ]
   },
