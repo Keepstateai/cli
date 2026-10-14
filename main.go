@@ -414,6 +414,16 @@ var registry = []*Command{
 		Effects:  "adds one instruction to the agent's queue and the agent's work on it is metered like the session; the instruction is submitted once, under an id recorded locally before it is sent, so a repeat is the same submission and never a second one. This command holds no window and therefore no control of the agent: the instruction is submitted on its own, it does not steer or displace the window that holds control, and it never claims to (to send an instruction as the controller, type it into ks agent open). An instruction for a session that is not running is accepted and HELD and the session is not woken; only --resume, or ks agent resume, starts it",
 		Examples: []string{"ks agent tell main \"run the tests\" --session 3f2a1c"},
 		Nothing:  "Nothing was queued.", Run: hosted(hostedAgentTell)},
+	{Path: []string{"agent", "history"}, Summary: "an agent's conversation so far, in any session state, with the whole text of every entry: your instructions, its words, its tools, questions over its connections; newest last", Surface: "hosted",
+		Args: []Arg{{Name: "name", Required: true}},
+		Flags: []Flag{
+			{Name: "session", Kind: flagString, Value: "ID", Summary: "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"},
+			{Name: "last", Kind: flagInt, Positive: true, Value: "N", Summary: "only the last N entries"},
+		},
+		Needs:    "agent.workspace",
+		Effects:  "reads the session's journal page after page, to its end, and prints the agent's conversation with the whole text of every entry: you for your instructions, the agent's name for its words, who asked a question over a connection and the advice that came back, tool steps, and the session's own pauses, resumes and model changes. Nothing changes: a paused or ended session is read as it is and never woken, and no window is opened",
+		Examples: []string{"ks agent history main --session 3f2a1c", "ks agent history main --session 3f2a1c --last 20", "ks agent history main --session 3f2a1c --json"},
+		Nothing:  "Nothing was read.", Run: hosted(hostedAgentHistory)},
 	{Path: []string{"agent", "ask"}, Summary: "ask one of an agent's connected advisers a question, as a person, and wait for its answer: \"@<adviser> <question>\"", Surface: "hosted",
 		Args: []Arg{{Name: "name", Required: true}, {Name: "question", Required: true}},
 		Flags: []Flag{

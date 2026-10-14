@@ -783,12 +783,10 @@ func appBacklog(cr hostedCreds, scr *screen, sess inventoryRow, a agentRow, upto
 	if upto <= 0 {
 		return
 	}
-	var env struct {
-		Data struct {
-			Items []journalEvent `json:"items"`
-		} `json:"data"`
-	}
-	if err := hostedCall(cr, "GET", "/api/v2/sessions/"+url.PathEscape(agentSessionID(sess))+"/events?limit=400", nil, &env); err != nil {
+	// the END of the journal, paged forward to the resume point (the
+	// route pages forward only; one page with a limit is the oldest rows)
+	past, _, err := readSessionJournal(cr, agentSessionID(sess), upto, 400)
+	if err != nil {
 		scr.Print(errorLines("read the conversation so far", errText(err), "That is not the same as nothing having happened. /logs shows the journal.", width))
 		return
 	}
@@ -813,16 +811,13 @@ func appBacklog(cr hostedCreds, scr *screen, sess inventoryRow, a agentRow, upto
 		}
 	}
 	var lines []string
-	for _, e := range env.Data.Items {
-		if e.StreamSeq > upto {
-			continue
-		}
+	for _, e := range past {
 		if l, ok := appEventLine(e, agentName, cr.AccountID); ok {
 			lines = append(lines, l)
 		}
 	}
 	if len(lines) > backlogMax {
-		scr.Print(dimNotice("…", toneDim, fmt.Sprintf("%d earlier lines are not shown here. /logs shows them.", len(lines)-backlogMax), width))
+		scr.Print(dimNotice("…", toneDim, fmt.Sprintf("%d earlier lines are not shown here. /agent history shows the whole conversation.", len(lines)-backlogMax), width))
 		lines = lines[len(lines)-backlogMax:]
 	}
 	for _, l := range lines {

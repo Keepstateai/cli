@@ -1769,6 +1769,24 @@
      "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     }
    ]
+  },
+  {
+   "verb": "agent history",
+   "aliases": [],
+   "usage": "ks agent history <name> [--session ID] [--last N]",
+   "summary": "an agent's conversation so far, in any session state, with the whole text of every entry: your instructions, its words, its tools, questions over its connections; newest last",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--last N",
+     "summary": "only the last N entries"
+    }
+   ]
   }
  ]
 }

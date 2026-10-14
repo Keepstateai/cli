@@ -996,39 +996,29 @@ func heldSummary(cr hostedCreds, agentID string, sess inventoryRow) (string, str
 const backlogMax = 30
 
 // showBacklog renders the tail of the conversation that already happened,
-// marked as history. It is best effort in exactly one direction: a journal
-// that cannot be read costs the screen its history and SAYS so, and is
-// never rendered as an agent that has said nothing.
+// marked as history: the journal is paged forward to the point the window
+// resumes from and the last entries before it are shown, whole. It is best
+// effort in exactly one direction: a journal that cannot be read costs the
+// screen its history and SAYS so, and is never rendered as an agent that
+// has said nothing.
 func showBacklog(cr hostedCreds, sess inventoryRow, upto int64) {
 	if upto <= 0 {
 		return
 	}
-	var env struct {
-		Data struct {
-			Items []journalEvent `json:"items"`
-		} `json:"data"`
-	}
-	q := url.Values{"limit": {"400"}}
-	if err := hostedCall(cr, "GET", "/api/v2/sessions/"+url.PathEscape(agentSessionID(sess))+"/events?"+q.Encode(), nil, &env); err != nil {
+	past, total, err := readSessionJournal(cr, agentSessionID(sess), upto, backlogMax)
+	if err != nil {
 		progress("what already happened could not be read, so none of it is shown; that is not the same as nothing having happened: %s", sanitize(err.Error()))
 		return
-	}
-	var past []journalEvent
-	for _, e := range env.Data.Items {
-		if e.StreamSeq <= upto {
-			past = append(past, e)
-		}
 	}
 	if len(past) == 0 {
 		return
 	}
-	if len(past) > backlogMax {
-		progress("... %d earlier entries are in the journal and are not printed here", len(past)-backlogMax)
-		past = past[len(past)-backlogMax:]
+	if total > len(past) {
+		progress("... %d earlier entries are in the journal and are not printed here (ks agent history <name> shows them)", total-len(past))
 	}
 	progress("--- what already happened (history; nothing below is arriving now) ---")
 	for _, e := range past {
-		emitLine(e, agentEventLine(e))
+		emitLine(e, agentEventFull(e))
 	}
 	progress("--- live from here ---")
 }
@@ -1161,11 +1151,19 @@ func transcriptOf(e journalEvent) *transcriptEntry {
 }
 
 // transcriptLine renders one conversation entry as a person reads it, with
-// a marker that says which kind of thing it was. A kind this client does
-// not know is shown as itself rather than dropped: a line nobody rendered
-// is a line a watcher never learns existed.
-func transcriptLine(t transcriptEntry) string {
+// a marker that says which kind of thing it was: the first line of its
+// text, for a live window. A kind this client does not know is shown as
+// itself rather than dropped: a line nobody rendered is a line a watcher
+// never learns existed.
+func transcriptLine(t transcriptEntry) string { return transcriptText(t, false) }
+
+// transcriptText is transcriptLine with, when full, the whole text of a
+// conversation entry (its lines kept) rather than the first line.
+func transcriptText(t transcriptEntry, full bool) string {
 	mark, body := "·", firstLineOf(t.Text)
+	if full {
+		body = strings.TrimRight(strings.TrimSpace(t.Text), "\n")
+	}
 	switch t.Kind {
 	case "assistant_text":
 		mark = "agent"

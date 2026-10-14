@@ -27,6 +27,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -88,6 +89,14 @@ type agentCtl struct {
 	consultBodies []string
 	consultReads  int
 	consultWake   bool
+
+	// the journal: explicit rows (stream_seq by position), else backlog
+	// generated entries; the events route pages FORWARD only, as the
+	// service does (after_seq or a cursor, at most 1000 per page), and
+	// resumeAt is where the open says the window resumes from (41 when 0)
+	journal    []map[string]any
+	resumeAt   int64
+	eventPages int
 }
 
 func newAgentCtl() *agentCtl {
@@ -300,9 +309,15 @@ func (c *agentCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		c.mu.Lock()
 		lease := c.leaseDoc()
 		c.mu.Unlock()
+		c.mu.Lock()
+		at := c.resumeAt
+		c.mu.Unlock()
+		if at == 0 {
+			at = 41
+		}
 		env(200, map[string]any{"agent": found, "reconnected": reconnected,
 			"lease":  lease,
-			"resume": map[string]any{"after_seq": 41, "cursor": "cur_41"}, "queue_depth": 2})
+			"resume": map[string]any{"after_seq": at, "cursor": fmt.Sprintf("cur_%d", at)}, "queue_depth": 2})
 	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/tasks"):
 		raw, _ := readAllBody(r)
 		var body map[string]any
@@ -562,18 +577,51 @@ func (c *agentCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		env(200, map[string]any{"items": items, "observed_at": "x"})
 	case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/events") && strings.HasPrefix(r.URL.Path, "/api/v2/sessions/"):
 		c.mu.Lock()
-		n := c.backlog
+		c.eventPages++
+		n, journal := c.backlog, c.journal
 		c.mu.Unlock()
-		rows := []map[string]any{}
-		for i := 0; i < n; i++ {
-			rows = append(rows, map[string]any{
-				"event_id": fmt.Sprintf("bk_%d", i), "stream_seq": i + 1,
-				"subject_type": "agent", "subject_id": "agt_main0001",
-				"observed_at": fmt.Sprintf("2026-09-22T11:00:0%dZ", i),
-				"payload": map[string]any{"type": "agent.transcript",
-					"kind": "assistant_text", "text": fmt.Sprintf("an earlier line %d", i)}})
+		all := journal
+		if all == nil {
+			for i := 0; i < n; i++ {
+				all = append(all, map[string]any{
+					"event_id":     fmt.Sprintf("bk_%d", i),
+					"subject_type": "agent", "subject_id": "agt_main0001",
+					"observed_at": fmt.Sprintf("2026-09-22T11:%02d:%02dZ", (i/60)%60, i%60),
+					"payload": map[string]any{"type": "agent.transcript",
+						"kind": "assistant_text", "text": fmt.Sprintf("an earlier line %d", i)}})
+			}
 		}
-		env(200, map[string]any{"items": rows, "next_cursor": "", "observed_at": "x"})
+		// forward paging as the service does it: after_seq, else an opaque
+		// cursor this fake spells seq:N, at most 1000 rows a page, and a
+		// next_cursor only when more rows follow
+		after := int64(0)
+		if cur := r.URL.Query().Get("cursor"); strings.HasPrefix(cur, "seq:") {
+			after, _ = strconv.ParseInt(strings.TrimPrefix(cur, "seq:"), 10, 64)
+		} else if a := r.URL.Query().Get("after_seq"); a != "" {
+			after, _ = strconv.ParseInt(a, 10, 64)
+		}
+		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+		if limit <= 0 || limit > 1000 {
+			limit = 1000
+		}
+		rows := []map[string]any{}
+		next := ""
+		for i, row := range all {
+			seq := int64(i + 1)
+			if seq <= after {
+				continue
+			}
+			if len(rows) == limit {
+				next = fmt.Sprintf("seq:%d", seq-1)
+				break
+			}
+			out := map[string]any{"stream_seq": seq}
+			for k, v := range row {
+				out[k] = v
+			}
+			rows = append(rows, out)
+		}
+		env(200, map[string]any{"items": rows, "next_cursor": next, "observed_at": "x"})
 	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/v2/sessions/") && !strings.Contains(r.URL.Path, "/events/"):
 		c.mu.Lock()
 		c.stateReads++
