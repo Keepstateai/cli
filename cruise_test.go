@@ -352,7 +352,12 @@ func (f *fakeCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				if id == dropped {
 					continue
 				}
-				models = append(models, map[string]any{"id": id, "family": fam, "provider_route": mf.Provider, "rung": i + 1,
+				offer := map[string]any{"standing": "offered"}
+				if fam != "anthropic" {
+					offer = map[string]any{"standing": "withheld", "note": "sessions run the pinned runner, which speaks the anthropic family; this family is routed for Cruise ladders only"}
+				}
+				models = append(models, map[string]any{"id": id, "name": catalogPlainName(id), "family": fam, "provider_route": mf.Provider, "rung": i + 1,
+					"offer":                offer,
 					"runner_compatibility": map[string]any{"standing": map[bool]string{true: "exercised", false: "not_verified"}[fam == "anthropic"]},
 					"availability":         map[string]any{"standing": "listed", "catalog_version": "v2", "live": "not checked"},
 					"price":                map[string]any{"standing": "priced"},
@@ -467,6 +472,19 @@ func startFake(t *testing.T) (*fakeCtl, string, string) {
 }
 
 // ksIn runs the binary in dir and returns stdout, stderr and the exit code.
+// catalogPlainName is the fake's plain name for a model id, the way the
+// service names its rungs ("Claude Haiku 4.5"); an id outside the pattern
+// is its own name.
+func catalogPlainName(id string) string {
+	switch id {
+	case "claude-haiku-4-5-20251001":
+		return "Claude Haiku 4.5"
+	case "claude-sonnet-5":
+		return "Claude Sonnet 5"
+	}
+	return id
+}
+
 func ksIn(t *testing.T, bin, cfg, dir string, args ...string) (string, string, int) {
 	t.Helper()
 	cmd := exec.Command(bin, args...)
@@ -852,7 +870,9 @@ func TestCruiseModelsCatalogAndLadderValidation(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("models: %d\n%s", code, errs)
 	}
-	for _, want := range []string{"model catalog v2, served at 2026-09-26T10:00:00Z", "NOT checked", "claude-haiku-4-5-20251001", "anthropic", "exercised", "openai/gpt-4o-mini", "openrouter", "not_verified", "enabled (vlt_anthropic1)", "missing"} {
+	for _, want := range []string{"model catalog v2, served at 2026-09-26T10:00:00Z", "NOT checked", "claude-haiku-4-5-20251001", "anthropic", "exercised", "openai/gpt-4o-mini", "openrouter", "not_verified", "enabled (vlt_anthropic1)", "missing",
+		// model choice: the plain name and the offer standing, with the note of a withheld model
+		"Claude Haiku 4.5", "Claude Sonnet 5", "offered", "withheld", "routed for Cruise ladders only"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("models lacks %q:\n%s", want, out)
 		}

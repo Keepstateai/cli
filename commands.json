@@ -49,7 +49,7 @@
   {
    "verb": "run",
    "aliases": [],
-   "usage": "ks run [--image I] [--budget-tokens N] [--agent] [--name NAME] [--agent-name NAME] [--key KEY] [--task TEXT] [--open]",
+   "usage": "ks run [--image I] [--budget-tokens N] [--agent] [--name NAME] [--agent-name NAME] [--key KEY] [--task TEXT] [--open] [--model MODEL]",
    "summary": "start a hosted session; with --agent, an agent session whose main agent is running and supervised",
    "status": "available",
    "surface": "hosted",
@@ -93,6 +93,10 @@
     {
      "flag": "--open",
      "summary": "open the agent's window once the agent is supervised (with --agent)"
+    },
+    {
+     "flag": "--model MODEL",
+     "summary": "the model the agent calls, by its exact id: one ks cruise models lists as offered (with --agent); default the service's first rung"
     }
    ]
   },
@@ -1742,6 +1746,15 @@
     }
    ],
    "note": "Reads GET /api/v2/sessions/{id}/migration and sends POST /api/v2/sessions/{id}/migrate; gated on the registry's session.migration row (available since ctl 2026-09-28), else agent.workspace."
+  },
+  {
+   "verb": "session model",
+   "aliases": [],
+   "usage": "ks session model <session> [model]",
+   "summary": "the model a session's agents call; with a model, change it while the session is paused, in effect from its next resume",
+   "status": "available",
+   "surface": "hosted",
+   "note": "Reads GET /api/v2/sessions/{id} and sends PATCH /api/v2/sessions/{id} with runner_model and expected_revision; gated on agent.workspace. The service accepts the change while the session is parked or has no machine yet (ks_session_not_paused otherwise, ks_session_killed once it has ended) and only a model GET /api/v2/models offers (ks_model_invalid names the offered ones)."
   }
  ]
 }

@@ -19,9 +19,10 @@ type runCtl struct {
 	idemKeys  []string
 	workspace string // agent.workspace availability
 	blockers  []string
-	prov      map[string]any // the provisioning answer
-	keys      []any          // the account's keys; nil means one enabled anthropic key
-	bindings  []string       // the bodies the bindings route received
+	prov      map[string]any   // the provisioning answer
+	keys      []any            // the account's keys; nil means one enabled anthropic key
+	bindings  []string         // the bodies the bindings route received
+	creations []map[string]any // the bodies the session creation route received
 }
 
 func (c *runCtl) keyList() []any {
@@ -63,7 +64,18 @@ func (c *runCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		c.mu.Unlock()
 		env(200, map[string]any{"session_id": "session_abc123", "keys": b["keys"], "revision": 2})
 	case r.Method == "POST" && r.URL.Path == "/api/v2/sessions":
-		env(201, map[string]any{"id": "session_abc123", "revision": 1, "primary_agent_id": "agent_main1"})
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		c.mu.Lock()
+		c.creations = append(c.creations, body)
+		c.mu.Unlock()
+		// the record carries the model its agents are started with: the one
+		// chosen, or the table's first rung
+		model, _ := body["runner_model"].(string)
+		if model == "" {
+			model = "claude-haiku-4-5-20251001"
+		}
+		env(201, map[string]any{"id": "session_abc123", "revision": 1, "primary_agent_id": "agent_main1", "runner_model": model})
 	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/provision"):
 		env(200, c.prov)
 	case r.Method == "GET" && r.URL.Path == "/api/v2/tasks":
@@ -349,5 +361,52 @@ func TestRunAgentRefusesAKeyItWouldHaveToGuess(t *testing.T) {
 	}
 	if len(c.bindings) != 1 || !strings.Contains(c.bindings[0], `"anthropic":"vlt_b"`) {
 		t.Fatalf("bound %v", c.bindings)
+	}
+}
+
+// Model choice: --model is sent as the record's runner_model and the run
+// names the model the record carries, chosen or the service's default;
+// --model without --agent is refused before anything is created.
+func TestRunAgentSendsTheChosenModelAndNamesIt(t *testing.T) {
+	c := &runCtl{workspace: "available", prov: readyAnswer()}
+	syncFixture(t, &c.mu)
+	bin, cfg := runAgentEnv(t, c)
+	out, errOut, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "run", "--agent", "--model", "claude-sonnet-5")
+	if code != 0 {
+		t.Fatalf("exit %d\n%s\n%s", code, out, errOut)
+	}
+	c.mu.Lock()
+	created := append([]map[string]any(nil), c.creations...)
+	c.mu.Unlock()
+	if len(created) != 1 || created[0]["runner_model"] != "claude-sonnet-5" {
+		t.Fatalf("the creation body does not carry the chosen model: %v", created)
+	}
+	if !strings.Contains(out, "agent main is Ready in session session_abc123, running claude-sonnet-5") {
+		t.Fatalf("the run's own line does not name the model:\n%s", out)
+	}
+	if !strings.Contains(errOut, "model claude-sonnet-5") {
+		t.Fatalf("the session's announcement does not name the model:\n%s", errOut)
+	}
+	// nothing chosen: nothing sent, and the service's default is named as it answered it
+	out, errOut, code = auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "run", "--agent")
+	if code != 0 {
+		t.Fatalf("exit %d\n%s\n%s", code, out, errOut)
+	}
+	c.mu.Lock()
+	created = append([]map[string]any(nil), c.creations...)
+	c.mu.Unlock()
+	if _, sent := created[1]["runner_model"]; sent {
+		t.Fatalf("a model nobody chose was sent: %v", created[1])
+	}
+	if !strings.Contains(out, "running claude-haiku-4-5-20251001") {
+		t.Fatalf("the run does not name the model the record carries:\n%s", out)
+	}
+	// --model is for an agent session
+	_, errOut, code = auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "run", "--model", "claude-sonnet-5")
+	if code != exitUsage || !strings.Contains(errOut, "--model") {
+		t.Fatalf("--model without --agent: exit %d\n%s", code, errOut)
+	}
+	if len(c.creations) != 2 {
+		t.Fatalf("a refused run created a session: %v", c.creations)
 	}
 }

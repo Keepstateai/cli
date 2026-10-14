@@ -162,7 +162,7 @@ func appNewSession(cr hostedCreds, scr *screen, keys <-chan keyEvent) (*homeRow,
 		}
 		saved := appSink
 		appSink = func(string) {} // the observer has it; anything else is the step log
-		rec, p, _, err := startAgentSession(cr, "", name, keyArg, nil)
+		rec, p, _, err := startAgentSession(cr, "", name, keyArg, nil, "")
 		appSink, startObserver = saved, nil
 		scr.update(func() { scr.box, scr.status, scr.spin = nil, "", false })
 		width := appTerminalWidth()

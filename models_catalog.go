@@ -30,7 +30,15 @@ import (
 )
 
 type catalogModelRow struct {
-	ID                  string `json:"id"`
+	ID string `json:"id"`
+	// Name is the model's plain name ("Claude Haiku 4.5"); Offer says
+	// whether a session may be created with it or changed to it (offered),
+	// or not, with the reason (withheld). Both absent from an older catalog.
+	Name  string `json:"name,omitempty"`
+	Offer struct {
+		Standing string `json:"standing"`
+		Note     string `json:"note,omitempty"`
+	} `json:"offer"`
 	Family              string `json:"family"`
 	ProviderRoute       string `json:"provider_route"`
 	Rung                int    `json:"rung"`
@@ -184,17 +192,21 @@ func cruiseModels(inv *Invocation) {
 			}
 			return models[i].Rung < models[j].Rung
 		})
-		fmt.Printf("  %-34s %-10s %-11s %-4s %-13s %-12s %s\n", "MODEL", "FAMILY", "ROUTE", "RUNG", "UNDER RUNNER", "PRICE", "YOUR KEY")
+		fmt.Printf("  %-34s %-18s %-11s %-10s %-11s %-4s %-13s %-12s %s\n", "MODEL", "NAME", "OFFER", "FAMILY", "ROUTE", "RUNG", "UNDER RUNNER", "PRICE", "YOUR KEY")
 		for _, m := range models {
 			key := figure(m.KeyRoute.Standing)
 			if m.KeyRoute.KeyID != "" {
 				key += " (" + m.KeyRoute.KeyID + ")"
 			}
-			fmt.Printf("  %-34s %-10s %-11s %-4d %-13s %-12s %s\n", m.ID, m.Family, m.ProviderRoute, m.Rung, figure(m.RunnerCompatibility.Standing), figure(m.Price.Standing), key)
+			fmt.Printf("  %-34s %-18s %-11s %-10s %-11s %-4d %-13s %-12s %s\n", m.ID, clip(sanitize(figure(m.Name)), 18), figure(m.Offer.Standing), m.Family, m.ProviderRoute, m.Rung, figure(m.RunnerCompatibility.Standing), figure(m.Price.Standing), key)
+			if m.Offer.Standing == "withheld" && m.Offer.Note != "" {
+				fmt.Printf("    withheld: %s\n", sanitize(m.Offer.Note))
+			}
 		}
 		if len(c.DefaultLadder) > 0 {
 			fmt.Printf("default ladder: %s\n", ladderWords(c.DefaultLadder))
 		}
+		fmt.Println("offer: offered = a session may be created with it (ks run --agent --model) or changed to it while paused (ks session model); withheld = not for sessions, the note says why")
 		fmt.Println("under runner: exercised = a record shows the Cruise runner ran it; not_verified = nothing does (no interchangeability is claimed)")
 		if c.Note != "" {
 			fmt.Println(sanitize(c.Note))

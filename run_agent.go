@@ -59,13 +59,14 @@ func hostedRunAgent(cr hostedCreds, inv *Invocation) {
 		v := int64(inv.Int("budget-tokens"))
 		budget = &v
 	}
-	rec, p, key, err := startAgentSession(cr, inv.Str("name"), inv.Str("agent-name"), inv.Str("key"), budget)
+	rec, p, key, err := startAgentSession(cr, inv.Str("name"), inv.Str("agent-name"), inv.Str("key"), budget, inv.Str("model"))
 	if err != nil {
 		die(err)
 	}
 	agentName := inv.Str("agent-name")
 	facts := map[string]any{"session": rec.ID, "agent": p.AgentID, "ready": p.Ready, "supervised": p.Supervised, "key": key.ID,
-		"agent_activity": p.AgentActivity, "cleaned_up": p.CleanedUp, "phases": p.Phases, "note": p.Note, "control_plane": cr.CTL}
+		"agent_activity": p.AgentActivity, "cleaned_up": p.CleanedUp, "phases": p.Phases, "note": p.Note, "control_plane": cr.CTL,
+		"runner_model": rec.RunnerModel}
 	agentRef := agentName
 	if agentRef == "" {
 		agentRef = "main"
@@ -99,13 +100,13 @@ func hostedRunAgent(cr hostedCreds, inv *Invocation) {
 		progress("task %s submitted to %s", env.Data.ID, agentRef)
 	}
 	if inv.Bool("open") {
-		progress("agent %s is %s in session %s; opening its window", agentRef, startedWord(p), rec.ID)
+		progress("agent %s is %s in session %s%s; opening its window", agentRef, startedWord(p), rec.ID, runningModel(rec))
 		sub := &Invocation{Args: []string{agentRef}, set: map[string]bool{"session": true}, strs: map[string]string{"session": rec.ID}}
 		hostedAgentOpen(cr, sub)
 		return
 	}
 	emit(facts, func() {
-		fmt.Printf("agent %s is %s in session %s\n", agentRef, startedWord(p), rec.ID)
+		fmt.Printf("agent %s is %s in session %s%s\n", agentRef, startedWord(p), rec.ID, runningModel(rec))
 		fmt.Println(p.Note)
 		fmt.Printf("next: ks agent open %s --session %s   (or: ks agent tell %s \"...\" --session %s)\n", agentRef, rec.ID, agentRef, rec.ID)
 	})
@@ -184,6 +185,19 @@ type createdRecord struct {
 	ID             string `json:"id"`
 	Revision       int64  `json:"revision"`
 	PrimaryAgentID string `json:"primary_agent_id"`
+	// RunnerModel is the model the record carries for its agents: the one
+	// chosen with --model, or the service's first rung; absent from a
+	// service that predates the choice
+	RunnerModel string `json:"runner_model,omitempty"`
+}
+
+// runningModel names the model the record carries, on the run's own line;
+// nothing when the service did not say.
+func runningModel(rec createdRecord) string {
+	if rec.RunnerModel == "" {
+		return ""
+	}
+	return ", running " + sanitize(rec.RunnerModel)
 }
 
 // startObserver, when set (the app), is told each step of starting an agent
@@ -195,7 +209,7 @@ var startObserver func(step, detail string)
 // for the app alike: preflight, the key, the record, its binding and the
 // machine. It returns errors rather than exiting; progress goes where
 // progress goes (the terminal, or the app's screen).
-func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *int64) (createdRecord, provisionAnswer, customerKey, error) {
+func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *int64, model string) (createdRecord, provisionAnswer, customerKey, error) {
 	var none createdRecord
 	// ---- 2. preflight: stop before anything exists --------------------------
 	var pf struct {
@@ -228,6 +242,11 @@ func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *i
 	if agentName != "" {
 		body["primary_agent_name"] = agentName
 	}
+	if model != "" {
+		// the model its agents call: one the catalog offers (ks cruise
+		// models); the service refuses any other and creates nothing
+		body["runner_model"] = model
+	}
 	var created struct {
 		Data createdRecord `json:"data"`
 	}
@@ -238,7 +257,11 @@ func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *i
 	if startObserver != nil {
 		startObserver("session", "")
 	} else {
-		progress("session %s created with its primary agent; starting a machine for it", rec.ID)
+		withModel := ""
+		if rec.RunnerModel != "" {
+			withModel = " (model " + sanitize(rec.RunnerModel) + ")"
+		}
+		progress("session %s created with its primary agent%s; starting a machine for it", rec.ID, withModel)
 	}
 
 	// ---- 3a. the session's binding: that key is used or nothing is ---------

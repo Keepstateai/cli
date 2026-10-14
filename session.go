@@ -46,6 +46,11 @@ type inventoryRow struct {
 	// runtime state is kept beside it.
 	ParkReason  string `json:"park_reason,omitempty"`
 	RecordState string `json:"record_runtime_state,omitempty"`
+	// RunnerModel is the model the session's agents are started with, read
+	// from the session's record (the fleet inventory does not carry it); a
+	// record that could not be read says so here, never as no model.
+	RunnerModel           string `json:"runner_model,omitempty"`
+	RunnerModelUnreadable string `json:"runner_model_unreadable,omitempty"`
 }
 
 // fetchInventory reads every page: a filter answers the complete
@@ -246,6 +251,15 @@ func hostedSessionShow(cr hostedCreds, inv *Invocation) {
 	}
 	rs, parkProblem := withParkReasons(cr, []inventoryRow{r})
 	r = rs[0]
+	// the model its agents call lives on the session's record; a record that
+	// cannot be read is said, never shown as no model
+	if r.RecordID != "" {
+		if rec, err := fetchSessionModelRecord(cr, r.RecordID); err != nil {
+			r.RunnerModelUnreadable = "could not be read: " + sanitize(errText(err))
+		} else {
+			r.RunnerModel = rec.RunnerModel
+		}
+	}
 	var doc any = r
 	if parkProblem != "" {
 		doc = map[string]any{"session": r, "park_reasons_unreadable": parkProblem}
@@ -291,6 +305,11 @@ func hostedSessionShow(cr hostedCreds, inv *Invocation) {
 		}
 		if r.RecordID != "" {
 			fmt.Printf("  record         %s (primary agent %s)\n", r.RecordID, r.PrimaryAgentID)
+			if r.RunnerModelUnreadable != "" {
+				fmt.Printf("  runner model   %s\n", r.RunnerModelUnreadable)
+			} else {
+				fmt.Printf("  runner model   %s (change it while paused: ks session model %s <model>)\n", sanitize(notRecorded(r.RunnerModel)), r.ShortID)
+			}
 		}
 		fmt.Printf("  observed       %s\n", r.ObservedAt)
 	})
