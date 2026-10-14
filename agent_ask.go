@@ -16,12 +16,20 @@
 // the known handles. A paused adviser is woken by the question through its
 // session's resume, which that session pays for. The reply is the adviser's
 // own words, advice only and unverified; it authorises nothing.
+//
+// Interrupting ks agent ask while it waits (Ctrl-C, or SIGTERM) cancels the
+// question with the same request the console's Cancel sends (POST
+// /api/v2/consultations/{id}/cancel): the request is closed and a reply to it
+// is refused, and the adviser's own work is not touched. The line says what
+// happened: cancelled, a reply that had already arrived, or a cancel that
+// could not be confirmed. A second interrupt stops at once.
 package main
 
 import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
@@ -242,11 +250,17 @@ func wakeLine(c consultationDoc, said map[string]bool) (string, string) {
 // declined, cancelled or expired), saying what is worth saying while it
 // waits. Ctrl-C stops the waiting here only: the question stands.
 func waitForReply(cr hostedCreds, id, deadline string, say func(kind, line string)) (consultationDoc, error) {
-	bound := replyBound(deadline)
-	cadence := pollCadence(boundedWait())
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sig)
+	return waitForReplyOn(cr, id, deadline, sig, say)
+}
+
+// waitForReplyOn is waitForReply on a signal channel the caller holds, for a
+// caller that acts on the interrupt and must still see a second one.
+func waitForReplyOn(cr hostedCreds, id, deadline string, sig <-chan os.Signal, say func(kind, line string)) (consultationDoc, error) {
+	bound := replyBound(deadline)
+	cadence := pollCadence(boundedWait())
 	started := time.Now()
 	said := map[string]bool{}
 	var last consultationDoc
@@ -276,6 +290,84 @@ func waitForReply(cr hostedCreds, id, deadline string, say func(kind, line strin
 		case <-time.After(cadence):
 		}
 	}
+}
+
+// cancelAsked is what an interrupt does to the question ks agent ask is
+// waiting on: it sends the console's cancel, says on one line what came of
+// it, and exits as an interrupted command. A second interrupt while the
+// cancel is in flight stops at once, with the cancel's outcome unknown.
+func cancelAsked(cr hostedCreds, id, handle string, sig <-chan os.Signal) {
+	type answer struct {
+		resp *http.Response
+		raw  []byte
+		err  error
+	}
+	done := make(chan answer, 1)
+	go func() {
+		resp, raw, err := doBounded(cr, "POST", "/api/v2/consultations/"+url.PathEscape(id)+"/cancel",
+			map[string]string{"Idempotency-Key": newIdempotencyKey()}, mustJSON(map[string]string{"reason": "cancelled from the terminal (interrupted)"}))
+		done <- answer{resp, raw, err}
+	}()
+	var a answer
+	select {
+	case a = <-done:
+	case <-sig:
+		emitLine(map[string]any{"type": "cancel_abandoned", "consultation": id},
+			"stopped without waiting for the cancel's answer: whether consultation "+id+" was cancelled is not known, and "+sanitize(handle)+" may still answer it; ks advice show "+id)
+		os.Exit(exitInterrupt)
+	}
+	emitLine(cancelOutcome(cr, id, handle, a.resp, a.raw, a.err))
+	os.Exit(exitInterrupt)
+}
+
+// cancelOutcome reads the cancel's answer into the line ks agent ask prints.
+// A cancel the control plane refused leaves the question standing; one with
+// no answer, or a failure that says nothing certain, may or may not have
+// arrived, and the line says so rather than guessing.
+func cancelOutcome(cr hostedCreds, id, handle string, resp *http.Response, raw []byte, err error) (map[string]any, string) {
+	who := sanitize(handle)
+	show := "; ks advice show " + id
+	switch {
+	case err != nil:
+		return map[string]any{"type": "cancel_unconfirmed", "consultation": id, "error": errText(err)},
+			"the cancel of consultation " + id + " was sent and no answer came back (" + errText(err) + "): it may not have arrived, and " + who + " may still answer the question" + show
+	case resp.StatusCode/100 == 2:
+		var env struct {
+			Data consultationDoc `json:"data"`
+		}
+		_ = json.Unmarshal(raw, &env)
+		state := env.Data.State
+		if state == "" {
+			state = "cancelled"
+		}
+		return map[string]any{"type": "cancelled", "consultation": id, "state": state},
+			"cancelled the question to " + who + " (consultation " + id + "): the request is closed, a reply to it is refused, and " + who + "'s own work was not touched"
+	}
+	var he *hostedErr
+	refusal := hostedError("POST", "/api/v2/consultations/"+id+"/cancel", resp, raw)
+	if errors.As(refusal, &he) && resp.StatusCode == http.StatusConflict && he.Type == "ks_consultation_closed" {
+		// closed before the cancel arrived: read how, rather than say
+		state := ""
+		if c, rerr := fetchConsultation(cr, id); rerr == nil {
+			state = c.State
+		}
+		switch state {
+		case "replied":
+			return map[string]any{"type": "cancel_too_late", "consultation": id, "state": state},
+				"the reply had already arrived, so nothing was cancelled (consultation " + id + ")" + show
+		case "":
+			return map[string]any{"type": "cancel_too_late", "consultation": id, "state": "unknown"},
+				"consultation " + id + " had already closed before the cancel arrived (" + errText(refusal) + "), so nothing was cancelled" + show
+		}
+		return map[string]any{"type": "cancel_too_late", "consultation": id, "state": state},
+			"consultation " + id + " had already closed as " + sanitize(state) + " before the cancel arrived, so nothing was cancelled" + show
+	}
+	if resp.StatusCode/100 == 4 && resp.StatusCode != http.StatusTooManyRequests && resp.StatusCode != http.StatusRequestTimeout {
+		return map[string]any{"type": "cancel_refused", "consultation": id, "error": errText(refusal)},
+			"the cancel of consultation " + id + " was refused (" + errText(refusal) + "): the question stands, and " + who + " may still answer it" + show
+	}
+	return map[string]any{"type": "cancel_unconfirmed", "consultation": id, "error": errText(refusal)},
+		"the cancel of consultation " + id + " could not be confirmed (" + errText(refusal) + "): it may not have arrived, and " + who + " may still answer the question" + show
 }
 
 // replyLines renders the closed consultation as a person reads it: the
@@ -341,15 +433,24 @@ func hostedAgentAsk(cr hostedCreds, inv *Invocation) {
 	if err != nil {
 		die(askRefusal(err, *h, sess))
 	}
+	// from here an interrupt cancels the question; the channel stays held
+	// through the cancel, so a second interrupt is seen and stops at once
+	sig := make(chan os.Signal, 2)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sig)
 	word := "asked"
 	if replayed {
 		word = "already asked"
 	}
 	emitLine(map[string]any{"type": "asked", "consultation": asked.ID, "adviser": h, "agent": a.ID, "replayed": replayed, "request_id": rid},
 		fmt.Sprintf("%s %s for %s (consultation %s): advice only, the reply authorises nothing", word, h.Handle, a.Name, asked.ID))
-	c, err := waitForReply(cr, asked.ID, asked.Deadline, func(kind, line string) {
+	c, err := waitForReplyOn(cr, asked.ID, asked.Deadline, sig, func(kind, line string) {
 		emitLine(map[string]any{"type": kind, "consultation": asked.ID}, line)
 	})
+	var ce *cliError
+	if errors.As(err, &ce) && ce.Kind == "interrupted" {
+		cancelAsked(cr, asked.ID, h.Handle, sig)
+	}
 	if err != nil {
 		die(err)
 	}

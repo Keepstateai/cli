@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Interrupting `ks agent ask` while it waits for the reply (Ctrl-C, or
+  SIGTERM) now cancels the question, with the same request the browser
+  console's Cancel sends: the request is closed, a reply to it is refused,
+  and the adviser's own work is not touched. The line says what came of it:
+  cancelled, the reply had already arrived (nothing is cancelled, and
+  `ks advice show` reads it), the cancel was refused (the question stands), or
+  the cancel could not be confirmed. A second Ctrl-C stops at once, saying the
+  cancel's outcome is not known. Before, Ctrl-C only stopped the waiting and
+  the question stood.
+
 ## v0.1.23 (2026-10-14)
 
 Parity with the browser console, found by checking the client against it.
