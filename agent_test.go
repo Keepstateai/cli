@@ -90,6 +90,17 @@ type agentCtl struct {
 	consultReads  int
 	consultWake   bool
 
+	// an interrupted ks agent ask cancels its question. consultHold keeps
+	// the consultation waiting; cancelMode is how the cancel route answers
+	// ("" cancels it; "replied" refuses because a reply had just arrived;
+	// "refused" a 404; "error" a 500; "hang" nothing until the test ends);
+	// cancelBodies are the bodies the cancel route received
+	consultHold      bool
+	cancelMode       string
+	cancelBodies     []string
+	consultCancelled bool
+	cancelHang       chan struct{}
+
 	// the journal: explicit rows (stream_seq by position), else backlog
 	// generated entries; the events route pages FORWARD only, as the
 	// service does (after_seq or a cursor, at most 1000 per page), and
@@ -491,10 +502,36 @@ func (c *agentCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			doc["adviser_wake"] = "waking"
 		}
 		env(201, doc)
+	case r.Method == "POST" && r.URL.Path == "/api/v2/consultations/csl_0001/cancel":
+		raw, _ := readAllBody(r)
+		c.mu.Lock()
+		c.cancelBodies = append(c.cancelBodies, string(raw))
+		mode, hang := c.cancelMode, c.cancelHang
+		if mode == "" {
+			c.consultCancelled = true
+		}
+		c.mu.Unlock()
+		switch mode {
+		case "":
+			env(200, map[string]any{"id": "csl_0001", "state": "cancelled", "label": "Cancelled", "declined_reason": "cancelled from the terminal (interrupted)",
+				"question": "is this approach sound?", "response": nil, "note": "the request is closed; a reply to it is refused"})
+		case "replied":
+			fault(http.StatusConflict, "ks_consultation_closed", "this consultation is replied; there is nothing to cancel")
+		case "refused":
+			fault(http.StatusNotFound, "ks_not_found", "no such consultation")
+		case "error":
+			fault(http.StatusInternalServerError, "ks_internal", "the cancel could not be written")
+		case "hang":
+			select {
+			case <-hang:
+			case <-r.Context().Done():
+			}
+		}
 	case r.Method == "GET" && r.URL.Path == "/api/v2/consultations/csl_0001":
 		c.mu.Lock()
 		c.consultReads++
 		reads, wake := c.consultReads, c.consultWake
+		hold, cancelled, mode, cancels := c.consultHold, c.consultCancelled, c.cancelMode, len(c.cancelBodies)
 		c.mu.Unlock()
 		doc := map[string]any{"id": "csl_0001", "state": "requested", "label": "Pending",
 			"asker":         map[string]any{"agent_id": "agt_main0001", "agent_name": "main", "session_id": agentSessionRecord, "session_name": "checkout"},
@@ -515,6 +552,18 @@ func (c *agentCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			doc["note"] = "the adviser's own words, attributed; advice is unverified and authorises nothing"
 			if wake {
 				doc["adviser_wake"] = map[string]any{"state": "woken", "started_at": "2026-09-20T12:03:00Z", "woke_at": "2026-09-20T12:03:40Z"}
+			}
+		}
+		if hold {
+			// still waiting, until a cancel closes it or a reply beats it
+			doc["state"], doc["label"], doc["response"] = "requested", "Pending", nil
+			delete(doc, "received_at")
+			switch {
+			case cancelled:
+				doc["state"], doc["label"], doc["declined_reason"] = "cancelled", "Cancelled", "cancelled from the terminal (interrupted)"
+			case mode == "replied" && cancels > 0:
+				doc["state"], doc["label"], doc["received_at"] = "replied", "Replied", "2026-09-20T12:04:10Z"
+				doc["response"] = map[string]any{"text": "Looks sound.", "by": "agt_rev00001", "verification": "unverified"}
 			}
 		}
 		env(200, doc)
