@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## v0.1.24 (2026-10-15)
+
+A question asked of a connected agent can be taken back.
 
 - Interrupting `ks agent ask` while it waits for the reply (Ctrl-C, or
   SIGTERM) now cancels the question, with the same request the browser
