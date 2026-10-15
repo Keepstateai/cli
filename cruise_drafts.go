@@ -61,6 +61,7 @@ type draftView struct {
 		LeftOut        int64  `json:"left_out"`
 		StrippedPrefix string `json:"stripped_prefix"`
 		SessionID      string `json:"session_id"`
+		ProposalID     string `json:"proposal_id"`
 		SessionName    string `json:"session_name"`
 		Root           string `json:"root"`
 		CopiedAt       string `json:"copied_at"`
@@ -221,7 +222,12 @@ func printDraft(w io.Writer, v *draftView, computed string) {
 	if v.Source.Layout != "" {
 		src += ", " + v.Source.Layout
 	}
-	if v.Source.Kind == "session" {
+	if v.Source.Kind == "proposal" {
+		fmt.Fprintf(w, "  source       proposal %s, on the files of session %s", sanitize(v.Source.ProposalID), sanitize(v.Source.SessionID))
+		if v.Source.CopiedAt != "" {
+			fmt.Fprintf(w, ", copied at %s", sanitize(v.Source.CopiedAt))
+		}
+	} else if v.Source.Kind == "session" {
 		fmt.Fprintf(w, "  source       session %s (%s), folder %s", sanitize(v.Source.SessionID), sanitize(notRecorded(v.Source.SessionName)), sanitize(notRecorded(v.Source.Root)))
 		if v.Source.CopiedAt != "" {
 			fmt.Fprintf(w, ", copied at %s while its agent was %s", sanitize(v.Source.CopiedAt), sanitize(notRecorded(v.Source.AgentActivity)))
@@ -407,21 +413,29 @@ func archiveFormat(name string) string {
 
 func hostedCruiseDraftCreate(cr hostedCreds, inv *Invocation) {
 	dir, archive, session := strings.TrimSpace(inv.Str("dir")), strings.TrimSpace(inv.Str("archive")), strings.TrimSpace(inv.Str("session"))
+	proposal := strings.TrimSpace(inv.Str("proposal"))
 	named := 0
-	for _, x := range []string{dir, archive, session} {
+	for _, x := range []string{dir, archive, session, proposal} {
 		if x != "" {
 			named++
 		}
 	}
 	if named != 1 {
-		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "name exactly one source: --dir FOLDER, --archive FILE or --session SESSION; nothing was sent"})
+		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "name exactly one source: --dir FOLDER, --archive FILE, --session SESSION or --proposal PROPOSAL; nothing was sent"})
+	}
+	if proposal != "" {
+		for _, f := range []string{"goal", "paths", "check", "ladder", "spend", "key"} {
+			if inv.Set(f) {
+				fail(&cliError{Code: exitUsage, Kind: "usage", Message: fmt.Sprintf("a draft from a proposal takes its terms from the proposal; --%s is changed afterwards with ks cruise draft set. Nothing was sent", f)})
+			}
+		}
 	}
 	if inv.Set("root") && session == "" {
 		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--root names a folder of a session's workspace and goes with --session; nothing was sent"})
 	}
 	body := map[string]any{"storage_consent": true}
-	if session != "" {
-		createSessionDraft(cr, inv, body)
+	if session != "" || proposal != "" {
+		createSessionDraft(cr, inv, body, proposal)
 		return
 	}
 	source := map[string]any{"kind": "upload"}
@@ -496,17 +510,28 @@ var draftCollectWait = 5 * time.Minute
 // copies the files of the session's workspace (or of the folder --root names
 // in it) and reads them as it reads an upload. A session that is not running
 // is refused and not woken. Create waits while the draft is collecting.
-func createSessionDraft(cr hostedCreds, inv *Invocation, body map[string]any) {
-	sess := agentSession(cr, inv)
-	source := map[string]any{"kind": "session", "session_id": agentSessionID(sess)}
-	if root := strings.TrimSpace(inv.Str("root")); root != "" {
-		source["root"] = root
+//
+// With a proposal named, the draft is from an agent's proposal: the service
+// copies the proposal's session and drafts it on the proposal's terms, every
+// digest recomputed from the files, so the digest to approve is the draft's.
+func createSessionDraft(cr hostedCreds, inv *Invocation, body map[string]any, proposal string) {
+	var source map[string]any
+	if proposal != "" {
+		source = map[string]any{"kind": "proposal", "proposal_id": proposal}
+	} else {
+		sess := agentSession(cr, inv)
+		source = map[string]any{"kind": "session", "session_id": agentSessionID(sess)}
+		if root := strings.TrimSpace(inv.Str("root")); root != "" {
+			source["root"] = root
+		}
 	}
 	body["source"] = source
 	if a := inv.List("allow"); len(a) > 0 {
 		body["allow"] = a
 	}
-	draftTerms(inv, body)
+	if proposal == "" {
+		draftTerms(inv, body)
+	}
 	progress("KeepState copies the session's files into this draft only, does not bill for the copy, and deletes it when the draft is approved, discarded or expires")
 	var env draftEnvelope
 	if err := hostedMutate(cr, "POST", draftsRoute, body, &env); err != nil {

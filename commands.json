@@ -1296,8 +1296,8 @@
   {
    "verb": "cruise draft create",
    "aliases": [],
-   "usage": "ks cruise draft create [--dir FOLDER] [--archive FILE] [--session SESSION] [--root FOLDER] [--goal TEXT] [--paths GLOB...] [--check RUNNER] [--allow PATH...] [--ladder family:model,...] [--spend USD] [--key PROVIDER=KEY]",
-   "summary": "a hosted draft from a folder (packed here by init's own selection), a .zip, .tar.gz or .tar archive, or one of your running sessions: what was found and the digest computed here",
+   "usage": "ks cruise draft create [--dir FOLDER] [--archive FILE] [--session SESSION] [--root FOLDER] [--proposal PROPOSAL] [--goal TEXT] [--paths GLOB...] [--check RUNNER] [--allow PATH...] [--ladder family:model,...] [--spend USD] [--key PROVIDER=KEY]",
+   "summary": "a hosted draft from a folder (packed here by init's own selection), a .zip, .tar.gz or .tar archive, one of your running sessions, or an agent's proposal: what was found and the digest computed here",
    "status": "available",
    "surface": "hosted",
    "flags": [
@@ -1316,6 +1316,10 @@
     {
      "flag": "--root FOLDER",
      "summary": "with --session: the folder of the session's workspace the job works on (default the workspace itself)"
+    },
+    {
+     "flag": "--proposal PROPOSAL",
+     "summary": "a job an agent proposed: the service copies the files of the proposal's session and drafts the job on the proposal's terms, every digest recomputed"
     },
     {
      "flag": "--goal TEXT",

@@ -74,10 +74,13 @@ func (f *draftFake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"capabilities": []any{map[string]any{"id": "cruise.drafts", "availability": "available", "summary": "drafts", "surface": "api", "since_protocol": 2}}, "limits": map[string]any{}})
 	case r.Method == "GET" && r.URL.Path == "/api/v2/sessions":
 		data(200, map[string]any{"items": []any{map[string]any{"id": "ses_0123456789ab", "short_id": "0123456789ab", "name": "billing", "runtime_state": "running"}}, "next_cursor": ""})
+	case r.Method == "POST" && r.URL.Path == "/api/v2/cruise-drafts" && strings.Contains(string(body), `"kind":"proposal"`):
+		f.posted = body
+		data(201, map[string]any{"id": fakeDraftID, "revision": 1, "state": "collecting", "source": map[string]any{"kind": "proposal", "proposal_id": "cprop_1", "session_id": "ses_0123456789ab"}})
 	case r.Method == "POST" && r.URL.Path == "/api/v2/cruise-drafts" && strings.Contains(string(body), `"kind":"session"`):
 		f.posted = body
 		data(201, map[string]any{"id": fakeDraftID, "revision": 1, "state": "collecting", "source": map[string]any{"kind": "session", "session_id": "ses_0123456789ab", "root": "."}})
-	case r.Method == "GET" && r.URL.Path == route && f.posted != nil && strings.Contains(string(f.posted), `"kind":"session"`) && f.polls > 0:
+	case r.Method == "GET" && r.URL.Path == route && f.posted != nil && (strings.Contains(string(f.posted), `"kind":"session"`) || strings.Contains(string(f.posted), `"kind":"proposal"`)) && f.polls > 0:
 		f.polls--
 		data(200, map[string]any{"id": fakeDraftID, "revision": 1, "state": "collecting", "source": map[string]any{"kind": "session", "session_id": "ses_0123456789ab", "root": "."}})
 	case r.Method == "GET" && r.URL.Path == route && f.sessionRefusal != "":
@@ -461,5 +464,35 @@ func TestCruiseDraftCreateFromASession(t *testing.T) {
 	var first map[string]any
 	if code != exitFailed || dec.Decode(&first) != nil || dec.More() || first["error"] == nil {
 		t.Fatalf("a refused session draft: exit %d\n%s", code, out)
+	}
+}
+
+// A draft from a proposal: the source names the proposal and nothing else;
+// the terms are the proposal's, so a term flag beside it sends nothing.
+func TestCruiseDraftCreateFromAProposal(t *testing.T) {
+	f, bin, cfg := startDraftFake(t)
+	f.mu.Lock()
+	f.polls = 1
+	f.mu.Unlock()
+	out, errs, code := ksIn(t, bin, cfg, t.TempDir(), "cruise", "draft", "create", "--proposal", "cprop_1")
+	if code != 0 || !strings.Contains(out, fakeDraftID) {
+		t.Fatalf("create --proposal: exit %d\n%s%s", code, out, errs)
+	}
+	f.mu.Lock()
+	posted := f.posted
+	f.mu.Unlock()
+	var req map[string]any
+	if err := json.Unmarshal(posted, &req); err != nil {
+		t.Fatal(err)
+	}
+	src, _ := req["source"].(map[string]any)
+	if src["kind"] != "proposal" || src["proposal_id"] != "cprop_1" || len(src) != 2 || req["goal"] != nil || req["ladder"] != nil || req["storage_consent"] != true {
+		t.Fatalf("the create body: %s", posted)
+	}
+	for _, args := range [][]string{{"--proposal", "cprop_1", "--goal", "mine"}, {"--proposal", "cprop_1", "--session", "ses_0123"}, {"--proposal", "cprop_1", "--root", "x"}} {
+		writes := f.count("POST ") + f.count("PUT ")
+		if _, _, code := ksIn(t, bin, cfg, t.TempDir(), append([]string{"cruise", "draft", "create"}, args...)...); code != exitUsage || f.count("POST ")+f.count("PUT ") != writes {
+			t.Fatalf("%v: exit %d", args, code)
+		}
 	}
 }
