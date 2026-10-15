@@ -760,6 +760,21 @@ type checkpointRowClient struct {
 	// KS-053: the lineage and the engine's chunk counts (never estimated)
 	Parent string         `json:"parent_checkpoint_id,omitempty"`
 	Chunks map[string]int `json:"chunks,omitempty"`
+	// Usable says a restore or a fork may name this saved point now, and
+	// Position is its place among those that may, newest first. A service
+	// that keeps one usable saved point per session sends neither: Usable is
+	// then read from the state, and the position is not stated.
+	Usable          *bool  `json:"usable,omitempty"`
+	Position        int    `json:"position,omitempty"`
+	UnusableBecause string `json:"unusable_because,omitempty"`
+}
+
+// usable is whether a restore or a fork may name this saved point now.
+func (c checkpointRowClient) usable() bool {
+	if c.Usable != nil {
+		return *c.Usable
+	}
+	return c.State == "valid"
 }
 
 func fetchCheckpoints(cr hostedCreds, sessionID string) ([]checkpointRowClient, error) {
@@ -779,8 +794,15 @@ func checkpointLine(c checkpointRowClient) string {
 	if task == "" {
 		task = "-"
 	}
-	return fmt.Sprintf("%-26s %-11s %-19s %-26s %s",
-		clip(c.ID, 26), clip(figure(c.State), 11), clip(figure(c.Boundary), 19),
+	usable, pos := "no", "-"
+	if c.usable() {
+		usable = "yes"
+	}
+	if c.Position > 0 && c.usable() {
+		pos = fmt.Sprint(c.Position)
+	}
+	return fmt.Sprintf("%-26s %-6s %-8s %-11s %-19s %-26s %s",
+		clip(c.ID, 26), usable, pos, clip(figure(c.State), 11), clip(figure(c.Boundary), 19),
 		clip(task, 26), figure(c.CreatedAt))
 }
 
@@ -801,16 +823,20 @@ func hostedSessionCheckpoints(cr hostedCreds, inv *Invocation) {
 			fmt.Printf("Session %s has no saved points recorded.\n", r.ShortID)
 			return
 		}
-		fmt.Printf("%-26s %-11s %-19s %-26s %s\n", "SAVED POINT", "STATE", "BOUNDARY", "ATTEMPT'S INSTRUCTION", "TAKEN")
+		fmt.Printf("%-26s %-6s %-8s %-11s %-19s %-26s %s\n", "SAVED POINT", "USABLE", "POSITION", "STATE", "BOUNDARY", "ATTEMPT'S INSTRUCTION", "TAKEN")
 		for _, c := range rows {
 			fmt.Println(checkpointLine(c))
-			if c.State != "valid" {
-				// a failed save stays visible, with why, and is never offered
-				why := c.Reason
+			if !c.usable() {
+				// a saved point no longer kept, or a failed save, stays
+				// visible with why, and is never offered
+				why := c.UnusableBecause
+				if why == "" {
+					why = c.Reason
+				}
 				if why == "" {
 					why = "the service recorded no reason"
 				}
-				fmt.Printf("    not restorable: %s\n", sanitize(why))
+				fmt.Printf("    not usable: %s\n", sanitize(why))
 			}
 			if c.Parent != "" || len(c.Chunks) > 0 {
 				var parts []string
@@ -825,8 +851,10 @@ func hostedSessionCheckpoints(cr hostedCreds, inv *Invocation) {
 		fmt.Printf("\nA saved point is a WHOLE-SESSION saved point. Restoring one returns EVERY agent and\n")
 		fmt.Printf("EVERY instruction in this session to that moment; it is not a file-level or a\n")
 		fmt.Printf("single-instruction rollback.\n")
-		fmt.Printf("%d saved point(s). Name a valid one: ks task resume <instruction> --session %s --checkpoint <saved point>\n",
-			len(rows), r.ShortID)
+		fmt.Printf("The service keeps the three most recent saved points and the oldest one from within the hour\n")
+		fmt.Printf("before the newest; any of them may be named, newest first by POSITION.\n")
+		fmt.Printf("%d saved point(s). Name a usable one: ks session restore %s --checkpoint <saved point>, or\n", len(rows), r.ShortID)
+		fmt.Printf("ks session fork %s --plan --checkpoint <saved point>\n", r.ShortID)
 	})
 }
 

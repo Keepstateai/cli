@@ -842,7 +842,7 @@
    "verb": "session checkpoints",
    "aliases": [],
    "usage": "ks session checkpoints <session>",
-   "summary": "the saved points a restore may be named against: boundary, state, scope and manifest identity",
+   "summary": "the saved points a restore or a fork may name: whether each is usable now and its position, boundary, state, scope and manifest identity",
    "status": "available",
    "surface": "hosted",
    "note": "the binary dispatches this verb; it runs only where the control plane reports the agent.workspace capability available, and refuses with that reason where it does not"
