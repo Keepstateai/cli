@@ -26,17 +26,19 @@ import (
 const fakeDraftID = "crd_0123456789ab"
 
 type draftFake struct {
-	mu        sync.Mutex
-	hits      []string
-	posted    []byte
-	put       []byte
-	putType   string
-	patched   []byte
-	approved  []byte
-	ready     map[string]any
-	archive   []byte
-	headerSHA string
-	jobSHA    string // when set, the approval answers a job of this digest
+	mu             sync.Mutex
+	hits           []string
+	posted         []byte
+	put            []byte
+	putType        string
+	patched        []byte
+	approved       []byte
+	ready          map[string]any
+	archive        []byte
+	headerSHA      string
+	jobSHA         string // when set, the approval answers a job of this digest
+	polls          int    // GETs of a session draft answered collecting before it is ready
+	sessionRefusal string // when set, a session draft ends refused with this code
 }
 
 func (f *draftFake) seen() []string {
@@ -70,6 +72,17 @@ func (f *draftFake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == "GET" && r.URL.Path == "/api/capabilities":
 		data(200, map[string]any{"registry_version": "test", "build": "b", "fetched_at": "2026-10-15T00:00:00Z", "price_book": "v1.3",
 			"capabilities": []any{map[string]any{"id": "cruise.drafts", "availability": "available", "summary": "drafts", "surface": "api", "since_protocol": 2}}, "limits": map[string]any{}})
+	case r.Method == "GET" && r.URL.Path == "/api/v2/sessions":
+		data(200, map[string]any{"items": []any{map[string]any{"id": "ses_0123456789ab", "short_id": "0123456789ab", "name": "billing", "runtime_state": "running"}}, "next_cursor": ""})
+	case r.Method == "POST" && r.URL.Path == "/api/v2/cruise-drafts" && strings.Contains(string(body), `"kind":"session"`):
+		f.posted = body
+		data(201, map[string]any{"id": fakeDraftID, "revision": 1, "state": "collecting", "source": map[string]any{"kind": "session", "session_id": "ses_0123456789ab", "root": "."}})
+	case r.Method == "GET" && r.URL.Path == route && f.posted != nil && strings.Contains(string(f.posted), `"kind":"session"`) && f.polls > 0:
+		f.polls--
+		data(200, map[string]any{"id": fakeDraftID, "revision": 1, "state": "collecting", "source": map[string]any{"kind": "session", "session_id": "ses_0123456789ab", "root": "."}})
+	case r.Method == "GET" && r.URL.Path == route && f.sessionRefusal != "":
+		data(200, map[string]any{"id": fakeDraftID, "revision": 2, "state": "refused", "source": map[string]any{"kind": "session", "session_id": "ses_0123456789ab", "root": "."},
+			"refusal": map[string]any{"code": f.sessionRefusal, "message": "a file changed while the session's files were copied"}})
 	case r.Method == "POST" && r.URL.Path == "/api/v2/cruise-drafts":
 		f.posted = body
 		data(201, map[string]any{"id": fakeDraftID, "revision": 1, "state": "awaiting_upload",
@@ -400,5 +413,53 @@ func TestCruiseDraftApproveRefusesAJobOfAnotherDigest(t *testing.T) {
 	e, _ := first["error"].(map[string]any)
 	if e == nil || first["data"] != nil || !strings.Contains(fmt.Sprint(e["message"]), "job_0123456789ab") {
 		t.Fatalf("the one document is not the refusal naming the job: %s", out)
+	}
+}
+
+// A draft from a session: the source names the session the client resolved
+// and the folder; nothing is uploaded; create waits while the service copies
+// and reads the files, then shows the draft. A refused one is the refusal
+// alone under --json.
+func TestCruiseDraftCreateFromASession(t *testing.T) {
+	f, bin, cfg := startDraftFake(t)
+	f.mu.Lock()
+	f.polls = 2
+	f.mu.Unlock()
+	out, errs, code := ksIn(t, bin, cfg, t.TempDir(), "cruise", "draft", "create", "--session", "ses_0123", "--root", "billing", "--goal", "fix calc.py")
+	if code != 0 || !strings.Contains(out, fakeDraftID) || !strings.Contains(out, "next: ks cruise draft approve") {
+		t.Fatalf("create --session: exit %d\n%s%s", code, out, errs)
+	}
+	f.mu.Lock()
+	posted, puts := f.posted, f.put
+	f.mu.Unlock()
+	var req struct {
+		Source         map[string]any `json:"source"`
+		StorageConsent bool           `json:"storage_consent"`
+	}
+	if err := json.Unmarshal(posted, &req); err != nil || req.Source["kind"] != "session" || req.Source["session_id"] != "ses_0123456789ab" || req.Source["root"] != "billing" || !req.StorageConsent || len(req.Source) != 3 {
+		t.Fatalf("the create body: %s", posted)
+	}
+	if puts != nil || f.count("PUT ") != 0 {
+		t.Fatal("a session draft uploaded something")
+	}
+	if n := f.count("GET /api/v2/cruise-drafts/" + fakeDraftID); n < 3 {
+		t.Fatalf("create did not wait out the collection: %d reads", n)
+	}
+	// a source and a second one, or --root without --session: nothing is sent (the capability read aside)
+	for _, args := range [][]string{{"--session", "ses_0123", "--dir", "."}, {"--dir", ".", "--root", "x"}} {
+		posts := f.count("POST ") + f.count("PUT ")
+		if _, _, code := ksIn(t, bin, cfg, t.TempDir(), append([]string{"cruise", "draft", "create"}, args...)...); code != exitUsage || f.count("POST ")+f.count("PUT ") != posts {
+			t.Fatalf("%v: exit %d, requests %v", args, code, f.seen())
+		}
+	}
+	// refused: one document, the refusal
+	f.mu.Lock()
+	f.sessionRefusal = "ks_workspace_changed"
+	f.mu.Unlock()
+	out, _, code = ksIn(t, bin, cfg, t.TempDir(), "cruise", "draft", "create", "--session", "ses_0123", "--json")
+	dec := json.NewDecoder(strings.NewReader(out))
+	var first map[string]any
+	if code != exitFailed || dec.Decode(&first) != nil || dec.More() || first["error"] == nil {
+		t.Fatalf("a refused session draft: exit %d\n%s", code, out)
 	}
 }

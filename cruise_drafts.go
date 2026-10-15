@@ -40,6 +40,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 const (
@@ -59,6 +60,11 @@ type draftView struct {
 		Layout         string `json:"layout"`
 		LeftOut        int64  `json:"left_out"`
 		StrippedPrefix string `json:"stripped_prefix"`
+		SessionID      string `json:"session_id"`
+		SessionName    string `json:"session_name"`
+		Root           string `json:"root"`
+		CopiedAt       string `json:"copied_at"`
+		AgentActivity  string `json:"agent_activity_at_copy"`
 	} `json:"source"`
 	Upload *struct {
 		Method   string `json:"method"`
@@ -215,7 +221,14 @@ func printDraft(w io.Writer, v *draftView, computed string) {
 	if v.Source.Layout != "" {
 		src += ", " + v.Source.Layout
 	}
-	fmt.Fprintf(w, "  source       %s, %s bytes sent", src, commas(v.Source.Bytes))
+	if v.Source.Kind == "session" {
+		fmt.Fprintf(w, "  source       session %s (%s), folder %s", sanitize(v.Source.SessionID), sanitize(notRecorded(v.Source.SessionName)), sanitize(notRecorded(v.Source.Root)))
+		if v.Source.CopiedAt != "" {
+			fmt.Fprintf(w, ", copied at %s while its agent was %s", sanitize(v.Source.CopiedAt), sanitize(notRecorded(v.Source.AgentActivity)))
+		}
+	} else {
+		fmt.Fprintf(w, "  source       %s, %s bytes sent", src, commas(v.Source.Bytes))
+	}
 	if v.Source.LeftOut > 0 {
 		fmt.Fprintf(w, ", %d path(s) left out before sending", v.Source.LeftOut)
 	}
@@ -393,11 +406,24 @@ func archiveFormat(name string) string {
 }
 
 func hostedCruiseDraftCreate(cr hostedCreds, inv *Invocation) {
-	dir, archive := strings.TrimSpace(inv.Str("dir")), strings.TrimSpace(inv.Str("archive"))
-	if (dir == "") == (archive == "") {
-		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "name exactly one source: --dir FOLDER or --archive FILE; nothing was sent"})
+	dir, archive, session := strings.TrimSpace(inv.Str("dir")), strings.TrimSpace(inv.Str("archive")), strings.TrimSpace(inv.Str("session"))
+	named := 0
+	for _, x := range []string{dir, archive, session} {
+		if x != "" {
+			named++
+		}
+	}
+	if named != 1 {
+		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "name exactly one source: --dir FOLDER, --archive FILE or --session SESSION; nothing was sent"})
+	}
+	if inv.Set("root") && session == "" {
+		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--root names a folder of a session's workspace and goes with --session; nothing was sent"})
 	}
 	body := map[string]any{"storage_consent": true}
+	if session != "" {
+		createSessionDraft(cr, inv, body)
+		return
+	}
 	source := map[string]any{"kind": "upload"}
 	var file string
 	var size int64
@@ -462,6 +488,51 @@ func hostedCruiseDraftCreate(cr hostedCreds, inv *Invocation) {
 	finishDraftShow(v, raw, true)
 }
 
+// draftCollectWait is how long create waits for the service to copy and
+// read a session's files before it hands back the draft id to follow.
+var draftCollectWait = 5 * time.Minute
+
+// createSessionDraft drafts from one of your running sessions: the service
+// copies the files of the session's workspace (or of the folder --root names
+// in it) and reads them as it reads an upload. A session that is not running
+// is refused and not woken. Create waits while the draft is collecting.
+func createSessionDraft(cr hostedCreds, inv *Invocation, body map[string]any) {
+	sess := agentSession(cr, inv)
+	source := map[string]any{"kind": "session", "session_id": agentSessionID(sess)}
+	if root := strings.TrimSpace(inv.Str("root")); root != "" {
+		source["root"] = root
+	}
+	body["source"] = source
+	if a := inv.List("allow"); len(a) > 0 {
+		body["allow"] = a
+	}
+	draftTerms(inv, body)
+	progress("KeepState copies the session's files into this draft only, does not bill for the copy, and deletes it when the draft is approved, discarded or expires")
+	var env draftEnvelope
+	if err := hostedMutate(cr, "POST", draftsRoute, body, &env); err != nil {
+		die(err)
+	}
+	v, err := decodeDraft(env.Data)
+	if err != nil {
+		die(err)
+	}
+	raw := env.Data
+	deadline := time.Now().Add(draftCollectWait)
+	if v.State == "collecting" {
+		progress("draft %s created; the service is copying and reading the session's files", v.ID)
+	}
+	for v.State == "collecting" {
+		if time.Now().After(deadline) {
+			fail(&cliError{Code: exitTemporary, Kind: "draft_collecting", WorkStarted: workYes,
+				Message:    fmt.Sprintf("draft %s is still reading the session's files after %s", v.ID, draftCollectWait),
+				NextAction: "ks cruise draft show " + v.ID})
+		}
+		time.Sleep(time.Second)
+		v, raw = fetchDraft(cr, v.ID)
+	}
+	finishDraftShow(v, raw, true)
+}
+
 // putDraftUpload sends exactly the declared bytes, raw, on the draft's
 // upload route (never through the idempotency layer, which would hold the
 // whole body in memory).
@@ -499,13 +570,17 @@ func finishDraftShow(v *draftView, raw json.RawMessage, next bool) {
 	if v.hasManifest() {
 		computed = v.checkedDigest("nothing was approved")
 	}
-	emit(raw, func() {
-		printDraft(os.Stdout, v, computed)
-		if next && computed != "" && v.State == "ready" {
-			fmt.Printf("next: ks cruise draft approve %s --confirm %s\n", v.ID, short(computed))
-		}
-	})
-	if v.State == "refused" && v.Refusal != nil {
+	refused := v.State == "refused" && v.Refusal != nil
+	// a refused draft is the refusal alone under --json: one document
+	if !refused || !out.json {
+		emit(raw, func() {
+			printDraft(os.Stdout, v, computed)
+			if next && computed != "" && v.State == "ready" {
+				fmt.Printf("next: ks cruise draft approve %s --confirm %s\n", v.ID, short(computed))
+			}
+		})
+	}
+	if refused {
 		fail(&cliError{Code: exitFailed, Kind: v.Refusal.Code, WorkStarted: workNo,
 			Message:    fmt.Sprintf("draft %s was refused: %s; nothing runs, and its copy of the files is deleted", v.ID, sanitize(v.Refusal.Message)),
 			NextAction: "change what was refused and run ks cruise draft create again"})

@@ -1296,8 +1296,8 @@
   {
    "verb": "cruise draft create",
    "aliases": [],
-   "usage": "ks cruise draft create [--dir FOLDER] [--archive FILE] [--goal TEXT] [--paths GLOB...] [--check RUNNER] [--allow PATH...] [--ladder family:model,...] [--spend USD] [--key PROVIDER=KEY]",
-   "summary": "a hosted draft from a folder (packed here by init's own selection) or a .zip, .tar.gz or .tar archive: what was found and the digest computed here",
+   "usage": "ks cruise draft create [--dir FOLDER] [--archive FILE] [--session SESSION] [--root FOLDER] [--goal TEXT] [--paths GLOB...] [--check RUNNER] [--allow PATH...] [--ladder family:model,...] [--spend USD] [--key PROVIDER=KEY]",
+   "summary": "a hosted draft from a folder (packed here by init's own selection), a .zip, .tar.gz or .tar archive, or one of your running sessions: what was found and the digest computed here",
    "status": "available",
    "surface": "hosted",
    "flags": [
@@ -1308,6 +1308,14 @@
     {
      "flag": "--archive FILE",
      "summary": "a .zip, .tar.gz, .tgz or .tar to send as it is (at most 100 MiB); one top folder holding everything is removed by the service"
+    },
+    {
+     "flag": "--session SESSION",
+     "summary": "one of your running sessions: the service copies its workspace's files (a short id is accepted when it is unique among yours); a session that is not running is refused, never woken"
+    },
+    {
+     "flag": "--root FOLDER",
+     "summary": "with --session: the folder of the session's workspace the job works on (default the workspace itself)"
     },
     {
      "flag": "--goal TEXT",
