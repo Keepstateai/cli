@@ -22,6 +22,24 @@ A second harness: the runner an agent works inside can be named.
 - `ks cruise models` lists the harnesses: the provider each calls, its
   models, and whether it is offered, with the note of a withheld one.
 
+## v0.1.25 (2026-10-15)
+
+Cruise jobs the service drafts from your files.
+
+- `ks cruise draft create` asks the service to draft a Cruise job from a
+  folder (packed here with the same selection `ks cruise init` uses), a
+  `.zip`, `.tar.gz` or `.tar` archive, one of your sessions (`--session`,
+  running or paused), or an agent's proposal (`--proposal`). It prints what
+  was found and the job's digest, which this client computes too.
+- `ks cruise draft list`, `show` (`--manifest`, and `--verify` to download the
+  archive and recompute every digest here), `set` (goal, paths, check, ladder,
+  spend limit, keys), `approve <draft> --confirm DIGEST` and `discard`. A job
+  starts only for the digest you confirm; a job made from another digest is
+  refused before anything is printed as a success.
+- When the service answers that a proposal needs its files,
+  `ks cruise proposal approve` says to draft the proposal and approve the
+  draft's digest.
+
 ## v0.1.24 (2026-10-15)
 
 A question asked of a connected agent can be taken back.
