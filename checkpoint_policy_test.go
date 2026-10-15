@@ -60,7 +60,7 @@ func TestCheckpointPolicyAndFailedSavesInTheHistory(t *testing.T) {
 		t.Fatalf("on: %d %v\n%s", code, puts, out)
 	}
 	out, _, code = auditExec(t, bin, cfg, t.TempDir(), env, "session", "checkpoints", "fleetckp")
-	if code != 0 || !strings.Contains(out, "not restorable: the engine could not write the memory chunk") || !strings.Contains(out, "follows ck_0; chunks memory 12, disk 40") {
+	if code != 0 || !strings.Contains(out, "not usable: the engine could not write the memory chunk") || !strings.Contains(out, "follows ck_0; chunks memory 12, disk 40") {
 		t.Fatalf("history: %d\n%s", code, out)
 	}
 }
