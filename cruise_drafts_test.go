@@ -10,6 +10,7 @@ import (
 	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -35,6 +36,7 @@ type draftFake struct {
 	ready     map[string]any
 	archive   []byte
 	headerSHA string
+	jobSHA    string // when set, the approval answers a job of this digest
 }
 
 func (f *draftFake) seen() []string {
@@ -88,6 +90,9 @@ func (f *draftFake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			ManifestSHA string `json:"manifest_sha"`
 		}
 		_ = json.Unmarshal(body, &req)
+		if f.jobSHA != "" {
+			req.ManifestSHA = f.jobSHA
+		}
 		data(201, map[string]any{"draft": f.ready, "job": map[string]any{"id": "job_0123456789ab", "state": "queued", "manifest_sha": req.ManifestSHA}})
 	case r.Method == "DELETE" && r.URL.Path == route:
 		v := map[string]any{}
@@ -368,5 +373,32 @@ func TestCruiseDraftSetSendsTheRevisionAndOnlyWhatChanged(t *testing.T) {
 	f.mu.Unlock()
 	if !strings.Contains(string(patched), `"paths":[]`) {
 		t.Fatalf("--any-file did not send an empty path list: %s", patched)
+	}
+}
+
+// A job the service made from another digest than the one approved here is
+// not reported as the approval: the answer is the integrity refusal alone,
+// and under --json stdout is that one document.
+func TestCruiseDraftApproveRefusesAJobOfAnotherDigest(t *testing.T) {
+	f, bin, cfg := startDraftFake(t)
+	f.mu.Lock()
+	sha := f.ready["manifest_sha"].(string)
+	f.jobSHA = strings.Repeat("a", 64)
+	f.mu.Unlock()
+	out, errs, code := ksIn(t, bin, cfg, t.TempDir(), "cruise", "draft", "approve", fakeDraftID, "--confirm", sha, "--json")
+	if code != exitIntegrity {
+		t.Fatalf("a job of another digest: exit %d\n%s%s", code, out, errs)
+	}
+	dec := json.NewDecoder(strings.NewReader(out))
+	var first map[string]any
+	if err := dec.Decode(&first); err != nil {
+		t.Fatalf("stdout is not JSON: %v\n%s", err, out)
+	}
+	if dec.More() {
+		t.Fatalf("stdout holds more than one JSON document:\n%s", out)
+	}
+	e, _ := first["error"].(map[string]any)
+	if e == nil || first["data"] != nil || !strings.Contains(fmt.Sprint(e["message"]), "job_0123456789ab") {
+		t.Fatalf("the one document is not the refusal naming the job: %s", out)
 	}
 }

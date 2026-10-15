@@ -659,22 +659,22 @@ func hostedCruiseDraftApprove(cr hostedCreds, inv *Invocation) {
 		die(err)
 	}
 	job := env.Data.Job
+	// a job of another digest than the one approved here is refused before
+	// anything is printed as a success, so --json stays one document: the error
+	if job != nil {
+		if got, _ := job["manifest_sha"].(string); got != "" && got != computed {
+			fail(integrity("job_digest_mismatch", fmt.Sprintf("job %s was created with manifest digest %s, not the %s approved here; it is not the job you approved, cancel it: ks cruise cancel %s",
+				jstr(job, "id"), short(got), short(computed), jstr(job, "id"))))
+		}
+	}
 	emit(env.Data, func() {
 		if job == nil {
 			fmt.Printf("approved %s; the service named no job in its answer: ks cruise draft show %s\n", v.ID, v.ID)
 			return
 		}
 		fmt.Printf("approved %s: job %s (%s) runs the manifest with digest %s\n", v.ID, jstr(job, "id"), jstr(job, "state"), short(computed))
-		if got := jstr(job, "manifest_sha"); got != "unavailable" && got != computed {
-			fmt.Printf("warning: the job names manifest digest %s, not the %s approved here\n", short(got), short(computed))
-		}
 		fmt.Printf("follow it: ks cruise status %s; cancel it with ks cruise cancel %s\n", jstr(job, "id"), jstr(job, "id"))
 	})
-	if job != nil {
-		if got, _ := job["manifest_sha"].(string); got != "" && got != computed {
-			fail(integrity("job_digest_mismatch", fmt.Sprintf("job %s was created with manifest digest %s, not the %s approved here", jstr(job, "id"), short(got), short(computed))))
-		}
-	}
 }
 
 // ---- verify ------------------------------------------------------------------------
