@@ -72,7 +72,11 @@ type modelCatalogDoc struct {
 	ServedAt       string            `json:"served_at"`
 	DefaultLadder  []rung            `json:"default_ladder"`
 	Models         []catalogModelRow `json:"models"`
-	Note           string            `json:"note"`
+	// Harnesses: the runners an agent session may work inside, the provider
+	// each calls, its models and whether it is offered; absent from an older
+	// catalog
+	Harnesses []catalogHarness `json:"harnesses,omitempty"`
+	Note      string           `json:"note"`
 	// set only on this client's cached copy
 	CachedAt     string `json:"cached_at,omitempty"`
 	ControlPlane string `json:"control_plane,omitempty"`
@@ -207,6 +211,19 @@ func cruiseModels(inv *Invocation) {
 			fmt.Printf("default ladder: %s\n", ladderWords(c.DefaultLadder))
 		}
 		fmt.Println("offer: offered = a session may be created with it (ks run --agent --model) or changed to it while paused (ks session model); withheld = not for sessions, the note says why")
+		if len(c.Harnesses) > 0 {
+			fmt.Println("harnesses (ks run --agent --harness, ks session harness):")
+			for _, h := range c.Harnesses {
+				var ms []string
+				for _, m := range h.Models {
+					ms = append(ms, m.ID)
+				}
+				fmt.Printf("  %-12s %-12s %-9s calls %s; models %s\n", sanitize(h.ID), clip(harnessLabel(h), 12), figure(h.Offer.Standing), sanitize(figure(h.Provider)), sanitize(strings.Join(ms, ", ")))
+				if h.Offer.Standing == "withheld" && h.Offer.Note != "" {
+					fmt.Printf("    withheld: %s\n", sanitize(h.Offer.Note))
+				}
+			}
+		}
 		fmt.Println("under runner: exercised = a record shows the Cruise runner ran it; not_verified = nothing does (no interchangeability is claimed)")
 		if c.Note != "" {
 			fmt.Println(sanitize(c.Note))

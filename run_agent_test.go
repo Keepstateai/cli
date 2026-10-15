@@ -23,6 +23,8 @@ type runCtl struct {
 	keys      []any            // the account's keys; nil means one enabled anthropic key
 	bindings  []string         // the bodies the bindings route received
 	creations []map[string]any // the bodies the session creation route received
+	harnesses []any            // the catalog's harnesses (GET /api/v2/models)
+	preflight []map[string]any // the bodies the preflight route received
 }
 
 func (c *runCtl) keyList() []any {
@@ -47,7 +49,14 @@ func (c *runCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.URL.Path == "/api/capabilities":
 		fmt.Fprintf(w, `{"schema_version":2,"data":{"registry_version":"t","build":"b","fetched_at":"x","price_book":"v1.3","capabilities":[{"id":"agent.workspace","availability":%q,"summary":"s","surface":"client","note":"not certified here"},{"id":"preflight","availability":"available","summary":"s","surface":"api"}],"limits":{}}}`, c.workspace)
+	case r.Method == "GET" && r.URL.Path == "/api/v2/models":
+		env(200, map[string]any{"catalog_version": "t", "harnesses": c.harnesses})
 	case r.Method == "POST" && r.URL.Path == "/api/v2/preflight":
+		var pb map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&pb)
+		c.mu.Lock()
+		c.preflight = append(c.preflight, pb)
+		c.mu.Unlock()
 		b := []any{}
 		for _, x := range c.blockers {
 			b = append(b, x)
@@ -72,10 +81,16 @@ func (c *runCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// the record carries the model its agents are started with: the one
 		// chosen, or the table's first rung
 		model, _ := body["runner_model"].(string)
-		if model == "" {
+		harness, _ := body["harness"].(string)
+		if harness == "" {
+			harness = "claude-code"
+		}
+		if model == "" && harness == "codex" {
+			model = "gpt-6-luna"
+		} else if model == "" {
 			model = "claude-haiku-4-5-20251001"
 		}
-		env(201, map[string]any{"id": "session_abc123", "revision": 1, "primary_agent_id": "agent_main1", "runner_model": model})
+		env(201, map[string]any{"id": "session_abc123", "revision": 1, "primary_agent_id": "agent_main1", "runner_model": model, "harness": harness})
 	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/provision"):
 		env(200, c.prov)
 	case r.Method == "GET" && r.URL.Path == "/api/v2/tasks":
@@ -408,5 +423,73 @@ func TestRunAgentSendsTheChosenModelAndNamesIt(t *testing.T) {
 	}
 	if len(c.creations) != 2 {
 		t.Fatalf("a refused run created a session: %v", c.creations)
+	}
+}
+
+// A harness: --harness names the runner the agent works inside. The catalog
+// is read before anything is created; a withheld or unknown harness is
+// refused there. A Codex session preflights, chooses and binds an OpenAI
+// key, asks for harness codex, and the run's line names the harness. No
+// --harness sends nothing new and reads no catalog.
+func TestRunAgentWithAHarness(t *testing.T) {
+	codex := func(standing, note string) []any {
+		return []any{
+			map[string]any{"id": "claude-code", "name": "Claude Code", "provider": "anthropic", "offer": map[string]any{"standing": "offered"}},
+			map[string]any{"id": "codex", "name": "Codex CLI", "provider": "openai", "default_model": "gpt-6-luna", "offer": map[string]any{"standing": standing, "note": note}},
+		}
+	}
+	keys := []any{
+		map[string]any{"id": "vlt_a", "provider": "anthropic", "last4": "aaaa", "enabled": true},
+		map[string]any{"id": "vlt_o", "provider": "openai", "last4": "oooo", "enabled": true},
+	}
+	c := &runCtl{workspace: "available", prov: readyAnswer(), keys: keys, harnesses: codex("offered", "")}
+	syncFixture(t, &c.mu)
+	bin, cfg := runAgentEnv(t, c)
+	out, errOut, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "run", "--agent", "--harness", "codex")
+	if code != 0 {
+		t.Fatalf("exit %d\n%s\n%s", code, out, errOut)
+	}
+	c.mu.Lock()
+	created, pre, bound := append([]map[string]any(nil), c.creations...), append([]map[string]any(nil), c.preflight...), append([]string(nil), c.bindings...)
+	c.mu.Unlock()
+	if len(created) != 1 || created[0]["harness"] != "codex" {
+		t.Fatalf("the creation body does not ask for codex: %v", created)
+	}
+	if len(pre) != 1 || pre[0]["provider"] != "openai" {
+		t.Fatalf("the preflight did not check the OpenAI key: %v", pre)
+	}
+	if len(bound) != 1 || !strings.Contains(bound[0], `"openai":"vlt_o"`) {
+		t.Fatalf("the session was not bound to the OpenAI key: %v", bound)
+	}
+	if !strings.Contains(out, "running gpt-6-luna on Codex CLI") {
+		t.Fatalf("the run's line does not name the harness:\n%s", out)
+	}
+	// withheld (not certified): refused with the catalog's reason, nothing created
+	c2 := &runCtl{workspace: "available", prov: readyAnswer(), keys: keys, harnesses: codex("withheld", "not certified: Codex CLI has not passed KeepState's certification run, so it cannot be chosen yet")}
+	syncFixture(t, &c2.mu)
+	bin2, cfg2 := runAgentEnv(t, c2)
+	_, errOut, code = auditExec(t, bin2, cfg2, t.TempDir(), fastEnv(cfg2), "run", "--agent", "--harness", "codex")
+	if code == 0 || !strings.Contains(errOut, "Codex CLI is not offered: not certified") || !strings.Contains(errOut, "Nothing was created") || c2.asked("POST /api/v2/sessions") {
+		t.Fatalf("a withheld harness: exit %d\n%s", code, errOut)
+	}
+	// unknown: refused, naming what the service runs
+	_, errOut, code = auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "run", "--agent", "--harness", "aider")
+	if code != exitUsage || !strings.Contains(errOut, "it runs: claude-code, codex") {
+		t.Fatalf("an unknown harness: exit %d\n%s", code, errOut)
+	}
+	// no --harness: nothing new is sent and no catalog is read
+	c3 := &runCtl{workspace: "available", prov: readyAnswer()}
+	syncFixture(t, &c3.mu)
+	bin3, cfg3 := runAgentEnv(t, c3)
+	if _, errOut, code := auditExec(t, bin3, cfg3, t.TempDir(), fastEnv(cfg3), "run", "--agent"); code != 0 {
+		t.Fatalf("exit %d\n%s", code, errOut)
+	}
+	if _, sent := c3.creations[0]["harness"]; sent || c3.asked("GET /api/v2/models") {
+		t.Fatalf("a run without --harness sent a harness or read the catalog: %v %v", c3.creations, c3.requests)
+	}
+	// --harness is for an agent session
+	_, errOut, code = auditExec(t, bin3, cfg3, t.TempDir(), fastEnv(cfg3), "run", "--harness", "codex")
+	if code != exitUsage || !strings.Contains(errOut, "--harness") {
+		t.Fatalf("--harness without --agent: exit %d\n%s", code, errOut)
 	}
 }
