@@ -736,3 +736,85 @@ func TestTaskShowCarriesTheCancelRecoveryAndReconcileWaitsOutTheInterrupt(t *tes
 		t.Fatalf("reconcile inside the wait: exit %d\n%s", code, errs)
 	}
 }
+
+// The service keeps several saved points, and says of each whether a restore
+// or a fork may name it now, and where it stands among those that can. The
+// listing shows both, says why a row cannot be named, and states what the
+// service keeps; JSON carries the service's fields as they are.
+func TestSessionCheckpointsSaysWhichAreUsableAndWhere(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	c.set(func(c *recoveryCtl) {
+		c.checkpoints = []map[string]any{
+			{"id": "ckpt_newest", "session_id": agentSessionRecord, "fleet_checkpoint_id": "fc_3", "content_manifest_hash": "sha256:cc",
+				"state": "valid", "usable": true, "position": 1, "boundary": "attempt_closed", "scope": "the WHOLE session", "created_at": "2026-10-15T11:54:00Z"},
+			{"id": "ckpt_earlier", "session_id": agentSessionRecord, "fleet_checkpoint_id": "fc_2", "content_manifest_hash": "sha256:bb",
+				"state": "valid", "usable": true, "position": 2, "boundary": "no_attempt_running", "scope": "the WHOLE session", "created_at": "2026-10-15T11:20:00Z"},
+			{"id": "ckpt_retired", "session_id": agentSessionRecord, "fleet_checkpoint_id": "fc_1", "content_manifest_hash": "sha256:aa",
+				"state": "expired", "usable": false, "unusable_because": "it reads expired: retired after a later save", "reason": "retired after a later save",
+				"boundary": "no_attempt_running", "scope": "the WHOLE session", "created_at": "2026-10-15T11:00:00Z"},
+		}
+	})
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "session", "checkpoints", agentSessionShort)
+	if code != 0 {
+		t.Fatalf("session checkpoints: exit %d\n%s%s", code, out, errs)
+	}
+	lines := strings.Split(out, "\n")
+	row := func(id string) string {
+		for _, l := range lines {
+			if strings.HasPrefix(l, id+" ") {
+				return l
+			}
+		}
+		return ""
+	}
+	if !strings.Contains(lines[0], "USABLE") || !strings.Contains(lines[0], "POSITION") {
+		t.Errorf("the listing has no USABLE and POSITION columns:\n%s", out)
+	}
+	fields := func(l string) []string { return strings.Fields(l) }
+	if f := fields(row("ckpt_newest")); len(f) < 3 || f[1] != "yes" || f[2] != "1" {
+		t.Errorf("the newest row reads %v, want usable yes at position 1", f)
+	}
+	if f := fields(row("ckpt_earlier")); len(f) < 3 || f[1] != "yes" || f[2] != "2" {
+		t.Errorf("the earlier usable row reads %v, want usable yes at position 2", f)
+	}
+	if f := fields(row("ckpt_retired")); len(f) < 3 || f[1] != "no" || f[2] != "-" {
+		t.Errorf("the retired row reads %v, want usable no and no position", f)
+	}
+	for _, want := range []string{"not usable: it reads expired", "three most recent saved points", "within the hour"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the listing lacks %q:\n%s", want, out)
+		}
+	}
+	js, _, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "session", "checkpoints", agentSessionShort, "--json")
+	if code != 0 || !strings.Contains(js, `"usable"`) || !strings.Contains(js, `"position"`) || !strings.Contains(js, `"unusable_because"`) {
+		t.Errorf("the JSON listing does not carry usable, position and unusable_because (exit %d):\n%s", code, js)
+	}
+	assertOnlyPublishedRoutes(t, c.seen())
+}
+
+// A service that does not say which points are usable (one usable point per
+// session) is read by state: a valid row is usable, and its position is not
+// stated rather than guessed.
+func TestSessionCheckpointsFromAnOlderServiceReadsUsableFromTheState(t *testing.T) {
+	_, bin, cfg := recoveryFixture(t)
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "session", "checkpoints", agentSessionShort)
+	if code != 0 {
+		t.Fatalf("session checkpoints: exit %d\n%s%s", code, out, errs)
+	}
+	for _, l := range strings.Split(out, "\n") {
+		f := strings.Fields(l)
+		if len(f) < 3 {
+			continue
+		}
+		switch f[0] {
+		case "ckpt_newest":
+			if f[1] != "yes" || f[2] != "-" {
+				t.Errorf("a valid row from an older service reads %v, want usable yes, position not stated", f)
+			}
+		case "ckpt_older":
+			if f[1] != "no" || f[2] != "-" {
+				t.Errorf("a superseded row reads %v, want usable no", f)
+			}
+		}
+	}
+}
