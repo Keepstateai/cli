@@ -506,10 +506,11 @@ func hostedCruiseDraftCreate(cr hostedCreds, inv *Invocation) {
 // read a session's files before it hands back the draft id to follow.
 var draftCollectWait = 5 * time.Minute
 
-// createSessionDraft drafts from one of your running sessions: the service
-// copies the files of the session's workspace (or of the folder --root names
-// in it) and reads them as it reads an upload. A session that is not running
-// is refused and not woken. Create waits while the draft is collecting.
+// createSessionDraft drafts from one of your sessions, running or paused: the
+// service copies the files of the session's workspace (or of the folder
+// --root names in it) and reads them as it reads an upload; a paused session
+// is woken for the copy and paused again by the service. Create waits while
+// the draft is collecting.
 //
 // With a proposal named, the draft is from an agent's proposal: the service
 // copies the proposal's session and drafts it on the proposal's terms, every
