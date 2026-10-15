@@ -1297,7 +1297,7 @@
    "verb": "cruise draft create",
    "aliases": [],
    "usage": "ks cruise draft create [--dir FOLDER] [--archive FILE] [--session SESSION] [--root FOLDER] [--proposal PROPOSAL] [--goal TEXT] [--paths GLOB...] [--check RUNNER] [--allow PATH...] [--ladder family:model,...] [--spend USD] [--key PROVIDER=KEY]",
-   "summary": "a hosted draft from a folder (packed here by init's own selection), a .zip, .tar.gz or .tar archive, one of your running sessions, or an agent's proposal: what was found and the digest computed here",
+   "summary": "a hosted draft from a folder (packed here by init's own selection), a .zip, .tar.gz or .tar archive, one of your sessions, or an agent's proposal: what was found and the digest computed here",
    "status": "available",
    "surface": "hosted",
    "flags": [
@@ -1311,7 +1311,7 @@
     },
     {
      "flag": "--session SESSION",
-     "summary": "one of your running sessions: the service copies its workspace's files (a short id is accepted when it is unique among yours); a session that is not running is refused, never woken"
+     "summary": "one of your sessions, running or paused: the service copies its workspace's files (a short id is accepted when it is unique among yours)"
     },
     {
      "flag": "--root FOLDER",
