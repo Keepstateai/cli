@@ -1952,6 +1952,15 @@
     }
    ],
    "note": "Reads GET /api/v2/sessions/{id} and sends PATCH /api/v2/sessions/{id} with harness, an optional runner_model and expected_revision; gated on agent.workspace. The service accepts the switch while the session is parked or has no machine yet (ks_session_not_paused otherwise), for a harness GET /api/v2/models offers (ks_harness_unavailable) and the session's own image carries (ks_harness_not_in_image), with a model of that harness (ks_model_harness_mismatch) and, for a harness that calls another provider, an enabled key for it (ks_no_inference_key)."
+  },
+  {
+   "verb": "session brief",
+   "aliases": [],
+   "usage": "ks session brief <session>",
+   "summary": "the handoff brief of the session's latest harness switch, as the new agent received it: KeepState's record of the work so far, who wrote its narrative on whose key, its size and its checks",
+   "status": "available",
+   "surface": "hosted",
+   "note": "Reads GET /api/v2/sessions/{id}/handoff-brief; gated on agent.workspace. The brief of the session's latest harness switch, as the new agent received it: written by KeepState from its records, with a narrative by the outgoing harness's smallest model on the session's own key, checked by code (citations of the journal, an order no person gave dropped, secrets redacted). ks_not_found when the session never switched its harness. Changes nothing."
   }
  ]
 }

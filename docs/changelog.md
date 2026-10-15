@@ -19,6 +19,12 @@ A second harness: the runner an agent works inside can be named.
   conversation that does not see the one so far, which stays readable with
   `ks agent history`. A session created before its image carried a harness
   cannot switch to it; the refusal says to start a new session.
+- `ks session brief <session>` reads the handoff brief of the session's
+  latest harness switch: KeepState's record of the work so far, which the
+  new agent is handed with its first instruction after the switch. It says
+  who wrote the brief's narrative (the outgoing harness's smallest model, on
+  the session's own key, billed by that provider), its size in tokens, what
+  the code checks kept and dropped, and prints the brief itself.
 - `ks cruise models` lists the harnesses: the provider each calls, its
   models, and whether it is offered, with the note of a withheld one.
 

@@ -104,6 +104,7 @@ func hostedSessionHarness(cr hostedCreds, inv *Invocation) {
 			sess.ShortID, sanitize(firstNonEmptyStr(out.Data.Harness, to)), sanitize(notRecorded(out.Data.RunnerModel)), sanitize(current), out.Data.Revision)
 		fmt.Printf("  its files stay; the next instruction starts a new conversation, and the one so far stays readable: ks agent history %s --session %s\n",
 			primaryAgentName(cr, sess.RecordID), sess.ShortID)
+		fmt.Printf("  the new agent is handed KeepState's handoff brief of the work with that instruction; read it after the resume: ks session brief %s\n", sess.ShortID)
 	})
 }
 
