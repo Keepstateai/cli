@@ -24,7 +24,7 @@ func (c *briefCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				"from_label": "Claude Code", "to_label": "Codex CLI", "created_at": "2026-10-16T10:00:00Z", "written_at": "2026-10-16T10:01:00Z",
 				"delivered_at": "2026-10-16T10:02:00Z", "delivered_task_id": "tsk_7", "narrative_model": "claude-haiku-5-5", "provider": "anthropic",
 				"fallback": false, "tokens": 812, "sha256": "ab12", "brief": "KEEPSTATE HANDOFF RECORD.\n1 The person's instructions\nEND OF KEEPSTATE HANDOFF RECORD.",
-				"checks": map[string]any{"lines": 5, "kept": 3, "dropped_citation": 1, "dropped_injection": 1, "redactions": 2},
+				"checks": map[string]any{"lines": 5, "kept": 3, "dropped_citation": 1, "dropped_injection": 1, "redactions": 2, "injection_seqs": []int{5, 6}},
 				"cost":   "billed by Anthropic on the session's own key at its rates; KeepState does not price it"}})
 			return
 		}

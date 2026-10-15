@@ -19,26 +19,41 @@ import (
 )
 
 type handoffBriefView struct {
-	HandoffID       string         `json:"handoff_id"`
-	SessionID       string         `json:"session_id"`
-	State           string         `json:"state"`
-	From            string         `json:"from"`
-	To              string         `json:"to"`
-	FromLabel       string         `json:"from_label"`
-	ToLabel         string         `json:"to_label"`
-	CreatedAt       string         `json:"created_at"`
-	WrittenAt       string         `json:"written_at,omitempty"`
-	DeliveredAt     string         `json:"delivered_at,omitempty"`
-	DeliveredTaskID string         `json:"delivered_task_id,omitempty"`
-	NarrativeModel  string         `json:"narrative_model"`
-	Provider        string         `json:"provider"`
-	Fallback        bool           `json:"fallback"`
-	FallbackReason  string         `json:"fallback_reason,omitempty"`
-	Tokens          int            `json:"tokens"`
-	SHA256          string         `json:"sha256,omitempty"`
-	Brief           string         `json:"brief,omitempty"`
-	Checks          map[string]int `json:"checks"`
-	Cost            string         `json:"cost"`
+	HandoffID       string      `json:"handoff_id"`
+	SessionID       string      `json:"session_id"`
+	State           string      `json:"state"`
+	From            string      `json:"from"`
+	To              string      `json:"to"`
+	FromLabel       string      `json:"from_label"`
+	ToLabel         string      `json:"to_label"`
+	CreatedAt       string      `json:"created_at"`
+	WrittenAt       string      `json:"written_at,omitempty"`
+	DeliveredAt     string      `json:"delivered_at,omitempty"`
+	DeliveredTaskID string      `json:"delivered_task_id,omitempty"`
+	NarrativeModel  string      `json:"narrative_model"`
+	Provider        string      `json:"provider"`
+	Fallback        bool        `json:"fallback"`
+	FallbackReason  string      `json:"fallback_reason,omitempty"`
+	Tokens          int         `json:"tokens"`
+	SHA256          string      `json:"sha256,omitempty"`
+	Brief           string      `json:"brief,omitempty"`
+	Checks          briefChecks `json:"checks"`
+	Cost            string      `json:"cost"`
+}
+
+// briefChecks is what the service's code checks kept and dropped of the
+// model's lines, and where the journal held text addressed to the agent
+// that no person wrote.
+type briefChecks struct {
+	Lines             int     `json:"lines"`
+	Kept              int     `json:"kept"`
+	DroppedFormat     int     `json:"dropped_format"`
+	DroppedCitation   int     `json:"dropped_citation"`
+	DroppedPersonOnly int     `json:"dropped_person_only"`
+	DroppedInjection  int     `json:"dropped_injection"`
+	DroppedOverCap    int     `json:"dropped_over_cap"`
+	Redactions        int     `json:"redactions"`
+	InjectionSeqs     []int64 `json:"injection_seqs,omitempty"`
 }
 
 func hostedSessionBrief(cr hostedCreds, inv *Invocation) {
@@ -95,25 +110,28 @@ func hostedSessionBrief(cr hostedCreds, inv *Invocation) {
 }
 
 // briefChecksText says what the code checks kept and dropped of the model's lines.
-func briefChecksText(c map[string]int) string {
-	out := fmt.Sprintf("kept %d of %d model lines", c["kept"], c["lines"])
+func briefChecksText(c briefChecks) string {
+	out := fmt.Sprintf("kept %d of %d model lines", c.Kept, c.Lines)
 	var dropped []string
-	for _, d := range []struct{ key, words string }{
-		{"dropped_citation", "without a valid citation"},
-		{"dropped_person_only", "naming a constraint no person stated"},
-		{"dropped_injection", "addressed to the agent that no person wrote"},
-		{"dropped_format", "outside the sections the model writes"},
-		{"dropped_over_cap", "over a section's cap"},
+	for _, d := range []struct {
+		n     int
+		words string
+	}{
+		{c.DroppedCitation, "without a valid citation"},
+		{c.DroppedPersonOnly, "naming a constraint no person stated"},
+		{c.DroppedInjection, "addressed to the agent that no person wrote"},
+		{c.DroppedFormat, "outside the sections the model writes"},
+		{c.DroppedOverCap, "over a section's cap"},
 	} {
-		if c[d.key] > 0 {
-			dropped = append(dropped, fmt.Sprintf("%d %s", c[d.key], d.words))
+		if d.n > 0 {
+			dropped = append(dropped, fmt.Sprintf("%d %s", d.n, d.words))
 		}
 	}
 	if len(dropped) > 0 {
 		out += "; dropped " + strings.Join(dropped, ", ")
 	}
-	if c["redactions"] > 0 {
-		out += fmt.Sprintf("; %d secrets redacted", c["redactions"])
+	if c.Redactions > 0 {
+		out += fmt.Sprintf("; %d secrets redacted", c.Redactions)
 	}
 	return out
 }
