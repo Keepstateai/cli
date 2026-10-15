@@ -26,6 +26,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -195,6 +196,14 @@ func hostedCruiseProposalApprove(cr hostedCreds, inv *Invocation) {
 		Data cruiseProposalRow `json:"data"`
 	}
 	if err := hostedMutate(cr, "POST", "/api/v2/cruise-proposals/"+url.PathEscape(p.ID)+"/approve", map[string]any{"manifest_sha": computed}, &env); err != nil {
+		// an approval with no files would make a job that never runs, so the
+		// service refuses it and the files come through a draft instead
+		var he *hostedErr
+		if errors.As(err, &he) && he.Type == "ks_workspace_required" {
+			fail(&cliError{Code: exitConflict, Kind: "workspace_required", WorkStarted: workNo,
+				Message:    fmt.Sprintf("proposal %s is approved through a draft: the service copies its session's files, drafts the proposed job on them and recomputes its digest, and you approve that digest. Nothing was created and the proposal stays proposed", p.ID),
+				NextAction: "ks cruise draft create --proposal " + p.ID + ", then ks cruise draft approve <draft> --confirm <digest>"})
+		}
 		die(err)
 	}
 	d := env.Data

@@ -1294,6 +1294,152 @@
    ]
   },
   {
+   "verb": "cruise draft create",
+   "aliases": [],
+   "usage": "ks cruise draft create [--dir FOLDER] [--archive FILE] [--session SESSION] [--root FOLDER] [--proposal PROPOSAL] [--goal TEXT] [--paths GLOB...] [--check RUNNER] [--allow PATH...] [--ladder family:model,...] [--spend USD] [--key PROVIDER=KEY]",
+   "summary": "a hosted draft from a folder (packed here by init's own selection), a .zip, .tar.gz or .tar archive, one of your running sessions, or an agent's proposal: what was found and the digest computed here",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--dir FOLDER",
+     "summary": "the folder to send: packed here by the selection ks cruise init uses; what the policy leaves out is named and never sent"
+    },
+    {
+     "flag": "--archive FILE",
+     "summary": "a .zip, .tar.gz, .tgz or .tar to send as it is (at most 100 MiB); one top folder holding everything is removed by the service"
+    },
+    {
+     "flag": "--session SESSION",
+     "summary": "one of your running sessions: the service copies its workspace's files (a short id is accepted when it is unique among yours); a session that is not running is refused, never woken"
+    },
+    {
+     "flag": "--root FOLDER",
+     "summary": "with --session: the folder of the session's workspace the job works on (default the workspace itself)"
+    },
+    {
+     "flag": "--proposal PROPOSAL",
+     "summary": "a job an agent proposed: the service copies the files of the proposal's session and drafts the job on the proposal's terms, every digest recomputed"
+    },
+    {
+     "flag": "--goal TEXT",
+     "summary": "the goal the agent is given"
+    },
+    {
+     "flag": "--paths GLOB...",
+     "summary": "the paths an attempt may change; default every file except the check's files and .keepstate"
+    },
+    {
+     "flag": "--check RUNNER",
+     "summary": "the check to pin and run: pytest, go or node; needed when tests of more than one ecosystem are found"
+    },
+    {
+     "flag": "--allow PATH...",
+     "summary": "review a sensitive or ignored path into the job (repeatable); fixed for the draft's life"
+    },
+    {
+     "flag": "--ladder family:model,...",
+     "summary": "the rungs in order; default the model table's default ladder"
+    },
+    {
+     "flag": "--spend USD",
+     "summary": "the spend limit in dollars; default 2"
+    },
+    {
+     "flag": "--key PROVIDER=KEY",
+     "summary": "the key a provider of the ladder uses, when it has several enabled keys (repeatable)"
+    }
+   ],
+   "note": "a folder is packed by the same selection ks cruise init uses; the paths it leaves out are named, never sent. The service keeps its copy unbilled until approval, discard or expiry"
+  },
+  {
+   "verb": "cruise draft list",
+   "aliases": [],
+   "usage": "ks cruise draft list",
+   "summary": "the account's open drafts, newest first: state, goal, files, manifest digest and how long each is kept",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "cruise draft show",
+   "aliases": [],
+   "usage": "ks cruise draft show <draft> [--manifest] [--verify]",
+   "summary": "one draft: what was read and left out, the check, the terms and the digest computed here; --verify recomputes every digest from its archive",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--manifest",
+     "summary": "print the manifest's canonical bytes, the bytes its digest is taken over"
+    },
+    {
+     "flag": "--verify",
+     "summary": "download the draft's archive and recompute its sha256, tree, selection, check inputs, tests and configuration digests against the manifest"
+    }
+   ]
+  },
+  {
+   "verb": "cruise draft set",
+   "aliases": [],
+   "usage": "ks cruise draft set <draft> [--goal TEXT] [--paths GLOB...] [--any-file] [--check RUNNER] [--ladder family:model,...] [--spend USD] [--key PROVIDER=KEY]",
+   "summary": "change a ready draft's goal, paths, check, ladder, spend limit or keys; the manifest and its digest are drafted again",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--goal TEXT",
+     "summary": "the goal the agent is given"
+    },
+    {
+     "flag": "--paths GLOB...",
+     "summary": "the paths an attempt may change"
+    },
+    {
+     "flag": "--any-file",
+     "summary": "any file may change, except the check's files and .keepstate"
+    },
+    {
+     "flag": "--check RUNNER",
+     "summary": "the check to pin and run: pytest, go or node"
+    },
+    {
+     "flag": "--ladder family:model,...",
+     "summary": "the rungs in order"
+    },
+    {
+     "flag": "--spend USD",
+     "summary": "the spend limit in dollars"
+    },
+    {
+     "flag": "--key PROVIDER=KEY",
+     "summary": "the key a provider of the ladder uses (repeatable)"
+    }
+   ]
+  },
+  {
+   "verb": "cruise draft approve",
+   "aliases": [],
+   "usage": "ks cruise draft approve <draft> [--confirm DIGEST]",
+   "summary": "run a draft by confirming the digest of the exact manifest shown, computed here",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--confirm DIGEST",
+     "summary": "the manifest digest you reviewed (all of it, or the 12 characters shown); required without a terminal, never implied by --yes"
+    }
+   ],
+   "note": "confirmed by the manifest digest computed here from the manifest the service returned; --yes does not approve"
+  },
+  {
+   "verb": "cruise draft discard",
+   "aliases": [],
+   "usage": "ks cruise draft discard <draft>",
+   "summary": "discard a draft; its copy of the files is deleted and it never runs",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
    "verb": "session usage",
    "aliases": [],
    "usage": "ks session usage <session>",

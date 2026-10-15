@@ -31,13 +31,14 @@ func independentDigest(t *testing.T, m map[string]any) (json.RawMessage, string)
 }
 
 type proposalCtl struct {
-	mu        sync.Mutex
-	manifest  json.RawMessage
-	sha       string // the digest the service STATES
-	state     string
-	approvals []map[string]any
-	declines  int
-	unavail   bool
+	mu         sync.Mutex
+	manifest   json.RawMessage
+	sha        string // the digest the service STATES
+	state      string
+	approvals  []map[string]any
+	declines   int
+	unavail    bool
+	needsDraft bool // the service refuses an approval without its files
 }
 
 func (c *proposalCtl) row() map[string]any {
@@ -75,6 +76,11 @@ func (c *proposalCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		c.approvals = append(c.approvals, body)
+		if c.needsDraft {
+			w.WriteHeader(422)
+			fmt.Fprint(w, `{"schema_version":2,"error":{"code":"ks_workspace_required","type":"ks_workspace_required","message":"an approval of proposal cprop_1 carries no workspace, and a job without its files never runs; nothing was created and the proposal stays proposed","next_action":"POST /api/v2/cruise-drafts"}}`)
+			return
+		}
 		if body["manifest_sha"] != c.sha {
 			w.WriteHeader(409)
 			fmt.Fprint(w, `{"schema_version":2,"error":{"code":"ks_manifest_digest_mismatch","type":"ks_manifest_digest_mismatch","message":"the digest you approved is not this proposal's; nothing was created"}}`)
@@ -163,5 +169,21 @@ func TestADeclinedProposalNeverRunsAndUnavailableSaysSo(t *testing.T) {
 	c.mu.Unlock()
 	if _, errs, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "cruise", "proposal", "list", "--session", "fleetcru"); code != exitFailed || !strings.Contains(errs, "agent.workspace") {
 		t.Fatalf("unavailable: %d\n%s", code, errs)
+	}
+}
+
+// A service that needs the files refuses an approval that sends none, and
+// the client says how the files come: a draft from the proposal.
+func TestAProposalApprovalThatNeedsItsFilesSaysToDraftIt(t *testing.T) {
+	m := map[string]any{"goal": "make the inventory tests pass", "ladder": []any{"claude-haiku"}}
+	raw, sha := independentDigest(t, m)
+	c := &proposalCtl{manifest: raw, sha: sha, state: "proposed", needsDraft: true}
+	syncFixture(t, &c.mu)
+	srv := httptest.NewServer(c)
+	defer srv.Close()
+	bin, cfg := buildAndAuth(t, srv)
+	_, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "cruise", "proposal", "approve", "cprop_1", "--confirm", sha)
+	if code != exitConflict || !strings.Contains(errs, "ks cruise draft create --proposal cprop_1") || !strings.Contains(errs, "Nothing was created") {
+		t.Fatalf("approve without files: exit %d\n%s", code, errs)
 	}
 }
