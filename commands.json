@@ -49,7 +49,7 @@
   {
    "verb": "run",
    "aliases": [],
-   "usage": "ks run [--image I] [--budget-tokens N] [--agent] [--name NAME] [--agent-name NAME] [--key KEY] [--task TEXT] [--open] [--model MODEL]",
+   "usage": "ks run [--image I] [--budget-tokens N] [--agent] [--name NAME] [--agent-name NAME] [--key KEY] [--task TEXT] [--open] [--model MODEL] [--harness HARNESS]",
    "summary": "start a hosted session; with --agent, an agent session whose main agent is running and supervised",
    "status": "available",
    "surface": "hosted",
@@ -96,7 +96,11 @@
     },
     {
      "flag": "--model MODEL",
-     "summary": "the model the agent calls, by its exact id: one ks cruise models lists as offered (with --agent); default the service's first rung"
+     "summary": "the model the agent calls, by its exact id: one ks cruise models lists as offered (with --agent); default the service's first rung, or the harness's default model"
+    },
+    {
+     "flag": "--harness HARNESS",
+     "summary": "the runner the agent works inside (with --agent): claude-code, or another the catalog offers (codex calls your OpenAI key); default claude-code"
     }
    ]
   },
@@ -1933,6 +1937,30 @@
      "summary": "only the last N entries"
     }
    ]
+  },
+  {
+   "verb": "session harness",
+   "aliases": [],
+   "usage": "ks session harness <session> [harness] [--model MODEL]",
+   "summary": "the runner a session's agents work inside; with a harness, switch it while the session is paused: its files stay, and the next instruction starts a new conversation",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--model MODEL",
+     "summary": "the model on the new harness, one of its models (ks cruise models); default the harness's default model"
+    }
+   ],
+   "note": "Reads GET /api/v2/sessions/{id} and sends PATCH /api/v2/sessions/{id} with harness, an optional runner_model and expected_revision; gated on agent.workspace. The service accepts the switch while the session is parked or has no machine yet (ks_session_not_paused otherwise), for a harness GET /api/v2/models offers (ks_harness_unavailable) and the session's own image carries (ks_harness_not_in_image), with a model of that harness (ks_model_harness_mismatch) and, for a harness that calls another provider, an enabled key for it (ks_no_inference_key)."
+  },
+  {
+   "verb": "session brief",
+   "aliases": [],
+   "usage": "ks session brief <session>",
+   "summary": "the handoff brief of the session's latest harness switch, as the new agent received it: KeepState's record of the work so far, who wrote its narrative on whose key, its size and its checks",
+   "status": "available",
+   "surface": "hosted",
+   "note": "Reads GET /api/v2/sessions/{id}/handoff-brief; gated on agent.workspace. The brief of the session's latest harness switch, as the new agent received it: written by KeepState from its records, with a narrative by the outgoing harness's smallest model on the session's own key, checked by code (citations of the journal, an order no person gave dropped, secrets redacted). ks_not_found when the session never switched its harness. Changes nothing."
   }
  ]
 }

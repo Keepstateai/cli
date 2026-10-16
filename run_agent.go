@@ -59,14 +59,19 @@ func hostedRunAgent(cr hostedCreds, inv *Invocation) {
 		v := int64(inv.Int("budget-tokens"))
 		budget = &v
 	}
-	rec, p, key, err := startAgentSession(cr, inv.Str("name"), inv.Str("agent-name"), inv.Str("key"), budget, inv.Str("model"))
+	// the harness first: one the catalog withholds is refused before anything exists
+	harness, err := chooseHarness(cr, inv.Str("harness"))
+	if err != nil {
+		die(err)
+	}
+	rec, p, key, err := startAgentSession(cr, inv.Str("name"), inv.Str("agent-name"), inv.Str("key"), budget, inv.Str("model"), harness)
 	if err != nil {
 		die(err)
 	}
 	agentName := inv.Str("agent-name")
 	facts := map[string]any{"session": rec.ID, "agent": p.AgentID, "ready": p.Ready, "supervised": p.Supervised, "key": key.ID,
 		"agent_activity": p.AgentActivity, "cleaned_up": p.CleanedUp, "phases": p.Phases, "note": p.Note, "control_plane": cr.CTL,
-		"runner_model": rec.RunnerModel}
+		"runner_model": rec.RunnerModel, "harness": firstNonEmptyStr(rec.Harness, harness.ID)}
 	agentRef := agentName
 	if agentRef == "" {
 		agentRef = "main"
@@ -142,7 +147,7 @@ func startedWord(p provisionAnswer) string {
 // runKey is the key an agent session calls with: the one named, or the
 // account's single enabled key for the runner's provider. None or several is
 // refused before anything is created; a key is never guessed.
-func runKey(cr hostedCreds, arg string) (customerKey, error) {
+func runKey(cr hostedCreds, arg, runnerProvider string) (customerKey, error) {
 	if arg != "" {
 		k, err := resolveKey(cr, arg)
 		if err != nil {
@@ -189,6 +194,11 @@ type createdRecord struct {
 	// chosen with --model, or the service's first rung; absent from a
 	// service that predates the choice
 	RunnerModel string `json:"runner_model,omitempty"`
+	// Harness is the runner its agents work inside; absent from a service
+	// that predates harnesses (Claude Code)
+	Harness string `json:"harness,omitempty"`
+	// harnessName is the harness's catalog name, for the run's own line
+	harnessName string
 }
 
 // runningModel names the model the record carries, on the run's own line;
@@ -197,7 +207,20 @@ func runningModel(rec createdRecord) string {
 	if rec.RunnerModel == "" {
 		return ""
 	}
-	return ", running " + sanitize(rec.RunnerModel)
+	on := ""
+	if rec.Harness != "" && rec.Harness != defaultHarness {
+		on = " on " + sanitize(firstNonEmptyStr(rec.harnessName, rec.Harness))
+	}
+	return ", running " + sanitize(rec.RunnerModel) + on
+}
+
+func firstNonEmptyStr(xs ...string) string {
+	for _, x := range xs {
+		if x != "" {
+			return x
+		}
+	}
+	return ""
 }
 
 // startObserver, when set (the app), is told each step of starting an agent
@@ -209,8 +232,11 @@ var startObserver func(step, detail string)
 // for the app alike: preflight, the key, the record, its binding and the
 // machine. It returns errors rather than exiting; progress goes where
 // progress goes (the terminal, or the app's screen).
-func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *int64, model string) (createdRecord, provisionAnswer, customerKey, error) {
+func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *int64, model string, harness catalogHarness) (createdRecord, provisionAnswer, customerKey, error) {
 	var none createdRecord
+	// the provider the harness calls: Anthropic for Claude Code, the
+	// catalog's for another (OpenAI for Codex)
+	runnerProvider := firstNonEmptyStr(harness.Provider, runnerProvider)
 	// ---- 2. preflight: stop before anything exists --------------------------
 	var pf struct {
 		Data map[string]any `json:"data"`
@@ -229,7 +255,7 @@ func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *i
 	}
 
 	// ---- 2a. the key, chosen before anything exists --------------------------
-	key, err := runKey(cr, keyArg)
+	key, err := runKey(cr, keyArg, runnerProvider)
 	if err != nil {
 		return none, provisionAnswer{}, customerKey{}, err
 	}
@@ -247,6 +273,11 @@ func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *i
 		// models); the service refuses any other and creates nothing
 		body["runner_model"] = model
 	}
+	if harness.ID != "" && harness.ID != defaultHarness {
+		// the runner its agents work inside; Claude Code is sent as nothing,
+		// so a service that predates harnesses is asked nothing new
+		body["harness"] = harness.ID
+	}
 	var created struct {
 		Data createdRecord `json:"data"`
 	}
@@ -254,12 +285,16 @@ func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *i
 		return none, provisionAnswer{}, key, err
 	}
 	rec := created.Data
+	rec.harnessName = harness.Name
 	if startObserver != nil {
 		startObserver("session", "")
 	} else {
 		withModel := ""
 		if rec.RunnerModel != "" {
 			withModel = " (model " + sanitize(rec.RunnerModel) + ")"
+		}
+		if rec.Harness != "" && rec.Harness != defaultHarness {
+			withModel = " (model " + sanitize(rec.RunnerModel) + " on " + harnessLabel(harness) + ")"
 		}
 		progress("session %s created with its primary agent%s; starting a machine for it", rec.ID, withModel)
 	}

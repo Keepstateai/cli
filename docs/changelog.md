@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased
+
+A second harness: the runner an agent works inside can be named.
+
+- `ks run --agent --harness <harness>` starts the agent inside a harness the
+  catalog offers; Claude Code stays the default and is sent as nothing. The
+  catalog is read before anything is created: a harness it withholds (until
+  KeepState's certification run on it has passed) or does not list is
+  refused with its reason. Codex calls your OpenAI key, so the preflight, the
+  key choice and the session's binding are for OpenAI; the model is the
+  harness's default unless `--model` names one of its models, and the run's
+  line names the harness.
+- `ks session harness <session> [<harness>] [--model <id>]` reads a
+  session's harness, its model, the harnesses its image carries and whether
+  it can switch now, or switches it while the session is paused, in effect
+  from its next resume. Its files stay; the next instruction starts a new
+  conversation that does not see the one so far, which stays readable with
+  `ks agent history`. A session created before its image carried a harness
+  cannot switch to it; the refusal says to start a new session.
+- `ks session brief <session>` reads the handoff brief of the session's
+  latest harness switch: KeepState's record of the work so far, which the
+  new agent is handed with its first instruction after the switch. It says
+  who wrote the brief's narrative (the outgoing harness's smallest model, on
+  the session's own key, billed by that provider), its size in tokens, what
+  the code checks kept and dropped, and prints the brief itself.
+- `ks cruise models` lists the harnesses: the provider each calls, its
+  models, and whether it is offered, with the note of a withheld one.
+
 ## v0.1.25 (2026-10-15)
 
 Cruise jobs the service drafts from your files.
