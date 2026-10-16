@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## v0.1.26 (2026-10-16)
 
-A second harness: the runner an agent works inside can be named.
+A second harness, Codex CLI, beside Claude Code; and four usable saved points per session.
 
 - `ks run --agent --harness <harness>` starts the agent inside a harness the
   catalog offers; Claude Code stays the default and is sent as nothing. The
@@ -16,7 +16,8 @@ A second harness: the runner an agent works inside can be named.
   session's harness, its model, the harnesses its image carries and whether
   it can switch now, or switches it while the session is paused, in effect
   from its next resume. Its files stay; the next instruction starts a new
-  conversation that does not see the one so far, which stays readable with
+  conversation that is handed KeepState's handoff brief of the work so far
+  instead of the old conversation, which stays readable with
   `ks agent history`. A session created before its image carried a harness
   cannot switch to it; the refusal says to start a new session.
 - `ks session brief <session>` reads the handoff brief of the session's
@@ -25,6 +26,10 @@ A second harness: the runner an agent works inside can be named.
   who wrote the brief's narrative (the outgoing harness's smallest model, on
   the session's own key, billed by that provider), its size in tokens, what
   the code checks kept and dropped, and prints the brief itself.
+- `ks session checkpoints` shows which saved points can be used: the newest
+  three and one from up to an hour back can each be restored to or forked
+  from. A USABLE and a POSITION column say which, and a saved point that
+  cannot be named says why.
 - `ks cruise models` lists the harnesses: the provider each calls, its
   models, and whether it is offered, with the note of a withheld one.
 
