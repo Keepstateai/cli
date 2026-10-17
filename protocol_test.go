@@ -43,7 +43,7 @@ func (c *protoCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		env(map[string]any{"items": []any{map[string]any{"id": "fleetpro0000000000000000000000001", "short_id": "fleetpro0000", "name": "c", "runtime_state": "hibernating", "agent_activity": "daydreaming", "task_state": "none", "record_id": "session_1"}}, "next_cursor": ""})
 	case r.URL.Path == "/api/v2/agents" && c.tooOld:
 		w.WriteHeader(426)
-		fmt.Fprint(w, `{"schema_version":2,"error":{"code":"ks_client_too_old","type":"ks_client_too_old","message":"this operation belongs to agent.workspace, introduced at protocol 3; your client declared protocol 2 and cannot safely read its answer. Nothing was done; update the client","next_action":"ks update"}}`)
+		fmt.Fprint(w, `{"schema_version":2,"error":{"code":"ks_client_too_old","type":"ks_client_too_old","message":"this operation belongs to agent.workspace, introduced at protocol 4; your client declared protocol 3 and cannot safely read its answer. Nothing was done; update the client","next_action":"ks update"}}`)
 	case r.URL.Path == "/api/v2/agents":
 		env(map[string]any{"items": []any{map[string]any{"id": "agent_1", "session_id": "session_1", "name": "main", "is_primary": true, "activity": c.agentWord}}})
 	default:
@@ -60,14 +60,14 @@ func TestTheClientNegotiatesItsProtocolAndStates(t *testing.T) {
 	dir := t.TempDir()
 	env := fastEnv(cfg)
 
-	// every request declares protocol 2; an unknown state reads unknown
+	// every request declares protocol 3; an unknown state reads unknown
 	out, errs, code := auditExec(t, bin, cfg, dir, env, "agent", "list", "--session", "fleetpro")
 	if code != 0 || !strings.Contains(out, "unknown ") || strings.Contains(out, "daydream") {
 		t.Fatalf("agent list: %d\n%s%s", code, out, errs)
 	}
 	for _, h := range c.headers {
-		if !strings.HasSuffix(h, " 2") {
-			t.Errorf("a request did not declare protocol 2: %q", h)
+		if !strings.HasSuffix(h, " 3") {
+			t.Errorf("a request did not declare protocol 3: %q", h)
 		}
 	}
 	out, _, _ = auditExec(t, bin, cfg, dir, env, "session", "show", "fleetpro")
@@ -86,10 +86,10 @@ func TestTheClientNegotiatesItsProtocolAndStates(t *testing.T) {
 
 	// a capability newer than this client: disabled before anything is sent
 	c.mu.Lock()
-	c.tooOld, c.since, c.headers = false, 3, nil
+	c.tooOld, c.since, c.headers = false, 4, nil
 	c.mu.Unlock()
 	_, errs, code = auditExec(t, bin, cfg, dir, env, "agent", "list", "--session", "fleetpro")
-	if code != exitFailed || !strings.Contains(errs, "protocol 3") || !strings.Contains(errs, "ks update") {
+	if code != exitFailed || !strings.Contains(errs, "protocol 4") || !strings.Contains(errs, "ks update") {
 		t.Fatalf("newer capability: %d\n%s", code, errs)
 	}
 	for _, h := range c.headers {
@@ -109,7 +109,7 @@ func TestTheClientNegotiatesItsProtocolAndStates(t *testing.T) {
 
 	// doctor names the protocol and the published states this client does not know
 	out, errs, _ = auditExec(t, bin, cfg, dir, env, "doctor")
-	if !strings.Contains(out+errs, "this client speaks 2; the control plane speaks 2") || !strings.Contains(out+errs, "agent_activity daydreaming") {
+	if !strings.Contains(out+errs, "this client speaks 3; the control plane speaks 2") || !strings.Contains(out+errs, "agent_activity daydreaming") {
 		t.Fatalf("doctor:\n%s%s", out, errs)
 	}
 }
