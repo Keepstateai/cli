@@ -8,6 +8,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -32,6 +33,7 @@ type mkCtl struct {
 	noManaged bool                // the created record omits managed
 	record    map[string]any      // GET /api/v2/sessions/session_rec1
 	checks    []any               // the preflight's checks
+	bind      *mkBinding          // per-provider bindings the bindings route keeps, when set
 	usage     map[string]any      // the usage document
 	meter     map[string]any      // the legacy meter
 }
@@ -105,7 +107,7 @@ func (c *mkCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			map[string]any{"id": "budget.admission", "availability": "available", "summary": "s", "surface": "api"},
 		}
 		if c.capRow != "" {
-			row := map[string]any{"id": "managed_inference", "availability": c.capRow, "summary": "s", "surface": "api"}
+			row := map[string]any{"id": "managed_inference", "availability": c.capRow, "summary": "s", "surface": "api", "since_protocol": 3}
 			if c.capNote != "" {
 				row["unavailable_reason"] = c.capNote
 			}
@@ -142,7 +144,8 @@ func (c *mkCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		env(200, map[string]any{"account_id": "acct_t", "cohort_state": "active", "credit_microusd": 50000000, "registry_version": "t", "checks": chk, "blockers": blockers,
 			"ready": len(blockers) == 0, "not_checked": []any{}, "reservation": "a preflight reserves nothing", "limits": map[string]any{"workspace_bytes": 52428800}})
 	case r.Method == "GET" && r.URL.Path == "/api/v2/keys":
-		env(200, map[string]any{"items": []any{map[string]any{"id": "vlt_one1", "provider": "anthropic", "alias": "prod", "last4": "abcd", "enabled": true, "revision": 1}}, "next_cursor": ""})
+		env(200, map[string]any{"items": []any{map[string]any{"id": "vlt_one1", "provider": "anthropic", "alias": "prod", "last4": "abcd", "enabled": true, "revision": 1},
+			map[string]any{"id": "vlt_oa", "provider": "openai", "alias": "oa", "last4": "wxyz", "enabled": true, "revision": 1}}, "next_cursor": ""})
 	case r.Method == "POST" && r.URL.Path == "/api/v2/sessions":
 		if c.refuse != "" {
 			refuse(c.refuse)
@@ -154,6 +157,14 @@ func (c *mkCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		env(201, rec)
 	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/bindings"):
+		if c.bind != nil {
+			c.mu.Lock()
+			c.bind.apply(body)
+			out := map[string]any{"session_id": "session_rec1", "keys": c.bind.Keys, "managed": c.bind.Managed, "revision": 4}
+			c.mu.Unlock()
+			env(200, out)
+			return
+		}
 		env(200, map[string]any{"session_id": "session_rec1", "keys": body["keys"], "managed": body["managed"], "revision": 4, "expected_seen": body["expected_revision"]})
 	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/provision"):
 		env(200, readyAnswer())
@@ -162,6 +173,14 @@ func (c *mkCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"record_id": "session_rec1", "agent_activity": "unavailable", "task_state": "unavailable", "key_alias": "unbound", "observed_at": "x", "last_activity_at": "x",
 			"created_at": "x", "image": "base", "budget_tokens": 1, "execution_epoch": 1}}, "next_cursor": "", "observed_at": "x"})
 	case r.Method == "GET" && r.URL.Path == "/api/v2/sessions/session_rec1":
+		if c.bind != nil {
+			c.mu.Lock()
+			rec := map[string]any{"id": "session_rec1", "revision": 3, "harness": "claude-code", "managed": c.bind.Managed,
+				"key_bindings": map[string]any{"keys": c.bind.Keys, "managed": c.bind.Managed}}
+			c.mu.Unlock()
+			env(200, rec)
+			return
+		}
 		env(200, c.record)
 	case r.Method == "PATCH" && r.URL.Path == "/api/v2/sessions/session_rec1":
 		env(200, map[string]any{"id": "session_rec1", "revision": 5, "limits": body["limits"]})
@@ -171,6 +190,27 @@ func (c *mkCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(c.meter)
 	default:
 		env(404, map[string]any{})
+	}
+}
+
+// mkBinding is a session's binding as the service keeps it, per provider:
+// managed absent keeps the choice; keys absent keeps the own keys except a
+// provider moved to KeepState's key; keys present replaces them.
+type mkBinding struct {
+	Keys    map[string]any
+	Managed []any
+}
+
+func (b *mkBinding) apply(body map[string]any) {
+	if m, ok := body["managed"].([]any); ok {
+		b.Managed = m
+	}
+	if k, ok := body["keys"].(map[string]any); ok {
+		b.Keys = k
+		return
+	}
+	for _, p := range b.Managed {
+		delete(b.Keys, fmt.Sprint(p))
 	}
 }
 
@@ -233,6 +273,15 @@ func TestManagedRunOnKeepStatesKey(t *testing.T) {
 	if c.asked("POST /api/v2/sessions/session_abc123/bindings") || c.asked("GET /api/v2/keys") {
 		t.Fatalf("a run on KeepState's key bound or looked up an own key: %v", c.requests)
 	}
+	if raw := c.rawBody("POST /api/v2/preflight"); raw != `{"managed":["anthropic"],"mode":"agent","provider":"anthropic"}` {
+		t.Fatalf("the preflight was not asked about KeepState's key: %s", raw)
+	}
+	c.mu.Lock()
+	order := strings.Join(c.requests, " | ")
+	c.mu.Unlock()
+	if strings.Index(order, "GET /api/v2/account/model-keys") > strings.Index(order, "POST /api/v2/preflight") {
+		t.Fatalf("the key was chosen after the preflight: %s", order)
+	}
 	if !c.asked("POST /api/v2/sessions/session_abc123/provision") {
 		t.Fatalf("no machine was asked for: %v", c.requests)
 	}
@@ -286,6 +335,9 @@ func TestManagedRunOwnKeyOverAManagedDefault(t *testing.T) {
 		if bb := c.body("POST /api/v2/sessions/session_abc123/bindings"); jsonOf(bb["keys"]) != `{"anthropic":"vlt_one1"}` {
 			t.Fatalf("--key %s: the own key was not bound: %v", arg, bb)
 		}
+		if raw := c.rawBody("POST /api/v2/preflight"); raw != `{"managed":[],"mode":"agent","provider":"anthropic"}` {
+			t.Fatalf("--key %s: the preflight was not told the run is on an own key: %s", arg, raw)
+		}
 	}
 }
 
@@ -313,6 +365,9 @@ func TestManagedRunAgainstAServiceWithoutIt(t *testing.T) {
 		if raw := c.rawBody("POST /api/v2/sessions/session_abc123/bindings"); raw != `{"expected_revision":1,"keys":{"anthropic":"vlt_one1"}}` {
 			t.Fatalf("row %q: the binding body changed: %s", row, raw)
 		}
+		if raw := c.rawBody("POST /api/v2/preflight"); raw != `{"mode":"agent","provider":"anthropic"}` {
+			t.Fatalf("row %q: the preflight body changed: %s", row, raw)
+		}
 	}
 	// listed, but the route is not served: today's bodies
 	c := newMKCtl()
@@ -323,6 +378,9 @@ func TestManagedRunAgainstAServiceWithoutIt(t *testing.T) {
 	}
 	if raw := c.rawBody("POST /api/v2/sessions"); raw != `{"mode":"agent","name":"today"}` {
 		t.Fatalf("route not served: the creation body changed: %s", raw)
+	}
+	if raw := c.rawBody("POST /api/v2/preflight"); raw != `{"mode":"agent","provider":"anthropic"}` {
+		t.Fatalf("route not served: the preflight body changed: %s", raw)
 	}
 }
 
@@ -441,14 +499,26 @@ func TestManagedSessionKeySet(t *testing.T) {
 	if raw := c.rawBody("POST /api/v2/sessions/session_rec1/bindings"); raw != `{"expected_revision":3,"managed":["openai"]}` {
 		t.Fatalf("codex body: %s", raw)
 	}
-	// back to an own key on a session on KeepState's key: managed loses the provider
+	// KeepState's key added beside a provider already on it, from the record's bindings
 	c.mu.Lock()
-	c.record = map[string]any{"id": "session_rec1", "revision": 3, "harness": "claude-code", "managed": []any{"anthropic", "openai"}}
+	c.record = map[string]any{"id": "session_rec1", "revision": 3, "harness": "claude-code", "managed": []any{"openai"},
+		"key_bindings": map[string]any{"keys": map[string]any{}, "managed": []any{"openai"}}}
+	c.mu.Unlock()
+	if _, errs, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "session", "key", "set", "fleetmanaged", "--key", "keepstate"); code != 0 {
+		t.Fatalf("second provider: %d %s", code, errs)
+	}
+	if raw := c.rawBody("POST /api/v2/sessions/session_rec1/bindings"); raw != `{"expected_revision":3,"managed":["openai","anthropic"]}` {
+		t.Fatalf("second provider body: %s", raw)
+	}
+	// back to an own key: the provider leaves KeepState's key, the other own keys stay
+	c.mu.Lock()
+	c.record = map[string]any{"id": "session_rec1", "revision": 3, "harness": "claude-code", "managed": []any{"anthropic"},
+		"key_bindings": map[string]any{"keys": map[string]any{"openai": "vlt_oa"}, "managed": []any{"anthropic"}}}
 	c.mu.Unlock()
 	if _, errs, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "session", "key", "set", "fleetmanaged", "--key", "vlt_one1"); code != 0 {
 		t.Fatalf("own: %d %s", code, errs)
 	}
-	if raw := c.rawBody("POST /api/v2/sessions/session_rec1/bindings"); raw != `{"expected_revision":3,"keys":{"anthropic":"vlt_one1"},"managed":["openai"]}` {
+	if raw := c.rawBody("POST /api/v2/sessions/session_rec1/bindings"); raw != `{"expected_revision":3,"keys":{"anthropic":"vlt_one1","openai":"vlt_oa"},"managed":[]}` {
 		t.Fatalf("own over managed body: %s", raw)
 	}
 	// a record that predates the choice: today's body exactly
@@ -466,7 +536,7 @@ func TestManagedSessionKeySet(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("spend limit: %d\n%s%s", code, out, errs)
 	}
-	if raw := c.rawBody("PATCH /api/v2/sessions/session_rec1"); raw != `{"expected_revision":4,"limits":{"model_admission_limit_microusd":50000000}}` {
+	if raw := c.rawBody("PATCH /api/v2/sessions/session_rec1"); raw != `{"expected_revision":4,"spend_limit_microusd":50000000}` {
 		t.Fatalf("spend limit body: %s", raw)
 	}
 	if !strings.Contains(out, "$50.00") {
@@ -476,7 +546,7 @@ func TestManagedSessionKeySet(t *testing.T) {
 	if _, errs, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "session", "key", "set", "fleetmanaged", "--spend-limit", "75"); code != 0 {
 		t.Fatalf("limit alone: %d %s", code, errs)
 	}
-	if raw := c.rawBody("PATCH /api/v2/sessions/session_rec1"); raw != `{"expected_revision":3,"limits":{"model_admission_limit_microusd":75000000}}` {
+	if raw := c.rawBody("PATCH /api/v2/sessions/session_rec1"); raw != `{"expected_revision":3,"spend_limit_microusd":75000000}` {
 		t.Fatalf("limit alone body: %s", raw)
 	}
 	// refused before any request: a spend limit with an own key; neither flag
@@ -679,7 +749,74 @@ func TestManagedPreflightShowsTheCheck(t *testing.T) {
 	if !strings.Contains(line, "WARN") || !strings.Contains(line, "no purchased credit") || !strings.Contains(line, "add credit in the console") {
 		t.Fatalf("the managed check: %q\n%s", line, out)
 	}
-	if !strings.Contains(out, "only a run on KeepState's key") {
-		t.Errorf("the managed check does not say what it governs:\n%s", out)
+	if !strings.Contains(out, "ks preflight --key own") {
+		t.Errorf("the managed check does not say how to check a run on your own key:\n%s", out)
+	}
+	// the service blocks on KeepState's key only for a run chosen on it, so a block counts
+	c.mu.Lock()
+	c.checks = []any{map[string]any{"check": "managed", "status": "block", "detail": "no purchased credit, so a run on KeepState's key would be refused", "next_action": "add credit in the console", "category": "quota"}}
+	c.mu.Unlock()
+	if _, _, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "preflight", "--key", "keepstate"); code != exitConflict {
+		t.Fatalf("a blocked check of KeepState's key: exit %d, want %d", code, exitConflict)
+	}
+}
+
+// ks preflight --key names the key the run would use: KeepState's key or your own.
+func TestManagedPreflightNamesTheKey(t *testing.T) {
+	c := newMKCtl()
+	bin, cfg := mkEnv(t, c)
+	for args, want := range map[string]string{
+		"preflight":                 `{"workspace_bytes":0,"workspace_files":0}`,
+		"preflight --key keepstate": `{"managed":["anthropic"],"workspace_bytes":0,"workspace_files":0}`,
+		"preflight --key own":       `{"managed":[],"workspace_bytes":0,"workspace_files":0}`,
+		"preflight --key keepstate --provider openai":        `{"managed":["openai"],"provider":"openai","workspace_bytes":0,"workspace_files":0}`,
+		"preflight --key own --provider openai --mode agent": `{"managed":[],"mode":"agent","provider":"openai","workspace_bytes":0,"workspace_files":0}`,
+	} {
+		if _, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), strings.Fields(args)...); code != 0 {
+			t.Fatalf("%s: %d %s", args, code, errs)
+		}
+		if raw := c.rawBody("POST /api/v2/preflight"); raw != want {
+			t.Errorf("%s sent %s, want %s", args, raw, want)
+		}
+	}
+	c.mu.Lock()
+	c.requests = nil
+	c.mu.Unlock()
+	if _, _, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "preflight", "--key", "vlt_one1"); code != exitUsage || len(c.requests) != 0 {
+		t.Fatalf("--key with a key id: exit %d, %v", code, c.requests)
+	}
+}
+
+// Moving one provider to KeepState's key keeps another provider's own key, and
+// moving it back keeps that key too.
+func TestManagedSwitchingOneProviderKeepsTheOther(t *testing.T) {
+	c := newMKCtl()
+	c.bind = &mkBinding{Keys: map[string]any{"anthropic": "vlt_one1", "openai": "vlt_oa"}, Managed: []any{}}
+	bin, cfg := mkEnv(t, c)
+	dir := t.TempDir()
+	out, errs, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "session", "key", "set", "fleetmanaged", "--key", "keepstate", "--provider", "openai")
+	if code != 0 {
+		t.Fatalf("to KeepState's key: %d\n%s%s", code, out, errs)
+	}
+	if raw := c.rawBody("POST /api/v2/sessions/session_rec1/bindings"); raw != `{"expected_revision":3,"managed":["openai"]}` {
+		t.Fatalf("the move sent own keys it did not mean to change: %s", raw)
+	}
+	if !strings.Contains(out, "anthropic on your key vlt_one1") || !strings.Contains(out, "openai on KeepState's key") {
+		t.Fatalf("the result does not show both providers:\n%s", out)
+	}
+	out, errs, code = auditExec(t, bin, cfg, dir, fastEnv(cfg), "session", "key", "set", "fleetmanaged", "--key", "vlt_oa")
+	if code != 0 {
+		t.Fatalf("back to an own key: %d\n%s%s", code, out, errs)
+	}
+	if raw := c.rawBody("POST /api/v2/sessions/session_rec1/bindings"); raw != `{"expected_revision":3,"keys":{"anthropic":"vlt_one1","openai":"vlt_oa"},"managed":[]}` {
+		t.Fatalf("moving back dropped the other provider's key: %s", raw)
+	}
+	if !strings.Contains(out, "anthropic on your key vlt_one1") || !strings.Contains(out, "openai on your key vlt_oa") {
+		t.Fatalf("the result after moving back:\n%s", out)
+	}
+	// the session's page shows the bound key per provider
+	out, _, _ = auditExec(t, bin, cfg, dir, fastEnv(cfg), "session", "show", "fleetmanaged")
+	if !strings.Contains(out, "anthropic on your key vlt_one1") || !strings.Contains(out, "openai on your key vlt_oa") {
+		t.Fatalf("session show does not show the bindings:\n%s", out)
 	}
 }

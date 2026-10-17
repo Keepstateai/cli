@@ -284,6 +284,14 @@ func hostedPreflight(cr hostedCreds, inv *Invocation) {
 	if m := inv.Str("mode"); m != "" {
 		body["mode"] = m
 	}
+	// the key the run would use: KeepState's key or your own; absent, the
+	// service judges by your account's default
+	switch inv.Str("key") {
+	case keepstateKeyArg:
+		body["managed"] = []string{firstNonEmptyStr(inv.Str("provider"), runnerProvider)}
+	case ownKeyArg:
+		body["managed"] = []string{}
+	}
 	// KS-029: what only this client can measure is measured here and sent;
 	// a quantity not sent is reported NOT CHECKED by the service, never passed
 	local := map[string]any{}
@@ -364,9 +372,6 @@ func hostedPreflight(cr hostedCreds, inv *Invocation) {
 	}
 	blocked, unknown := 0, 0
 	for _, c := range checks {
-		if c.Check == "managed" {
-			continue // it governs only a run on KeepState's key, said beside it
-		}
 		switch c.Status {
 		case "block":
 			blocked++
@@ -389,8 +394,8 @@ func hostedPreflight(cr hostedCreds, inv *Invocation) {
 				line += " → " + sanitize(c.NextAction)
 			}
 			fmt.Println(line)
-			if c.Check == "managed" {
-				fmt.Printf("%-12s %-11s %s\n", "", "", "(this governs only a run on KeepState's key: ks run --agent --key keepstate)")
+			if c.Check == "managed" && c.Status != "pass" {
+				fmt.Printf("%-12s %-11s %s\n", "", "", "(the check of a run on KeepState's key; ks preflight --key own checks a run on your own key)")
 			}
 		}
 		if len(notChecked) > 0 {

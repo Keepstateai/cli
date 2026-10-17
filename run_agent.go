@@ -257,22 +257,38 @@ func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *i
 	// the provider the harness calls: Anthropic for Claude Code, the
 	// catalog's for another (OpenAI for Codex)
 	runnerProvider := firstNonEmptyStr(harness.Provider, runnerProvider)
-	// ---- 2. preflight: stop before anything exists --------------------------
-	var pf struct {
-		Data map[string]any `json:"data"`
-	}
-	if err := hostedCall(cr, "POST", "/api/v2/preflight", map[string]any{"provider": runnerProvider, "mode": "agent"}, &pf); err != nil {
-		return none, provisionAnswer{}, customerKey{}, err
-	}
-	// ---- 2a. your own key or KeepState's key, chosen before anything exists ---
+	// ---- 2. your own key or KeepState's key, chosen before anything exists ----
 	choice, err := chooseRunKey(cr, keyArg, runnerProvider, spend)
 	if err != nil {
 		return none, provisionAnswer{}, customerKey{}, err
 	}
-	if lines := preflightBlockers(pf.Data, choice.skip); len(lines) > 0 {
+	// ---- 2a. preflight: stop before anything exists -------------------------
+	pfBody := map[string]any{"provider": runnerProvider, "mode": "agent"}
+	if choice.answered {
+		// the service judges KeepState's key only for a run chosen on it
+		pfBody["managed"] = []string{}
+		if choice.managed {
+			pfBody["managed"] = []string{runnerProvider}
+		}
+	}
+	var pf struct {
+		Data map[string]any `json:"data"`
+	}
+	if err := hostedCall(cr, "POST", "/api/v2/preflight", pfBody, &pf); err != nil {
+		return none, provisionAnswer{}, customerKey{}, err
+	}
+	if b, ok := pf.Data["blockers"].([]any); ok && len(b) > 0 {
+		var lines []string
+		for _, x := range b {
+			lines = append(lines, fmt.Sprint(x))
+		}
+		next := "ks preflight --provider " + runnerProvider
+		if choice.answered {
+			next += " --key " + map[bool]string{true: keepstateKeyArg, false: ownKeyArg}[choice.managed]
+		}
 		return none, provisionAnswer{}, customerKey{}, &cliError{Code: exitConflict, Kind: "preflight_blocked",
 			Message:    "preflight found blockers, so nothing was created: " + strings.Join(lines, "; "),
-			NextAction: "ks preflight --provider " + runnerProvider}
+			NextAction: next}
 	}
 	var key customerKey
 	if choice.managed {
@@ -407,7 +423,7 @@ type runKeyChoice struct {
 	send        *[]string // the managed field the creation sends; nil sends none
 	spend       int64     // the spend limit on KeepState's key the creation sends
 	offer       managedProvider
-	skip        map[string]bool // preflight checks that do not govern this run
+	answered    bool // the account's model keys were read
 }
 
 // line is what the run says about a session on KeepState's key.
@@ -452,7 +468,7 @@ func chooseRunKey(cr hostedCreds, keyArg, provider string, spend *int64) (runKey
 		}
 		return c, err
 	}
-	c.skip = map[string]bool{"managed": true}
+	c.answered = true
 	want := keyArg == keepstateKeyArg
 	if keyArg == "" && doc.defaultFor(provider) == "managed" {
 		want, c.fromDefault = true, true
@@ -476,34 +492,11 @@ func chooseRunKey(cr hostedCreds, keyArg, provider string, spend *int64) (runKey
 	}
 	c.managed, c.offer = true, mp
 	c.send = &[]string{provider}
-	c.skip = map[string]bool{"key": true} // no key of your own is needed for it
 	c.spend = doc.Managed.Limits.SessionDefault
 	if spend != nil {
 		c.spend = *spend
 	}
 	return c, nil
-}
-
-// preflightBlockers are the preflight's blockers that govern this run: the
-// service's list as it sent it, unless a check that does not govern the run
-// (your own key for a run on KeepState's key, or KeepState's key for a run on
-// your own) is to be left out, which is read from its per-check answers.
-func preflightBlockers(d map[string]any, skip map[string]bool) []string {
-	var lines []string
-	if items, ok := d["checks"].([]any); ok && len(skip) > 0 {
-		for _, it := range items {
-			if m, ok := it.(map[string]any); ok && m["status"] == "block" && !skip[fmt.Sprint(m["check"])] {
-				lines = append(lines, fmt.Sprint(m["detail"]))
-			}
-		}
-		return lines
-	}
-	if b, ok := d["blockers"].([]any); ok {
-		for _, x := range b {
-			lines = append(lines, fmt.Sprint(x))
-		}
-	}
-	return lines
 }
 
 func containsStr(xs []string, s string) bool {

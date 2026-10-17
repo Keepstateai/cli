@@ -27,6 +27,9 @@ type sessionModelRecord struct {
 	Revision     int64  `json:"revision"`
 	RuntimeState string `json:"runtime_state"`
 	RunnerModel  string `json:"runner_model"`
+	// KeyBindings is what the session calls each provider with; absent
+	// from a service that predates it
+	KeyBindings *sessionKeyBindings `json:"key_bindings,omitempty"`
 }
 
 func fetchSessionModelRecord(cr hostedCreds, id string) (sessionModelRecord, error) {

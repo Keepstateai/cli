@@ -51,6 +51,9 @@ type inventoryRow struct {
 	// record that could not be read says so here, never as no model.
 	RunnerModel           string `json:"runner_model,omitempty"`
 	RunnerModelUnreadable string `json:"runner_model_unreadable,omitempty"`
+	// KeyBindings is what the session calls each provider with, read from
+	// its record: one of your keys, or KeepState's key
+	KeyBindings *sessionKeyBindings `json:"key_bindings,omitempty"`
 }
 
 // fetchInventory reads every page: a filter answers the complete
@@ -296,6 +299,7 @@ func hostedSessionShow(cr hostedCreds, inv *Invocation) {
 			r.RunnerModelUnreadable = "could not be read: " + sanitize(errText(err))
 		} else {
 			r.RunnerModel = rec.RunnerModel
+			r.KeyBindings = rec.KeyBindings
 		}
 	}
 	var doc any = r
@@ -328,6 +332,9 @@ func hostedSessionShow(cr hostedCreds, inv *Invocation) {
 			fmt.Printf("  task           %s\n", r.TaskState)
 		}
 		fmt.Printf("  key            %s\n", r.KeyAlias)
+		if r.KeyBindings != nil {
+			fmt.Printf("  model keys     %s\n", r.KeyBindings.words())
+		}
 		fmt.Printf("  image          %s\n", r.Image)
 		fmt.Printf("  budget         %d tokens\n", r.BudgetTokens)
 		fmt.Printf("  epoch          %d\n", r.ExecutionEpoch)

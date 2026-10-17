@@ -239,6 +239,10 @@ func checkManagedFlags(inv *Invocation) {
 				fail(err)
 			}
 		}
+	case "preflight":
+		if inv.Set("key") && key != keepstateKeyArg && key != ownKeyArg {
+			usage("--key is keepstate (a run on KeepState's key) or own (a run on your own key); got "+sanitize(key)+". Nothing was checked", "ks preflight --key keepstate")
+		}
 	case "key default":
 		p, v := inv.Arg(0), inv.Arg(1)
 		switch {
@@ -401,15 +405,22 @@ func hostedSessionKeySet(cr hostedCreds, inv *Invocation) {
 	}
 	var rec struct {
 		Data struct {
-			Revision int64     `json:"revision"`
-			Harness  string    `json:"harness"`
-			Managed  *[]string `json:"managed"`
+			Revision    int64               `json:"revision"`
+			Harness     string              `json:"harness"`
+			Managed     *[]string           `json:"managed"`
+			KeyBindings *sessionKeyBindings `json:"key_bindings"`
 		} `json:"data"`
 	}
 	if err := hostedCall(cr, "GET", "/api/v2/sessions/"+url.PathEscape(sess.RecordID), nil, &rec); err != nil {
 		die(err)
 	}
 	rev := rec.Data.Revision
+	// the providers on KeepState's key now, when the record says (nil: a
+	// record that predates the choice)
+	current := rec.Data.Managed
+	if rec.Data.KeyBindings != nil {
+		current = &rec.Data.KeyBindings.Managed
+	}
 	facts := map[string]any{}
 	var said []string
 	var res map[string]any
@@ -437,41 +448,43 @@ func hostedSessionKeySet(cr hostedCreds, inv *Invocation) {
 				fail(&cliError{Code: exitConflict, Kind: "managed_unavailable", Message: "KeepState's key is not offered for " + providerName(provider) + " now: " + doc.notOfferedWhy(provider) + ". Nothing was changed", NextAction: "ks key list"})
 			}
 			offer = mp
-			list := []string{}
-			if rec.Data.Managed != nil {
-				for _, p := range *rec.Data.Managed {
-					if p != provider {
-						list = append(list, p)
-					}
+			// only managed is sent: the service keeps every other
+			// provider's own key
+			body["managed"] = append(withoutStr(current, provider), provider)
+		} else {
+			// keys replaces the own-key bindings: every other provider's
+			// own key is sent as it is bound now
+			keys := map[string]string{}
+			if rec.Data.KeyBindings != nil {
+				for p, id := range rec.Data.KeyBindings.Keys {
+					keys[p] = id
 				}
 			}
-			body["managed"] = append(list, provider)
-		} else {
-			body["keys"] = map[string]string{k.Provider: k.ID}
-			if rec.Data.Managed != nil {
+			keys[k.Provider] = k.ID
+			body["keys"] = keys
+			if current != nil {
 				// a session that knows KeepState's key: this provider leaves it
-				list := []string{}
-				for _, p := range *rec.Data.Managed {
-					if p != k.Provider {
-						list = append(list, p)
-					}
-				}
-				body["managed"] = list
+				body["managed"] = withoutStr(current, k.Provider)
 			}
 		}
 		if err := hostedMutate(cr, "POST", "/api/v2/sessions/"+url.PathEscape(sess.RecordID)+"/bindings", body, &res); err != nil {
 			die(sessionKeyRefusal(err, sess))
 		}
+		var whole *sessionKeyBindings
 		if d, ok := res["data"].(map[string]any); ok {
 			if n, ok := d["revision"].(float64); ok {
 				rev = int64(n)
 			}
+			whole = bindingsOf(d)
 		}
 		facts["binding"] = res
 		if managed {
 			said = append(said, fmt.Sprintf("session %s: %s calls go on KeepState's key (%s, paid from your purchased credit) from the first call after the session next wakes", sess.ShortID, providerName(provider), spreadText(provider, offer)))
 		} else {
 			said = append(said, fmt.Sprintf("session %s: %s bound to %s (…%s)", sess.ShortID, k.Provider, k.ID, k.Last4))
+		}
+		if whole != nil {
+			said = append(said, "  now: "+whole.words())
 		}
 	}
 	if inv.Set("spend-limit") {
@@ -480,7 +493,7 @@ func hostedSessionKeySet(cr hostedCreds, inv *Invocation) {
 			fail(perr)
 		}
 		var patched map[string]any
-		if err := hostedMutate(cr, "PATCH", "/api/v2/sessions/"+url.PathEscape(sess.RecordID), map[string]any{"limits": map[string]any{"model_admission_limit_microusd": micros}, "expected_revision": rev}, &patched); err != nil {
+		if err := hostedMutate(cr, "PATCH", "/api/v2/sessions/"+url.PathEscape(sess.RecordID), map[string]any{"spend_limit_microusd": micros, "expected_revision": rev}, &patched); err != nil {
 			if keyArg != "" {
 				fmt.Fprintln(os.Stderr, said[0]+"; the spend limit was not changed:")
 			}
@@ -519,4 +532,71 @@ func sessionKeyRefusal(err error, sess inventoryRow) error {
 		return ce
 	}
 	return err
+}
+
+// sessionKeyBindings is what a session calls each provider with: one of your
+// keys by id, or KeepState's key.
+type sessionKeyBindings struct {
+	Keys    map[string]string `json:"keys"`
+	Managed []string          `json:"managed"`
+}
+
+// words is the binding per provider, as a person reads it.
+func (b *sessionKeyBindings) words() string {
+	seen := map[string]bool{}
+	var ps []string
+	for p := range b.Keys {
+		ps, seen[p] = append(ps, p), true
+	}
+	for _, p := range b.Managed {
+		if !seen[p] {
+			ps, seen[p] = append(ps, p), true
+		}
+	}
+	if len(ps) == 0 {
+		return "no key bound"
+	}
+	sort.Strings(ps)
+	var parts []string
+	for _, p := range ps {
+		if containsStr(b.Managed, p) {
+			parts = append(parts, sanitize(p)+" on KeepState's key")
+		} else {
+			parts = append(parts, sanitize(p)+" on your key "+sanitize(b.Keys[p]))
+		}
+	}
+	return strings.Join(parts, "; ")
+}
+
+// bindingsOf reads the whole binding from a bindings answer; nil from a
+// service that answers only what it was sent.
+func bindingsOf(d map[string]any) *sessionKeyBindings {
+	m, ok := d["managed"].([]any)
+	if !ok {
+		return nil
+	}
+	b := &sessionKeyBindings{Keys: map[string]string{}}
+	for _, x := range m {
+		b.Managed = append(b.Managed, fmt.Sprint(x))
+	}
+	if ks, ok := d["keys"].(map[string]any); ok {
+		for p, id := range ks {
+			b.Keys[p] = fmt.Sprint(id)
+		}
+	}
+	return b
+}
+
+// withoutStr is a list without one entry; nil reads as empty.
+func withoutStr(xs *[]string, s string) []string {
+	out := []string{}
+	if xs == nil {
+		return out
+	}
+	for _, x := range *xs {
+		if x != s {
+			out = append(out, x)
+		}
+	}
+	return out
 }
