@@ -26,15 +26,16 @@ var registry = []*Command{
 			}
 		}},
 	{Path: []string{"run"}, Summary: "start a hosted session; with --agent, an agent session whose main agent is running and supervised", Surface: "hosted",
-		Effects:  "starts a session on the fleet: session time is metered from this moment until the session is killed or parked. With --agent: preflight first (nothing is created on a blocker), the key the agent calls with chosen before anything exists (--key, or your one enabled key for its provider; several is refused, never guessed), then one session bound to that key, its primary agent and a machine; the answer says supervised (running, waiting for its first instruction) or Ready only as the agent reports it, a setup that does not complete is destroyed and said so, and no model is called unless --task gives it work",
-		Examples: []string{"ks run", "ks run --budget-tokens 750000", "ks run --agent", "ks run --agent --name checkout --task \"run the tests\" --open", "ks run --agent --harness codex"},
+		Effects:  "starts a session on the fleet: session time is metered from this moment until the session is killed or parked. With --agent: preflight first (nothing is created on a blocker), the key the agent calls with chosen before anything exists (--key, your account's default for its provider, or your one enabled key for it; several is refused, never guessed), then one session bound to that key, its primary agent and a machine; the answer says supervised (running, waiting for its first instruction) or Ready only as the agent reports it, a setup that does not complete is destroyed and said so, and no model is called unless --task gives it work. With --key keepstate the agent's model calls go on KeepState's key where the service offers it: each call is held before it is sent and charged at the provider's list price plus the spread, from your purchased credit (free credit does not pay for it), up to the session's spend limit",
+		Examples: []string{"ks run", "ks run --budget-tokens 750000", "ks run --agent", "ks run --agent --name checkout --task \"run the tests\" --open", "ks run --agent --harness codex", "ks run --agent --key keepstate --spend-limit 20"},
 		Flags: []Flag{
 			{Name: "image", Kind: flagString, Value: "I", Summary: "the image of a plain session; default your onboarding choice (not with --agent)"},
 			{Name: "budget-tokens", Aliases: []string{"budget"}, Kind: flagInt, Positive: true, Value: "N", Summary: "the session's token budget; default per tier (500,000 free, 2,000,000 paid); zero and negative are refused"},
 			{Name: "agent", Kind: flagBool, Summary: "start an agent session: a session, its primary agent and a machine, Ready only when the agent says so"},
 			{Name: "name", Kind: flagString, Value: "NAME", Summary: "the agent session's name (with --agent); default run-<UTC time>"},
 			{Name: "agent-name", Kind: flagString, Value: "NAME", Summary: "the primary agent's name (with --agent); default main"},
-			{Name: "key", Kind: flagString, Value: "KEY", Summary: "the provider key the agent calls with, by id or alias (with --agent); default your one enabled key for the agent's provider"},
+			{Name: "key", Kind: flagString, Value: "KEY", Summary: "the key the agent calls with (with --agent): a key's id or alias, own for your own key, or keepstate for KeepState's key (charged from your purchased credit at the provider's list price plus the spread); default your account's default for the agent's provider, else your one enabled key for it"},
+			{Name: "spend-limit", Kind: flagString, Value: "DOLLARS", Summary: "the session's spend limit on KeepState's key, in dollars (with --key keepstate); default the service's for a session"},
 			{Name: "task", Kind: flagString, Value: "TEXT", Summary: "a first task for the agent, submitted once the agent is supervised (with --agent)"},
 			{Name: "open", Kind: flagBool, Summary: "open the agent's window once the agent is supervised (with --agent)"},
 			{Name: "model", Kind: flagString, Value: "MODEL", Summary: "the model the agent calls, by its exact id: one ks cruise models lists as offered (with --agent); default the service's first rung, or the harness's default model"},
@@ -178,12 +179,16 @@ var registry = []*Command{
 		Effects:  "reads the saved points the service recorded for this session, newest first, with the boundary each was taken at, whether a restore or a fork may name it now (USABLE) and its place among those (POSITION), why not when it may not, and what it covers. Nothing is restored, nothing is chosen and nothing changes. A KeepState saved point is a WHOLE-SESSION saved point and this says so rather than letting a reader assume it rolls back one instruction",
 		Examples: []string{"ks session checkpoints 3f2a1c", "ks session checkpoints 3f2a1c --json"},
 		Nothing:  "Nothing was read.", Run: hosted(hostedSessionCheckpoints)},
-	{Path: []string{"session", "key", "set"}, Summary: "bind a session's provider to one of your keys by id; that key is used or nothing is", Surface: "hosted",
-		Args:     []Arg{{Name: "session", Required: true}},
-		Flags:    []Flag{{Name: "key", Kind: flagString, Value: "KEY", Summary: "the key's id or alias"}},
+	{Path: []string{"session", "key", "set"}, Summary: "bind a session's provider to one of your keys by id, or to KeepState's key; that key is used or nothing is", Surface: "hosted",
+		Args: []Arg{{Name: "session", Required: true}},
+		Flags: []Flag{
+			{Name: "key", Kind: flagString, Value: "KEY", Summary: "the key's id or alias, or keepstate for KeepState's key"},
+			{Name: "provider", Kind: flagString, Value: "PROVIDER", Summary: "with --key keepstate: the provider whose calls go on KeepState's key, anthropic or openai; default the provider of the session's harness"},
+			{Name: "spend-limit", Kind: flagString, Value: "DOLLARS", Summary: "the session's spend limit on KeepState's key, in dollars"},
+		},
 		Needs:    "keys.inventory",
-		Effects:  "changes the session's key binding at its next safe boundary; no key is substituted",
-		Examples: []string{"ks session key set 3f2a1c --key vlt_0123abcd"},
+		Effects:  "changes the session's key binding at its next safe boundary; no key is substituted. Moving a provider to or from KeepState's key is accepted while the session is paused or has no machine, and governs from the first call after it wakes; --spend-limit changes the session's spend limit on KeepState's key",
+		Examples: []string{"ks session key set 3f2a1c --key vlt_0123abcd", "ks session key set 3f2a1c --key keepstate --spend-limit 50", "ks session key set 3f2a1c --spend-limit 75"},
 		Nothing:  "Nothing was bound.", Run: hosted(hostedSessionKeySet)},
 	{Path: []string{"project"}, Group: true, Summary: "project defaults: proposed from the repository, trusted by you", Surface: "hosted"},
 	{Path: []string{"project", "configure"}, Summary: "propose .keepstate/project.json as the project's defaults, see the exact changes, and trust that digest only if you confirm it", Surface: "hosted",
@@ -198,11 +203,17 @@ var registry = []*Command{
 		Examples: []string{"ks project configure", "ks project configure --project proj_0123 --confirm 3f2a1c9b8d7e"},
 		Nothing:  "Nothing was proposed.", Run: hosted(hostedProjectConfigure)},
 	{Path: []string{"key"}, Group: true, Summary: "your provider keys: never the secret", Surface: "hosted"},
-	{Path: []string{"key", "list"}, Summary: "your keys: id, provider, alias, last four characters, enabled or disabled", Surface: "hosted",
+	{Path: []string{"key", "list"}, Summary: "your keys: id, provider, alias, last four characters, enabled or disabled; and KeepState's key per provider where it is offered", Surface: "hosted",
 		Needs:    "keys.inventory",
-		Effects:  "reads the inventory; nothing changes",
+		Effects:  "reads the inventory, and where the service offers KeepState's key, what it costs per provider and whether it is your default; nothing changes",
 		Examples: []string{"ks key list", "ks key list --json"},
 		Nothing:  "Nothing was read.", Run: hosted(hostedKeyList)},
+	{Path: []string{"key", "default"}, Summary: "the key new sessions use for each provider: your own key or KeepState's key", Surface: "hosted",
+		Args:     []Arg{{Name: "provider"}, {Name: "own|keepstate"}},
+		Needs:    "keys.inventory",
+		Effects:  "without arguments, reads your account's default per provider and what KeepState's key costs where it is offered; with a provider and own or keepstate, changes the default for sessions created afterwards. Existing sessions are unchanged, and KeepState's key is refused for a provider it is not offered for now",
+		Examples: []string{"ks key default", "ks key default openai keepstate", "ks key default anthropic own"},
+		Nothing:  "Nothing changed.", Run: hosted(hostedKeyDefault)},
 	{Path: []string{"key", "show"}, Summary: "one key's metadata", Surface: "hosted",
 		Args:     []Arg{{Name: "key", Required: true}},
 		Needs:    "keys.inventory",
@@ -1077,7 +1088,8 @@ func hosted(run func(cr hostedCreds, inv *Invocation)) func(*Invocation) {
 		if !ok {
 			fail(&cliError{Code: exitAuth, Kind: "not_signed_in", Message: "Not signed in. Run: ks login", NextAction: "ks login"})
 		}
-		checkNewNames(inv) // before the capability check: no request for a name the service refuses
+		checkNewNames(inv)     // before the capability check: no request for a name the service refuses
+		checkManagedFlags(inv) // nor for a key choice or a spend limit that cannot be what was meant
 		requireCapability(cr, inv.Cmd)
 		run(cr, inv)
 	}

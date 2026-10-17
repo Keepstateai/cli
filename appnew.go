@@ -123,7 +123,9 @@ func appNewSession(cr hostedCreds, scr *screen, keys <-chan keyEvent) (*homeRow,
 				sessState = "busy"
 			}
 			step(sessState, "Creating the session…", "Session created")
-			if k := st["key"]; k != "" {
+			if k := st["key"]; k == keepstateKeyArg {
+				step("done", "", "Model calls use KeepState's key, paid from your purchased credit")
+			} else if k != "" {
 				step("done", "", "Model calls use your "+providerName(runnerProvider)+" key ending "+k)
 			}
 			step(st["machine"], "Starting a machine…", "Machine started")
@@ -162,7 +164,7 @@ func appNewSession(cr hostedCreds, scr *screen, keys <-chan keyEvent) (*homeRow,
 		}
 		saved := appSink
 		appSink = func(string) {} // the observer has it; anything else is the step log
-		rec, p, _, err := startAgentSession(cr, "", name, keyArg, nil, "", catalogHarness{})
+		rec, p, _, err := startAgentSession(cr, "", name, keyArg, nil, "", catalogHarness{}, nil)
 		appSink, startObserver = saved, nil
 		scr.update(func() { scr.box, scr.status, scr.spin = nil, "", false })
 		width := appTerminalWidth()

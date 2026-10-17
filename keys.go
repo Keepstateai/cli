@@ -85,14 +85,28 @@ func hostedKeyList(cr hostedCreds, inv *Invocation) {
 	if err != nil {
 		die(err)
 	}
-	emit(map[string]any{"keys": keys, "count": len(keys)}, func() {
+	facts := map[string]any{"keys": keys, "count": len(keys)}
+	// KeepState's key beside your own, only where the service lists it
+	var managed []string
+	if _, listed := managedListed(cr); listed {
+		if doc, err := fetchModelKeys(cr); err == nil {
+			facts["managed"], facts["defaults"], facts["defaults_revision"] = doc.Managed, doc.Defaults, doc.Revision
+			managed = managedKeyRows(doc)
+		}
+	}
+	emit(facts, func() {
 		if len(keys) == 0 {
 			fmt.Println("No provider keys. Add one: ks key add --provider anthropic < key.txt")
-			return
+			if len(managed) == 0 {
+				return
+			}
 		}
 		fmt.Printf("%-14s %-11s %-18s %-6s %s\n", "KEY", "PROVIDER", "ALIAS", "LAST4", "STATE")
 		for _, k := range keys {
 			fmt.Println(keyLine(k))
+		}
+		for _, l := range managed {
+			fmt.Println(l)
 		}
 	})
 }
@@ -260,34 +274,6 @@ func hostedKeyDelete(cr hostedCreds, inv *Invocation) {
 	})
 }
 
-// hostedSessionKeySet binds a session's provider to one key by id.
-func hostedSessionKeySet(cr hostedCreds, inv *Invocation) {
-	sess, err := resolveSession(cr, inv.Arg(0))
-	if err != nil {
-		die(err)
-	}
-	if sess.RecordID == "" {
-		fail(&cliError{Code: exitFailed, Kind: "no_record", Message: "this session has no workspace record to bind a key to yet", NextAction: "ks session show " + sess.ShortID})
-	}
-	k, err := resolveKey(cr, inv.Str("key"))
-	if err != nil {
-		die(err)
-	}
-	var rec struct {
-		Data struct {
-			Revision int64 `json:"revision"`
-		} `json:"data"`
-	}
-	if err := hostedCall(cr, "GET", "/api/v2/sessions/"+sess.RecordID, nil, &rec); err != nil {
-		die(err)
-	}
-	var res map[string]any
-	if err := hostedMutate(cr, "POST", "/api/v2/sessions/"+sess.RecordID+"/bindings", map[string]any{"keys": map[string]string{k.Provider: k.ID}, "expected_revision": rec.Data.Revision}, &res); err != nil {
-		die(err)
-	}
-	emit(res, func() { fmt.Printf("session %s: %s bound to %s (…%s)\n", sess.ShortID, k.Provider, k.ID, k.Last4) })
-}
-
 // hostedPreflight is the run-readiness check: the service's facts and
 // the local upload preview, no request that starts anything.
 func hostedPreflight(cr hostedCreds, inv *Invocation) {
@@ -378,6 +364,9 @@ func hostedPreflight(cr hostedCreds, inv *Invocation) {
 	}
 	blocked, unknown := 0, 0
 	for _, c := range checks {
+		if c.Check == "managed" {
+			continue // it governs only a run on KeepState's key, said beside it
+		}
 		switch c.Status {
 		case "block":
 			blocked++
@@ -400,6 +389,9 @@ func hostedPreflight(cr hostedCreds, inv *Invocation) {
 				line += " → " + sanitize(c.NextAction)
 			}
 			fmt.Println(line)
+			if c.Check == "managed" {
+				fmt.Printf("%-12s %-11s %s\n", "", "", "(this governs only a run on KeepState's key: ks run --agent --key keepstate)")
+			}
 		}
 		if len(notChecked) > 0 {
 			fmt.Println("not checked: " + strings.Join(notChecked, "; "))

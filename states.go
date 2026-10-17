@@ -18,8 +18,11 @@ import (
 	"strconv"
 )
 
+// The protocols: 1, the records as first released; 2, queue edits and
+// Cruise proposals; 3, a session's model calls on KeepState's key (the
+// managed field of a session and its bindings, and the account's model keys).
 const (
-	clientProtocol = 2
+	clientProtocol = 3
 	protocolHeader = "X-KS-Protocol"
 )
 

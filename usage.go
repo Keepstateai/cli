@@ -68,6 +68,9 @@ type usageSummaryDoc struct {
 		KeySource    string `json:"key_source,omitempty"`
 		Charged      int64  `json:"charged_microusd"`
 		ChargeReason string `json:"charge_reason"`
+		// ManagedCharged is what the session's calls on KeepState's key
+		// were charged; absent from a service that does not offer it
+		ManagedCharged int64 `json:"managed_charged_microusd"`
 	} `json:"model"`
 	Runtime struct {
 		Seconds *int64 `json:"seconds"`
@@ -197,7 +200,7 @@ func keySourceText(ks string) string {
 
 // receiptLines is the receipt the console prints, from the summary: a
 // figure the meter did not answer reads unavailable, never 0.
-func receiptLines(s *usageSummaryDoc, state string) []string {
+func receiptLines(s *usageSummaryDoc, state string, onKeepState bool) []string {
 	running := state == "running" || state == "checkpointing"
 	ended := sessionEnded(state)
 	var out []string
@@ -235,6 +238,15 @@ func receiptLines(s *usageSummaryDoc, state string) []string {
 	if m.Charged != 0 {
 		charge = receiptMoney(m.Charged)
 	}
+	// calls on KeepState's key are charged: the line says what, never "No charge"
+	managed := onKeepState || m.ManagedCharged > 0
+	managedCharge := m.ManagedCharged
+	if managedCharge == 0 {
+		managedCharge = m.Charged
+	}
+	if managed {
+		charge = receiptMoney(m.Charged) + " charged"
+	}
 	figure := func(n *int64, what string) string {
 		if n == nil {
 			return what + " unavailable"
@@ -250,6 +262,9 @@ func receiptLines(s *usageSummaryDoc, state string) []string {
 	default:
 		out = append(out, fmt.Sprintf("  model use      %s: %s tokens in %s, %s, %s, %s; %s", charge, commas(*m.Tokens), figure(m.Calls, "calls"),
 			figure(m.InputOutput, "input and output"), figure(m.Cache, "cache"), keySourceText(m.KeySource), sanitize(notRecorded(m.ChargeReason))))
+	}
+	if managed {
+		out = append(out, fmt.Sprintf("  model use on KeepState's key: %s charged, the provider's list price plus the spread, paid from your purchased credit", receiptMoney(managedCharge)))
 	}
 	b := s.Budget
 	switch {
@@ -308,7 +323,7 @@ func hostedSessionUsage(cr hostedCreds, inv *Invocation) {
 		// the receipt first, as the console prints it; the entries below
 		// are the detail
 		if u.Summary != nil {
-			for _, l := range receiptLines(u.Summary, sess.RuntimeState) {
+			for _, l := range receiptLines(u.Summary, sess.RuntimeState, onKeepStatesKey(u.Entries)) {
 				fmt.Println(l)
 			}
 		} else {
@@ -330,10 +345,10 @@ func hostedSessionUsage(cr hostedCreds, inv *Invocation) {
 			switch {
 			case "model" == e.Kind && e.Source == "gateway meter":
 				// the gateway meters a total, not input and output apart
-				fmt.Printf("  model    gateway meter via %s: %d call(s), %s tokens (a total)", figure(e.KeySource), e.Calls, commas(e.Tokens))
+				fmt.Printf("  model    gateway meter via %s: %d call(s), %s tokens (a total)", keySourceLabel(e.KeySource), e.Calls, commas(e.Tokens))
 				fmt.Printf("; cost %s\n", money(e.MicroUSD, e.Currency, e.Standing))
 			case "model" == e.Kind:
-				fmt.Printf("  model    %s/%s via %s: %d call(s), %s in + %s out tokens", figure(e.Provider), figure(e.Model), figure(e.KeySource), e.Calls, commas(e.InputTokens), commas(e.OutputTokens))
+				fmt.Printf("  model    %s/%s via %s: %d call(s), %s in + %s out tokens", figure(e.Provider), figure(e.Model), keySourceLabel(e.KeySource), e.Calls, commas(e.InputTokens), commas(e.OutputTokens))
 				if e.ReservedLive > 0 {
 					fmt.Printf(", %s reserved now", commas(e.ReservedLive))
 				}
@@ -349,4 +364,23 @@ func hostedSessionUsage(cr hostedCreds, inv *Invocation) {
 			}
 		}
 	})
+}
+
+// onKeepStatesKey: an entry of the usage is a model use on KeepState's key.
+func onKeepStatesKey(entries []usageEntryRow) bool {
+	for _, e := range entries {
+		if strings.HasPrefix(e.KeySource, "managed:") {
+			return true
+		}
+	}
+	return false
+}
+
+// keySourceLabel is an entry's key source as a person reads it: KeepState's
+// key for a provider, or the service's word as it is.
+func keySourceLabel(ks string) string {
+	if p, ok := strings.CutPrefix(ks, "managed:"); ok {
+		return "KeepState's key (" + sanitize(p) + ")"
+	}
+	return figure(ks)
 }

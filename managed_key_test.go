@@ -102,6 +102,7 @@ func (c *mkCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			map[string]any{"id": "keys.inventory", "availability": "available", "summary": "s", "surface": "api"},
 			map[string]any{"id": "session.list", "availability": "available", "summary": "s", "surface": "api"},
 			map[string]any{"id": "preflight", "availability": "available", "summary": "s", "surface": "api"},
+			map[string]any{"id": "budget.admission", "availability": "available", "summary": "s", "surface": "api"},
 		}
 		if c.capRow != "" {
 			row := map[string]any{"id": "managed_inference", "availability": c.capRow, "summary": "s", "surface": "api"}
@@ -139,7 +140,7 @@ func (c *mkCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		env(200, map[string]any{"account_id": "acct_t", "cohort_state": "active", "credit_microusd": 50000000, "registry_version": "t", "checks": chk, "blockers": blockers,
-			"ready": len(blockers) == 0, "not_checked": []any{}, "reservation": "a preflight reserves nothing"})
+			"ready": len(blockers) == 0, "not_checked": []any{}, "reservation": "a preflight reserves nothing", "limits": map[string]any{"workspace_bytes": 52428800}})
 	case r.Method == "GET" && r.URL.Path == "/api/v2/keys":
 		env(200, map[string]any{"items": []any{map[string]any{"id": "vlt_one1", "provider": "anthropic", "alias": "prod", "last4": "abcd", "enabled": true, "revision": 1}}, "next_cursor": ""})
 	case r.Method == "POST" && r.URL.Path == "/api/v2/sessions":
@@ -573,7 +574,7 @@ func TestManagedKeyDefault(t *testing.T) {
 	if _, _, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "key", "default", "anthropic", "own"); code != 0 {
 		t.Fatal("set own")
 	}
-	if raw := c.rawBody("PUT /api/v2/account/model-keys"); raw != `{"defaults":{"anthropic":"own"},"expected_revision":2}` {
+	if raw := c.rawBody("PUT /api/v2/account/model-keys"); raw != `{"defaults":{"anthropic":"own"},"expected_revision":3}` {
 		t.Fatalf("PUT own body: %s", raw)
 	}
 	// refused before any request

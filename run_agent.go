@@ -21,6 +21,7 @@ package main
 // A Ready line is printed only for an agent the service OBSERVED ready.
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -64,7 +65,15 @@ func hostedRunAgent(cr hostedCreds, inv *Invocation) {
 	if err != nil {
 		die(err)
 	}
-	rec, p, key, err := startAgentSession(cr, inv.Str("name"), inv.Str("agent-name"), inv.Str("key"), budget, inv.Str("model"), harness)
+	var spend *int64
+	if inv.Set("spend-limit") {
+		v, perr := parseDollars("spend-limit", inv.Str("spend-limit"))
+		if perr != nil {
+			fail(perr)
+		}
+		spend = &v
+	}
+	rec, p, key, err := startAgentSession(cr, inv.Str("name"), inv.Str("agent-name"), inv.Str("key"), budget, inv.Str("model"), harness, spend)
 	if err != nil {
 		die(err)
 	}
@@ -72,6 +81,12 @@ func hostedRunAgent(cr hostedCreds, inv *Invocation) {
 	facts := map[string]any{"session": rec.ID, "agent": p.AgentID, "ready": p.Ready, "supervised": p.Supervised, "key": key.ID,
 		"agent_activity": p.AgentActivity, "cleaned_up": p.CleanedUp, "phases": p.Phases, "note": p.Note, "control_plane": cr.CTL,
 		"runner_model": rec.RunnerModel, "harness": firstNonEmptyStr(rec.Harness, harness.ID)}
+	if rec.Managed != nil {
+		facts["managed"] = rec.Managed
+	}
+	if rec.spendLimit > 0 {
+		facts["spend_limit_microusd"] = rec.spendLimit
+	}
 	agentRef := agentName
 	if agentRef == "" {
 		agentRef = "main"
@@ -197,8 +212,13 @@ type createdRecord struct {
 	// Harness is the runner its agents work inside; absent from a service
 	// that predates harnesses (Claude Code)
 	Harness string `json:"harness,omitempty"`
+	// Managed is the providers whose calls go on KeepState's key; absent
+	// from a service that does not offer it
+	Managed []string `json:"managed,omitempty"`
 	// harnessName is the harness's catalog name, for the run's own line
 	harnessName string
+	// spendLimit is the spend limit on KeepState's key the run asked for
+	spendLimit int64
 }
 
 // runningModel names the model the record carries, on the run's own line;
@@ -232,7 +252,7 @@ var startObserver func(step, detail string)
 // for the app alike: preflight, the key, the record, its binding and the
 // machine. It returns errors rather than exiting; progress goes where
 // progress goes (the terminal, or the app's screen).
-func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *int64, model string, harness catalogHarness) (createdRecord, provisionAnswer, customerKey, error) {
+func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *int64, model string, harness catalogHarness, spend *int64) (createdRecord, provisionAnswer, customerKey, error) {
 	var none createdRecord
 	// the provider the harness calls: Anthropic for Claude Code, the
 	// catalog's for another (OpenAI for Codex)
@@ -244,19 +264,20 @@ func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *i
 	if err := hostedCall(cr, "POST", "/api/v2/preflight", map[string]any{"provider": runnerProvider, "mode": "agent"}, &pf); err != nil {
 		return none, provisionAnswer{}, customerKey{}, err
 	}
-	if b, ok := pf.Data["blockers"].([]any); ok && len(b) > 0 {
-		var lines []string
-		for _, x := range b {
-			lines = append(lines, fmt.Sprint(x))
-		}
+	// ---- 2a. your own key or KeepState's key, chosen before anything exists ---
+	choice, err := chooseRunKey(cr, keyArg, runnerProvider, spend)
+	if err != nil {
+		return none, provisionAnswer{}, customerKey{}, err
+	}
+	if lines := preflightBlockers(pf.Data, choice.skip); len(lines) > 0 {
 		return none, provisionAnswer{}, customerKey{}, &cliError{Code: exitConflict, Kind: "preflight_blocked",
 			Message:    "preflight found blockers, so nothing was created: " + strings.Join(lines, "; "),
 			NextAction: "ks preflight --provider " + runnerProvider}
 	}
-
-	// ---- 2a. the key, chosen before anything exists --------------------------
-	key, err := runKey(cr, keyArg, runnerProvider)
-	if err != nil {
+	var key customerKey
+	if choice.managed {
+		key = customerKey{ID: keepstateKeyArg, Provider: runnerProvider}
+	} else if key, err = runKey(cr, choice.keyArg, runnerProvider); err != nil {
 		return none, provisionAnswer{}, customerKey{}, err
 	}
 
@@ -278,6 +299,14 @@ func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *i
 		// so a service that predates harnesses is asked nothing new
 		body["harness"] = harness.ID
 	}
+	if choice.send != nil {
+		// sent only to a service that offers KeepState's key: the providers
+		// on it (none, over a KeepState default), and its spend limit
+		body["managed"] = *choice.send
+		if choice.managed && choice.spend > 0 {
+			body["spend_limit_microusd"] = choice.spend
+		}
+	}
 	var created struct {
 		Data createdRecord `json:"data"`
 	}
@@ -286,6 +315,14 @@ func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *i
 	}
 	rec := created.Data
 	rec.harnessName = harness.Name
+	if choice.managed && !containsStr(rec.Managed, runnerProvider) {
+		return rec, provisionAnswer{}, key, &cliError{Code: exitFailed, Kind: "managed_not_recorded",
+			Message:    fmt.Sprintf("session %s was created, but the service did not record KeepState's key for its %s calls, so no machine was started for it", rec.ID, providerName(runnerProvider)),
+			NextAction: "ks session key set " + rec.ID + " --key keepstate, or ks session key set " + rec.ID + " --key <your key>"}
+	}
+	if choice.managed {
+		rec.spendLimit = choice.spend
+	}
 	if startObserver != nil {
 		startObserver("session", "")
 	} else {
@@ -300,20 +337,29 @@ func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *i
 	}
 
 	// ---- 3a. the session's binding: that key is used or nothing is ---------
-	var bound struct {
-		Data struct {
-			Revision int64 `json:"revision"`
-		} `json:"data"`
+	// (a session on KeepState's key was bound by its creation)
+	if !choice.managed {
+		var bound struct {
+			Data struct {
+				Revision int64 `json:"revision"`
+			} `json:"data"`
+		}
+		if err := hostedMutate(cr, "POST", "/api/v2/sessions/"+url.PathEscape(rec.ID)+"/bindings",
+			map[string]any{"keys": map[string]string{runnerProvider: key.ID}, "expected_revision": rec.Revision}, &bound); err != nil {
+			return rec, provisionAnswer{}, key, err
+		}
+		rec.Revision = bound.Data.Revision
 	}
-	if err := hostedMutate(cr, "POST", "/api/v2/sessions/"+url.PathEscape(rec.ID)+"/bindings",
-		map[string]any{"keys": map[string]string{runnerProvider: key.ID}, "expected_revision": rec.Revision}, &bound); err != nil {
-		return rec, provisionAnswer{}, key, err
-	}
-	rec.Revision = bound.Data.Revision
-	if startObserver != nil {
+	switch {
+	case startObserver != nil && choice.managed:
+		startObserver("key", keepstateKeyArg)
+		startObserver("machine", "")
+	case startObserver != nil:
 		startObserver("key", key.Last4)
 		startObserver("machine", "")
-	} else {
+	case choice.managed:
+		progress("  %s", choice.line(runnerProvider))
+	default:
 		progress("  %s calls go through your key %s (…%s)", runnerProvider, key.ID, key.Last4)
 	}
 
@@ -347,6 +393,123 @@ func phaseDone(ph []provisionPhaseRow, name string) bool {
 	for _, p := range ph {
 		if p.Phase == name {
 			return p.Done
+		}
+	}
+	return false
+}
+
+// runKeyChoice is which key a new agent session's calls go on, decided
+// before anything is created.
+type runKeyChoice struct {
+	managed     bool      // on KeepState's key
+	fromDefault bool      // because the account's default for the provider says so
+	keyArg      string    // your own key: its id or alias, or "" for your one enabled key
+	send        *[]string // the managed field the creation sends; nil sends none
+	spend       int64     // the spend limit on KeepState's key the creation sends
+	offer       managedProvider
+	skip        map[string]bool // preflight checks that do not govern this run
+}
+
+// line is what the run says about a session on KeepState's key.
+func (c runKeyChoice) line(provider string) string {
+	s := provider + " calls go on KeepState's key: " + spreadText(provider, c.offer) + ", paid from your purchased credit"
+	if c.spend > 0 {
+		s += "; this session's spend limit is " + receiptMoney(c.spend)
+	} else {
+		s += "; this session's spend limit is the service's default"
+	}
+	if c.fromDefault {
+		s += " (your account's default for " + providerName(provider) + ")"
+	}
+	return s
+}
+
+// chooseRunKey decides the key from --key (an id or alias, own, keepstate or
+// nothing) and the account's default for the provider. A service that does
+// not list KeepState's key is asked nothing new and sent nothing new.
+func chooseRunKey(cr hostedCreds, keyArg, provider string, spend *int64) (runKeyChoice, error) {
+	c := runKeyChoice{keyArg: keyArg}
+	if keyArg == ownKeyArg {
+		c.keyArg = ""
+	}
+	row, listed := managedListed(cr)
+	if !listed {
+		if keyArg == keepstateKeyArg {
+			return c, &cliError{Code: exitConflict, Kind: "managed_unavailable",
+				Message:    "KeepState's key cannot be used with this service; " + managedRowWhy(row) + ". Nothing was created",
+				NextAction: "ks run --agent --key own (your own key)"}
+		}
+		return c, nil
+	}
+	doc, err := fetchModelKeys(cr)
+	if err != nil {
+		if keyArg != keepstateKeyArg {
+			return c, nil // not answered: your own key, as before, and nothing new is sent
+		}
+		if errors.Is(err, errModelKeysNotServed) {
+			return c, &cliError{Code: exitConflict, Kind: "managed_unavailable",
+				Message: "KeepState's key is not offered by this service: it does not serve the account's model keys. Nothing was created", NextAction: "ks run --agent --key own (your own key)"}
+		}
+		return c, err
+	}
+	c.skip = map[string]bool{"managed": true}
+	want := keyArg == keepstateKeyArg
+	if keyArg == "" && doc.defaultFor(provider) == "managed" {
+		want, c.fromDefault = true, true
+	}
+	if !want {
+		if doc.defaultFor(provider) == "managed" {
+			none := []string{} // your own key over a KeepState default
+			c.send = &none
+		}
+		return c, nil
+	}
+	mp, ok := doc.offered(provider)
+	if !ok {
+		msg := "KeepState's key is not offered for " + providerName(provider) + " now: " + doc.notOfferedWhy(provider) + ". Nothing was created"
+		next := "ks run --agent --key own (your own key)"
+		if c.fromDefault {
+			msg = "your account's default for " + providerName(provider) + " is KeepState's key, which is not offered now: " + doc.notOfferedWhy(provider) + ". Nothing was created"
+			next = "ks run --agent --key own, or ks key default " + provider + " own"
+		}
+		return c, &cliError{Code: exitConflict, Kind: "managed_unavailable", Message: msg, NextAction: next}
+	}
+	c.managed, c.offer = true, mp
+	c.send = &[]string{provider}
+	c.skip = map[string]bool{"key": true} // no key of your own is needed for it
+	c.spend = doc.Managed.Limits.SessionDefault
+	if spend != nil {
+		c.spend = *spend
+	}
+	return c, nil
+}
+
+// preflightBlockers are the preflight's blockers that govern this run: the
+// service's list as it sent it, unless a check that does not govern the run
+// (your own key for a run on KeepState's key, or KeepState's key for a run on
+// your own) is to be left out, which is read from its per-check answers.
+func preflightBlockers(d map[string]any, skip map[string]bool) []string {
+	var lines []string
+	if items, ok := d["checks"].([]any); ok && len(skip) > 0 {
+		for _, it := range items {
+			if m, ok := it.(map[string]any); ok && m["status"] == "block" && !skip[fmt.Sprint(m["check"])] {
+				lines = append(lines, fmt.Sprint(m["detail"]))
+			}
+		}
+		return lines
+	}
+	if b, ok := d["blockers"].([]any); ok {
+		for _, x := range b {
+			lines = append(lines, fmt.Sprint(x))
+		}
+	}
+	return lines
+}
+
+func containsStr(xs []string, s string) bool {
+	for _, x := range xs {
+		if x == s {
+			return true
 		}
 	}
 	return false
