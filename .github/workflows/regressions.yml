@@ -13,11 +13,22 @@ permissions:
 jobs:
   regressions:
     runs-on: ubuntu-latest
+    # One Go toolchain for this client and the service: the toolchain line
+    # of go.mod, exactly. A Cruise draft's workspace digest is SHA-256 over
+    # gzip bytes both sides write with their own compress/gzip, so they agree
+    # only while both are built by toolchains writing the same deflate stream.
+    # setup-go installs exactly the pin and GOTOOLCHAIN keeps the go command
+    # from choosing another; TestGoToolchainIsPinnedEverywhere holds both to
+    # go.mod.
+    env:
+      GOTOOLCHAIN: go1.26.0
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: "1.26.0"
+      - name: the Go toolchain is the one pinned, here and in the service
+        run: KS_GO_PIN_RUNTIME=1 go test -count=1 -run '^TestGoToolchain' -v .
       - name: vet
         run: go vet ./...
       - name: tests
