@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- The client is built with Go 1.26.0 (it was 1.22.12), the same toolchain the
+  service builds with, pinned in `go.mod` and in every workflow. A Cruise
+  draft's workspace digest is SHA-256 over the gzip bytes of its archive, so a
+  draft the console builds and `ks cruise init` on the same files agree only
+  while both are built by the same Go. No command changes.
+
 ## v0.1.26 (2026-10-16)
 
 A second harness, Codex CLI, beside Claude Code; and four usable saved points per session.

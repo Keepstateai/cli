@@ -1,0 +1,12 @@
+{
+ "what": "the Go toolchain the service pins (the toolchain line of its go.mod); this client builds with the same one, so a draft's workspace archive is the same gzip bytes on both sides",
+ "server_commit": "49a084f9e7fbc4e1fbf95f9d6f80ba8fb7e33f26",
+ "files": {
+  "go-toolchain.txt": {
+   "from": "go.mod (its toolchain line: the toolchain name, then a newline)",
+   "sha256": "a55783d1b90540c6083b184e1cbdb8d02ef8a5f1e0b6835d70022f971e95dfcd",
+   "vendored_sha256": "a55783d1b90540c6083b184e1cbdb8d02ef8a5f1e0b6835d70022f971e95dfcd",
+   "transform": "none: the name alone"
+  }
+ }
+}

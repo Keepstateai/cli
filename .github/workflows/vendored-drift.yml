@@ -29,13 +29,15 @@ jobs:
     env:
       KS_SERVER_REPO: ${{ vars.KS_SERVER_REPO }}
       TOKEN_SET: ${{ secrets.KS_SERVER_READ_TOKEN != '' }}
+      # the one toolchain this client and the service build with (go.mod)
+      GOTOOLCHAIN: go1.26.0
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
-      - name: Vendored files against SOURCE.json, the port against the golden, the canonical form against the vectors
-        run: go test -count=1 -run 'TestKS072|TestKS074|TestC12|TestVerifierSkipDirs' ./...
+          go-version: "1.26.0"
+      - name: Vendored files against SOURCE.json, the port against the golden, the canonical form against the vectors, the service's Go toolchain pin
+        run: go test -count=1 -run 'TestKS072|TestKS074|TestC12|TestVerifierSkipDirs|TestGoToolchainVendoredPinMatchesTheServer' ./...
       - name: Server comparison NOT CONFIGURED
         if: ${{ env.KS_SERVER_REPO == '' || env.TOKEN_SET != 'true' }}
         run: |
@@ -51,4 +53,4 @@ jobs:
             docs/upgrade/vectors
       - name: Vendored files against the service's current ones
         if: ${{ env.KS_SERVER_REPO != '' && env.TOKEN_SET == 'true' }}
-        run: KS_SERVER_CHECKOUT="$GITHUB_WORKSPACE/server" go test -count=1 -run 'TestKS072VendoredGolden|TestKS074VendoredVectors|TestC12VendoredFixtures|TestVerifierSkipDirs' -v ./...
+        run: KS_SERVER_CHECKOUT="$GITHUB_WORKSPACE/server" go test -count=1 -run 'TestKS072VendoredGolden|TestKS074VendoredVectors|TestC12VendoredFixtures|TestVerifierSkipDirs|TestGoToolchainVendoredPinMatchesTheServer' -v ./...

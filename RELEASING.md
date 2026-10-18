@@ -44,8 +44,14 @@ closed, because the authority control cannot be verified. Sign the tag with
 A rehearsal of the same workflow (manual dispatch with the attestation line
 as an input and an optional injected fault) runs the gate and the build and
 publishes nothing; it proves the refusal paths on the real pipeline.
-Reproduce the CI bytes locally with `GOTOOLCHAIN=go1.22.12` and the same
-`go build -trimpath -ldflags "-s -w -X main.version=vX.Y.Z"` line.
+Reproduce the CI bytes locally with `GOTOOLCHAIN=go1.26.0` and the same
+`go build -trimpath -ldflags "-s -w -X main.version=vX.Y.Z"` line. That is
+the one toolchain this client and the service build with: the toolchain line
+of `go.mod`, which the workflows install exactly. A Cruise draft's workspace
+digest is SHA-256 over gzip bytes both sides write, so they agree only while
+both are built by the same toolchain; `TestGoToolchainIsPinnedEverywhere`
+fails if any place here names another one, and the service's CI fails if its
+pin and this one differ.
 
 ## One-time setup: npm trusted publishing (repository owner, on npmjs.com)
 
