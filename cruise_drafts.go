@@ -126,7 +126,12 @@ type draftView struct {
 		Enforced bool   `json:"enforced"`
 		Note     string `json:"note"`
 	} `json:"spend_limit"`
-	Warnings  []any  `json:"warnings"`
+	Warnings []any `json:"warnings"`
+	Tests    *struct {
+		Source    string `json:"source"`
+		State     string `json:"state"`
+		SetDigest string `json:"set_digest"`
+	} `json:"tests"`
 	Storage   string `json:"storage"`
 	JobID     string `json:"job_id"`
 	CreatedAt string `json:"created_at"`
@@ -268,6 +273,13 @@ func printDraft(w io.Writer, v *draftView, computed string) {
 			fmt.Fprintf(w, "  check        %s\n", sanitize(v.Check.Status))
 		}
 	}
+	if v.Tests != nil && v.Tests.Source != "repository" {
+		fmt.Fprintf(w, "  tests        %s, %s", sanitize(v.Tests.Source), sanitize(v.Tests.State))
+		if v.Tests.SetDigest != "" {
+			fmt.Fprintf(w, ", set %s", short(v.Tests.SetDigest))
+		}
+		fmt.Fprintf(w, " (ks cruise tests show %s)\n", v.ID)
+	}
 	if v.Options.Goal != "" {
 		fmt.Fprintf(w, "  goal         %s\n", visible(sanitize(v.Options.Goal)))
 	}
@@ -359,6 +371,26 @@ func draftTerms(inv *Invocation, body map[string]any) {
 	}
 }
 
+// draftTestsTerms reads --generate-tests and the aim into a request body.
+func draftTestsTerms(inv *Invocation, body map[string]any) {
+	if !inv.Bool("generate-tests") {
+		return
+	}
+	aim := map[string]any{"build": strings.TrimSpace(inv.Str("aim")), "acceptance": strings.TrimSpace(inv.Str("acceptance"))}
+	if c := strings.TrimSpace(inv.Str("constraints")); c != "" {
+		aim["constraints"] = c
+	}
+	t := map[string]any{"source": "generated", "aim": aim}
+	if inv.Set("model") {
+		l, err := parseLadder([]string{inv.Str("model")})
+		if err != nil || len(l) != 1 {
+			fail(&cliError{Code: exitUsage, Kind: "usage", Message: fmt.Sprintf("--model is family:model (got %q)", inv.Str("model"))})
+		}
+		t["model"] = l[0]
+	}
+	body["tests"] = t
+}
+
 // packFolder packs a folder by this client's own selection into a temp
 // file: the included files in the deterministic archive init digests, and
 // the paths the policy leaves out, named.
@@ -430,6 +462,17 @@ func hostedCruiseDraftCreate(cr hostedCreds, inv *Invocation) {
 			}
 		}
 	}
+	if !inv.Bool("generate-tests") {
+		for _, f := range []string{"aim", "acceptance", "constraints", "model"} {
+			if inv.Set(f) {
+				fail(&cliError{Code: exitUsage, Kind: "usage", Message: fmt.Sprintf("--%s describes tests the service generates and goes with --generate-tests; nothing was sent", f)})
+			}
+		}
+	} else if proposal != "" {
+		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "a draft from a proposal takes its check from the proposal; --generate-tests does not apply. Nothing was sent"})
+	} else if strings.TrimSpace(inv.Str("aim")) == "" || strings.TrimSpace(inv.Str("acceptance")) == "" {
+		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--generate-tests needs the aim: --aim (what to build) and --acceptance (what done means); nothing was sent"})
+	}
 	if inv.Set("root") && session == "" {
 		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--root names a folder of a session's workspace and goes with --session; nothing was sent"})
 	}
@@ -476,6 +519,7 @@ func hostedCruiseDraftCreate(cr hostedCreds, inv *Invocation) {
 		body["allow"] = a
 	}
 	draftTerms(inv, body)
+	draftTestsTerms(inv, body)
 	progress("KeepState keeps these files for this draft only, does not bill for them, and deletes them when the draft is approved, discarded or expires")
 
 	var env draftEnvelope
@@ -532,6 +576,7 @@ func createSessionDraft(cr hostedCreds, inv *Invocation, body map[string]any, pr
 	}
 	if proposal == "" {
 		draftTerms(inv, body)
+		draftTestsTerms(inv, body)
 	}
 	progress("KeepState copies the session's files into this draft only, does not bill for the copy, and deletes it when the draft is approved, discarded or expires")
 	var env draftEnvelope
@@ -601,7 +646,13 @@ func finishDraftShow(v *draftView, raw json.RawMessage, next bool) {
 	if !refused || !out.json {
 		emit(raw, func() {
 			printDraft(os.Stdout, v, computed)
-			if next && computed != "" && v.State == "ready" {
+			generated := v.Tests != nil && v.Tests.Source == "generated"
+			switch {
+			case next && generated && v.State == "ready" && v.Tests.State == "awaiting_aim":
+				fmt.Printf("next: ks cruise tests generate %s\n", v.ID)
+			case next && generated && v.State == "ready" && v.Tests.State == "generated":
+				fmt.Printf("next: ks cruise tests review %s\n", v.ID)
+			case next && computed != "" && v.State == "ready":
 				fmt.Printf("next: ks cruise draft approve %s --confirm %s\n", v.ID, short(computed))
 			}
 		})
@@ -895,9 +946,11 @@ func verifyDraft(cr hostedCreds, v *draftView, raw json.RawMessage) {
 				bad++
 			}
 		}
+		// a draft whose tests were generated holds the selection plus the set
+		generated := generatedSetChecks(ver, bySHA, add)
 		add("every selected file is in the archive with the sha256 the selection records",
 			fmt.Sprintf("%d of %d differ, %d archive entries", bad, len(v.Selection.Included), len(files)),
-			fmt.Sprintf("0 of %d differ, %d archive entries", len(v.Selection.Included), len(v.Selection.Included)))
+			fmt.Sprintf("0 of %d differ, %d archive entries", len(v.Selection.Included), len(v.Selection.Included)+generated))
 		add("selection digest is the manifest's workspace.selection_digest", selectionDigest(v.Selection), fmt.Sprint(ws["selection_digest"]))
 		inputs, _, ierr := bindingInputs(judgeSorted(files), checkRunnerOf(ver))
 		if ierr != nil {

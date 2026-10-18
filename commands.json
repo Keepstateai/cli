@@ -1300,7 +1300,7 @@
   {
    "verb": "cruise draft create",
    "aliases": [],
-   "usage": "ks cruise draft create [--dir FOLDER] [--archive FILE] [--session SESSION] [--root FOLDER] [--proposal PROPOSAL] [--goal TEXT] [--paths GLOB...] [--check RUNNER] [--allow PATH...] [--ladder family:model,...] [--spend USD] [--key PROVIDER=KEY]",
+   "usage": "ks cruise draft create [--dir FOLDER] [--archive FILE] [--session SESSION] [--root FOLDER] [--proposal PROPOSAL] [--goal TEXT] [--paths GLOB...] [--check RUNNER] [--allow PATH...] [--ladder family:model,...] [--spend USD] [--key PROVIDER=KEY] [--generate-tests] [--aim TEXT] [--acceptance TEXT] [--constraints TEXT] [--model family:model]",
    "summary": "a hosted draft from a folder (packed here by init's own selection), a .zip, .tar.gz or .tar archive, one of your sessions, or an agent's proposal: what was found and the digest computed here",
    "status": "available",
    "surface": "hosted",
@@ -1352,6 +1352,26 @@
     {
      "flag": "--key PROVIDER=KEY",
      "summary": "the key a provider of the ladder uses, when it has several enabled keys (repeatable)"
+    },
+    {
+     "flag": "--generate-tests",
+     "summary": "have the service generate the tests the job must pass, from the aim you describe (then ks cruise tests generate); the repository's own tests stay and must keep passing"
+    },
+    {
+     "flag": "--aim TEXT",
+     "summary": "with --generate-tests: what to build"
+    },
+    {
+     "flag": "--acceptance TEXT",
+     "summary": "with --generate-tests: what done means"
+    },
+    {
+     "flag": "--constraints TEXT",
+     "summary": "with --generate-tests: anything the tests and the work must respect"
+    },
+    {
+     "flag": "--model family:model",
+     "summary": "with --generate-tests: the model that writes the tests; default the ladder's strongest rung"
     }
    ],
    "note": "a folder is packed by the same selection ks cruise init uses; the paths it leaves out are named, never sent. The service keeps its copy unbilled until approval, discard or expiry"
@@ -1961,6 +1981,64 @@
    "status": "available",
    "surface": "hosted",
    "note": "Reads GET /api/v2/sessions/{id}/handoff-brief; gated on agent.workspace. The brief of the session's latest harness switch, as the new agent received it: written by KeepState from its records, with a narrative by the outgoing harness's smallest model on the session's own key, checked by code (citations of the journal, an order no person gave dropped, secrets redacted). ks_not_found when the session never switched its harness. Changes nothing."
+  },
+  {
+   "verb": "cruise tests estimate",
+   "aliases": [],
+   "usage": "ks cruise tests estimate <draft>",
+   "summary": "what generating a draft's tests would use, before anything is asked for: the model and whose key, tokens, machine minutes",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "cruise tests generate",
+   "aliases": [],
+   "usage": "ks cruise tests generate <draft> [--yes]",
+   "summary": "ask the service for the tests a job on this draft must pass: written from your aim, then run twice on your files",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--yes",
+     "summary": "accept the estimate shown without asking"
+    }
+   ]
+  },
+  {
+   "verb": "cruise tests show",
+   "aliases": [],
+   "usage": "ks cruise tests show <draft> [--files]",
+   "summary": "a draft's tests: their state, one sentence per test and how it ran twice on your files, what was dropped and what is untested",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--files",
+     "summary": "print every generated file in full"
+    }
+   ]
+  },
+  {
+   "verb": "cruise tests review",
+   "aliases": [],
+   "usage": "ks cruise tests review <draft> [--confirm DIGEST]",
+   "summary": "read every generated file in full and confirm the set digest computed here from them; only a reviewed set is approved",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--confirm DIGEST",
+     "summary": "the set digest you read (all of it, or the 12 characters shown); required without a terminal"
+    }
+   ]
+  },
+  {
+   "verb": "cruise tests discard",
+   "aliases": [],
+   "usage": "ks cruise tests discard <draft>",
+   "summary": "drop a draft's generated tests; ask again with ks cruise tests generate",
+   "status": "available",
+   "surface": "hosted"
   }
  ]
 }
