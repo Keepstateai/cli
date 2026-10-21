@@ -85,7 +85,7 @@ func TestPreflightSendsWhatOnlyTheClientMeasures(t *testing.T) {
 	if l, _ := json.Marshal(b["ladder"]); string(l) != `["claude","gpt"]` {
 		t.Fatalf("ladder sent: %s", l)
 	}
-	if c.proto[0] != "2" {
+	if c.proto[0] != "3" {
 		t.Fatalf("protocol not declared: %v", c.proto)
 	}
 	for _, want := range []string{"[setup]", "not checked: budget_tokens: not declared", "nothing is reserved by a preflight", "a passing preflight reserves nothing"} {

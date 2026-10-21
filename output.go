@@ -201,6 +201,11 @@ func classify(err error) *cliError {
 				Message:    sanitize(he.Message) + " [ks_legacy_retired]",
 				NextAction: "start an agent session instead: ks run --agent (existing sessions keep their status, saves and results)"}
 		}
+		if m := managedRefusal(he); m != nil {
+			// a call or a choice on KeepState's key refused before anything
+			// was sent: the service's words and the next step
+			return m
+		}
 		c := &cliError{Kind: he.Type, Message: sanitize(he.Message), HTTPStatus: he.Status, WorkStarted: workNo}
 		if c.Kind == "" {
 			c.Kind = "http_" + fmt.Sprint(he.Status)

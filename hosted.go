@@ -269,6 +269,15 @@ func hostedMeter(cr hostedCreds, inv *Invocation) {
 		}
 		fmt.Printf("session %v · spent %s / budget %s tokens · billed calls %s · key source(s): %s\n",
 			figure(mtr["session"]), figure(mtr["spent"]), figure(mtr["budget"]), figure(mtr["billed_calls"]), src)
+		// calls on KeepState's key are charged: say so, with the amount when
+		// the meter carries it
+		if strings.Contains(src, "managed") {
+			amount := "charged"
+			if n, ok := mtr["managed_charged_microusd"].(float64); ok {
+				amount = receiptMoney(int64(n)) + " charged"
+			}
+			fmt.Printf("  model calls on KeepState's key: %s, the provider's list price plus the spread, paid from your purchased credit (ks session usage %s has the detail)\n", amount, sanitize(id))
+		}
 	})
 }
 

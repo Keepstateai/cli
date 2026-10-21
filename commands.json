@@ -49,7 +49,7 @@
   {
    "verb": "run",
    "aliases": [],
-   "usage": "ks run [--image I] [--budget-tokens N] [--agent] [--name NAME] [--agent-name NAME] [--key KEY] [--task TEXT] [--open] [--model MODEL] [--harness HARNESS]",
+   "usage": "ks run [--image I] [--budget-tokens N] [--agent] [--name NAME] [--agent-name NAME] [--key KEY] [--spend-limit DOLLARS] [--task TEXT] [--open] [--model MODEL] [--harness HARNESS]",
    "summary": "start a hosted session; with --agent, an agent session whose main agent is running and supervised",
    "status": "available",
    "surface": "hosted",
@@ -84,7 +84,11 @@
     },
     {
      "flag": "--key KEY",
-     "summary": "the provider key the agent calls with, by id or alias (with --agent); default your one enabled key for the agent's provider"
+     "summary": "the key the agent calls with (with --agent): a key's id or alias, own for your own key, or keepstate for KeepState's key (charged from your purchased credit at the provider's list price plus the spread); default your account's default for the agent's provider, else your one enabled key for it"
+    },
+    {
+     "flag": "--spend-limit DOLLARS",
+     "summary": "the session's spend limit on KeepState's key, in dollars (with --key keepstate); default the service's for a session"
     },
     {
      "flag": "--task TEXT",
@@ -475,14 +479,22 @@
   {
    "verb": "session key set",
    "aliases": [],
-   "usage": "ks session key set <session> [--key KEY]",
-   "summary": "bind a session's provider to one of your keys by id; that key is used or nothing is",
+   "usage": "ks session key set <session> [--key KEY] [--provider PROVIDER] [--spend-limit DOLLARS]",
+   "summary": "bind a session's provider to one of your keys by id, or to KeepState's key; that key is used or nothing is",
    "status": "available",
    "surface": "hosted",
    "flags": [
     {
      "flag": "--key KEY",
-     "summary": "the key's id or alias"
+     "summary": "the key's id or alias, or keepstate for KeepState's key"
+    },
+    {
+     "flag": "--provider PROVIDER",
+     "summary": "with --key keepstate: the provider whose calls go on KeepState's key, anthropic or openai; default the provider of the session's harness"
+    },
+    {
+     "flag": "--spend-limit DOLLARS",
+     "summary": "the session's spend limit on KeepState's key, in dollars"
     }
    ]
   },
@@ -490,9 +502,18 @@
    "verb": "key list",
    "aliases": [],
    "usage": "ks key list",
-   "summary": "your keys: id, provider, alias, last four characters, enabled or disabled",
+   "summary": "your keys: id, provider, alias, last four characters, enabled or disabled; and KeepState's key per provider where it is offered",
    "status": "available",
    "surface": "hosted"
+  },
+  {
+   "verb": "key default",
+   "aliases": [],
+   "usage": "ks key default [provider] [own|keepstate]",
+   "summary": "the key new sessions use for each provider: your own key or KeepState's key",
+   "status": "available",
+   "surface": "hosted",
+   "note": "Reads GET /api/v2/account/model-keys; with a provider and own or keepstate, sends PUT /api/v2/account/model-keys with the defaults and expected_revision. The default governs sessions created afterwards without a choice of key; existing sessions keep theirs. KeepState's key is refused (ks_managed_unavailable) for a provider it is not offered for now; a changed document is refused (ks_revision_conflict) and nothing changes."
   },
   {
    "verb": "key show",
@@ -547,7 +568,7 @@
   {
    "verb": "preflight",
    "aliases": [],
-   "usage": "ks preflight [--provider PROVIDER] [--mode MODE] [--check COMMAND] [--ladder FAMILIES]",
+   "usage": "ks preflight [--provider PROVIDER] [--mode MODE] [--check COMMAND] [--ladder FAMILIES] [--key KEY]",
    "summary": "what a run needs and what is missing: identity, keys, credit, capabilities, and the local upload preview; starts nothing",
    "status": "available",
    "surface": "hosted",
@@ -567,6 +588,10 @@
     {
      "flag": "--ladder FAMILIES",
      "summary": "the model families a Cruise job would climb, comma-separated (default: the draft's ladder)"
+    },
+    {
+     "flag": "--key KEY",
+     "summary": "the key the run would use: keepstate (KeepState's key) or own (your own key); default your account's default for the provider"
     }
    ]
   },
