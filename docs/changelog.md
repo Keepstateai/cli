@@ -1,7 +1,23 @@
 # Changelog
 
-## Unreleased
+## v0.1.27 (2026-10-22)
 
+- Model calls on KeepState's key, where the service offers it: `ks run --agent
+  --key keepstate` (or the account's default) creates the session with its
+  provider on KeepState's key and its spend limit (`--spend-limit DOLLARS`),
+  `ks session key set --key keepstate [--provider P] [--spend-limit D]` moves a
+  provider to KeepState's key and `--key <id>` moves it back, `ks key list`
+  shows KeepState's key per offered provider, `ks key default` reads and sets
+  the account's default per provider, `ks preflight` gains `--key
+  keepstate|own`, and `ks session usage` and `ks meter` show what calls on
+  KeepState's key were charged.
+- Generated tests for a hosted Cruise draft: `ks cruise draft create
+  --generate-tests --aim TEXT --acceptance TEXT [--constraints TEXT] [--model
+  family:model]` asks the service to write the tests a job must pass; `ks
+  cruise tests estimate`, `generate`, `show`, `review` (every file in full and
+  the set digest computed here from the files' own bytes, confirmed with
+  `--confirm` or at the terminal) and `discard`; `ks cruise draft show
+  --verify` also checks a generated set against the manifest.
 - The client is built with Go 1.26.0 (it was 1.22.12), the same toolchain the
   service builds with, pinned in `go.mod` and in every workflow. A Cruise
   draft's workspace digest is SHA-256 over the gzip bytes of its archive, so a
