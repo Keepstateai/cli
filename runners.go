@@ -26,6 +26,9 @@ type runnerDef struct {
 	DepsAnywhere     string `json:"depsAnywhere"`
 	DepsRoot         string `json:"depsRoot"`
 	SupportInTestDir string `json:"supportInTestDir"`
+	TestPath         string `json:"testPath"`
+	ConfigPath       string `json:"configPath"`
+	SupportPath      string `json:"supportPath"`
 	RequiresDeps     string `json:"requiresDeps"`
 	Command          string `json:"command"`
 
@@ -63,7 +66,8 @@ func mustRunners(b []byte) *runnerList {
 		e := &l.Ecosystems[i]
 		e.re = map[string]*regexp.Regexp{}
 		for k, v := range map[string]string{"test": e.Test, "configAnywhere": e.ConfigAnywhere, "configRoot": e.ConfigRoot,
-			"depsAnywhere": e.DepsAnywhere, "depsRoot": e.DepsRoot, "supportInTestDir": e.SupportInTestDir} {
+			"depsAnywhere": e.DepsAnywhere, "depsRoot": e.DepsRoot, "supportInTestDir": e.SupportInTestDir,
+			"testPath": e.TestPath, "configPath": e.ConfigPath, "supportPath": e.SupportPath} {
 			if v != "" {
 				e.re[k] = regexp.MustCompile(v)
 			}
@@ -92,6 +96,9 @@ func (l *runnerList) classify(rel string, ignored func(string) bool) []ecoRole {
 	}
 	atRoot := len(parts) == 1
 	match := func(e *runnerDef, k string) bool { r := e.re[k]; return r != nil && r.MatchString(name) }
+	// testPath, configPath and supportPath match the whole relative path (a
+	// language whose layout says what a test is: src/test/java for Maven)
+	matchPath := func(e *runnerDef, k string) bool { r := e.re[k]; return r != nil && r.MatchString(rel) }
 	var out []ecoRole
 	for i := range l.Ecosystems {
 		e := &l.Ecosystems[i]
@@ -105,13 +112,13 @@ func (l *runnerList) classify(rel string, ignored func(string) bool) []ecoRole {
 		}
 		var role string
 		switch {
-		case match(e, "test") || inDirs:
+		case match(e, "test") || inDirs || matchPath(e, "testPath"):
 			role = "test"
-		case match(e, "configAnywhere") || (atRoot && match(e, "configRoot")):
+		case match(e, "configAnywhere") || (atRoot && match(e, "configRoot")) || matchPath(e, "configPath"):
 			role = "config"
 		case match(e, "depsAnywhere") || (atRoot && match(e, "depsRoot")):
 			role = "deps"
-		case inTestdir && match(e, "supportInTestDir"):
+		case (inTestdir && match(e, "supportInTestDir")) || matchPath(e, "supportPath"):
 			role = "test_support"
 		default:
 			continue
