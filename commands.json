@@ -2090,7 +2090,7 @@
   {
    "verb": "session runner",
    "aliases": [],
-   "usage": "ks session runner <session> [--harness HARNESS] [--model MODEL] [--key KEY] [--spend-limit DOLLARS] [--resume] [--stop-running]",
+   "usage": "ks session runner <session> [--harness HARNESS] [--model MODEL] [--key KEY] [--spend-limit DOLLARS] [--resume] [--stop-running] [--cancel]",
    "summary": "what a session runs (harness, model, key) and one change of any of them, in any state: the service checks first, saves and starts it again only as a part needs",
    "status": "available",
    "surface": "hosted",
@@ -2118,6 +2118,10 @@
     {
      "flag": "--stop-running",
      "summary": "with --harness: ask the instruction in progress to stop instead of waiting for it"
+    },
+    {
+     "flag": "--cancel",
+     "summary": "cancel a change still waiting for an instruction to finish; nothing of the session was touched"
     }
    ]
   }

@@ -90,6 +90,16 @@ func (c *runnerCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		data(200, o)
+	case r.Method == "DELETE" && r.URL.Path == "/api/v2/sessions/session_park/runner-change":
+		c.sent = append(c.sent, map[string]any{"cancel": true})
+		if c.change == nil || c.change["state"] != "open" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(404)
+			_ = json.NewEncoder(w).Encode(map[string]any{"schema_version": 2, "error": map[string]any{"code": "ks_not_found", "type": "ks_not_found", "message": "no change of this session is waiting", "work_started": "no"}})
+			return
+		}
+		c.change = map[string]any{"id": "rc_9", "state": "cancelled", "step": "waiting", "words": "Cancelled. Nothing was changed."}
+		data(200, c.change)
 	case r.Method == "GET" && r.URL.Path == "/api/v2/sessions/session_park/runner-change":
 		if c.change == nil {
 			w.WriteHeader(404)
@@ -150,6 +160,16 @@ func TestSessionRunnerReadsAndChangesInOneRequest(t *testing.T) {
 		t.Fatalf("--stop-running was not sent: %v", c.sent[2])
 	}
 
+	// --cancel: a change still waiting is cancelled; with none waiting, nothing was
+	c.change = map[string]any{"id": "rc_9", "state": "open", "step": "waiting", "words": "Waiting for the instruction in progress to finish."}
+	out, errs, code = auditExec(t, bin, cfg, dir, env, "session", "runner", "fleetpark", "--cancel")
+	if code != 0 || !strings.Contains(out, "Cancelled. Nothing was changed.") {
+		t.Fatalf("cancel: %d\n%s%s", code, out, errs)
+	}
+	if _, errs, code = auditExec(t, bin, cfg, dir, env, "session", "runner", "fleetpark", "--cancel"); code == 0 || !strings.Contains(errs, "no change of this session is waiting; nothing was cancelled") {
+		t.Fatalf("cancel with none waiting: %d\n%s", code, errs)
+	}
+
 	// --resume without a change is a usage error, and nothing is sent
 	n := len(c.sent)
 	if _, errs, code = auditExec(t, bin, cfg, dir, env, "session", "runner", "fleetpark", "--resume"); code != exitUsage || !strings.Contains(errs, "go with a change") {
@@ -157,6 +177,9 @@ func TestSessionRunnerReadsAndChangesInOneRequest(t *testing.T) {
 	}
 	if _, errs, code = auditExec(t, bin, cfg, dir, env, "session", "runner", "fleetpark", "--key", "keepstate", "--spend-limit", "abc"); code != exitUsage || !strings.Contains(errs, "an amount in dollars") {
 		t.Fatalf("a bad spend limit: %d\n%s", code, errs)
+	}
+	if _, errs, code = auditExec(t, bin, cfg, dir, env, "session", "runner", "fleetpark", "--cancel", "--model", "x"); code != exitUsage || !strings.Contains(errs, "takes no change of its own") {
+		t.Fatalf("--cancel with a change: %d\n%s", code, errs)
 	}
 	if len(c.sent) != n {
 		t.Fatal("a usage error sent a change")

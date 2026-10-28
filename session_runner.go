@@ -4,6 +4,7 @@
 //	                                                     and a change under way
 //	ks session runner <session> [--harness H] [--model M] [--key K] [--spend-limit D]
 //	                  [--resume] [--stop-running]        change any of them, in any state
+//	ks session runner <session> --cancel                 cancel a change still waiting
 //
 // The service takes the steps (POST /api/v2/sessions/{id}/runner-change): it
 // checks every refusal first, waits for a running instruction when the
@@ -105,6 +106,21 @@ func hostedSessionRunner(cr hostedCreds, inv *Invocation) {
 	}
 	rec := readSessionRunner(cr, sess.RecordID)
 	changing := inv.Set("harness") || inv.Set("model") || inv.Set("key") || inv.Set("spend-limit")
+	if inv.Bool("cancel") {
+		if changing || inv.Set("resume") || inv.Set("stop-running") {
+			fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--cancel cancels the change under way and takes no change of its own. Nothing was sent", NextAction: "ks session runner " + sess.ShortID + " --cancel"})
+		}
+		var env struct {
+			Data runnerChangeRead `json:"data"`
+		}
+		if err := hostedMutate(cr, "DELETE", "/api/v2/sessions/"+url.PathEscape(sess.RecordID)+"/runner-change", nil, &env); err != nil {
+			die(runnerChangeRefusal(cr, err, sess))
+		}
+		emit(map[string]any{"change": env.Data}, func() {
+			fmt.Printf("session %s: %s\n", sess.ShortID, sanitize(firstNonEmptyStr(env.Data.Words, "Cancelled. Nothing was changed.")))
+		})
+		return
+	}
 	if !changing {
 		if inv.Set("resume") || inv.Set("stop-running") {
 			fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--resume and --stop-running go with a change: --harness, --model, --key or --spend-limit"})
@@ -226,6 +242,12 @@ func runnerChangeRefusal(cr hostedCreds, err error, sess inventoryRow) error {
 	case "ks_harness_invalid", "ks_harness_same", "ks_harness_unavailable", "ks_harness_not_in_image", "ks_model_invalid", "ks_model_harness_mismatch":
 		ce.Message = sanitize(he.Message) + "; nothing changed"
 		ce.NextAction = "ks cruise models (the harnesses and the models each runs)"
+	case "ks_change_running":
+		ce.Message = sanitize(he.Message)
+		ce.NextAction = "ks session runner " + sess.ShortID + " (it says what the change did once it finishes)"
+	case "ks_not_found":
+		ce.Message = "no change of this session is waiting; nothing was cancelled"
+		ce.NextAction = "ks session runner " + sess.ShortID
 	case "ks_session_killed":
 		ce.Message = sanitize(he.Message)
 		ce.NextAction = "ks session list"
