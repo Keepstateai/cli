@@ -716,8 +716,12 @@ func cruiseInit(inv *Invocation) {
 			runner = "go"
 		case strings.HasPrefix(named, "npm ") || strings.HasPrefix(named, "node "):
 			runner = "node"
+		case strings.HasPrefix(named, "cargo "):
+			runner = "cargo"
+		case strings.HasPrefix(named, "ruby ") || strings.HasPrefix(named, "rake test") || strings.HasPrefix(named, "bundle exec rake test"):
+			runner = "minitest"
 		default:
-			fmt.Fprintf(os.Stderr, "ks cruise init: the verifier runs pytest, go test or node --test; %q is none of them. Name the runner with --check pytest|go|node.\n", named)
+			fmt.Fprintf(os.Stderr, "ks cruise init: the verifier runs %s; %q is none of them. Name the runner with --check %s.\n", runners.choices(), named, strings.Join(runners.offered(), "|"))
 			os.Exit(2)
 		}
 	}
@@ -729,7 +733,7 @@ func cruiseInit(inv *Invocation) {
 		case "ks_check_not_found":
 			fmt.Fprintln(os.Stderr, "no check found: a goal with no check is not a job.")
 			fmt.Fprintln(os.Stderr, "init looks for Python (test_*.py, *_test.py), Go (*_test.go) and Node (*.test.js, *.spec.js, test/, __tests__/) tests, nested included.")
-			fmt.Fprintf(os.Stderr, "(%v) Name the check with --check pytest|go|node. Nothing was written.\n", serr)
+			fmt.Fprintf(os.Stderr, "(%v) Name the check with --check %s. Nothing was written.\n", serr, strings.Join(runners.offered(), "|"))
 		default:
 			fmt.Fprintf(os.Stderr, "ks cruise init: %v\n", serr)
 		}

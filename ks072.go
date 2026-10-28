@@ -17,28 +17,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"path"
 	"regexp"
 	"sort"
 	"strings"
 )
 
-var (
-	ks072SkipDirs    = verifierSkipDirs // the vendored judge/checks.py SKIP_DIRS
-	ks072TestDirs    = map[string]bool{"tests": true, "test": true, "__tests__": true}
-	ks072FixtureDirs = map[string]bool{"testdata": true, "test_data": true, "fixtures": true, "__fixtures__": true, "__snapshots__": true}
-
-	ks072PyTest   = regexp.MustCompile(`^(test_.*|.*_test)\.py$`)
-	ks072PyConfig = map[string]bool{"conftest.py": true, "pytest.ini": true, "pyproject.toml": true, "setup.cfg": true, "tox.ini": true, "setup.py": true}
-	ks072PyDeps   = regexp.MustCompile(`^(requirements.*\.txt|constraints.*\.txt|Pipfile|Pipfile\.lock|poetry\.lock|uv\.lock|pdm\.lock)$`)
-
-	ks072GoTest   = regexp.MustCompile(`^.*_test\.go$`)
-	ks072GoConfig = map[string]bool{"go.mod": true, "go.sum": true, "go.work": true, "go.work.sum": true}
-
-	ks072NodeTest   = regexp.MustCompile(`^(.*[.\-_]test|.*\.spec|test-.*|test)\.(c|m)?[jt]sx?$`)
-	ks072NodeConfig = regexp.MustCompile(`^(package\.json|\.mocharc\..*|jest\.config\..*|vitest\.config\..*|babel\.config\..*|\.babelrc|tsconfig\.json|\.nvmrc|\.node-version)$`)
-	ks072NodeDeps   = map[string]bool{"package-lock.json": true, "npm-shrinkwrap.json": true, "yarn.lock": true, "pnpm-lock.yaml": true}
-	ks072NodeSrc    = regexp.MustCompile(`\.(c|m)?[jt]sx?$`)
-)
+var ks072SkipDirs = verifierSkipDirs // the vendored judge/checks.py SKIP_DIRS
 
 type ecoRole struct{ eco, role string }
 
@@ -52,77 +37,9 @@ func ks072Ignored(rel string) bool {
 	return false
 }
 
-// ks072Classify is judge/checks.py classify().
+// ks072Classify is judge/checks.py classify(), from the vendored runner list.
 func ks072Classify(rel string) []ecoRole {
-	parts := strings.Split(rel, "/")
-	name := parts[len(parts)-1]
-	dirs := parts[:len(parts)-1]
-	if ks072Ignored(rel) {
-		return nil
-	}
-	var out []ecoRole
-	inFixture, inTestdir, hasTestDir, hasUnderTests := false, false, false, false
-	for _, d := range dirs {
-		if ks072FixtureDirs[d] {
-			inFixture = true
-		}
-		if ks072TestDirs[d] {
-			inTestdir = true
-		}
-		if d == "test" {
-			hasTestDir = true
-		}
-		if d == "__tests__" {
-			hasUnderTests = true
-		}
-	}
-	has := func(eco string) bool {
-		for _, o := range out {
-			if o.eco == eco {
-				return true
-			}
-		}
-		return false
-	}
-	// python
-	switch {
-	case ks072PyTest.MatchString(name):
-		out = append(out, ecoRole{"python", "test"})
-	case name == "conftest.py" || (ks072PyConfig[name] && len(parts) == 1):
-		out = append(out, ecoRole{"python", "config"})
-	case ks072PyDeps.MatchString(name) && len(parts) == 1:
-		out = append(out, ecoRole{"python", "deps"})
-	case inTestdir && strings.HasSuffix(name, ".py"):
-		out = append(out, ecoRole{"python", "test_support"})
-	}
-	// go
-	switch {
-	case ks072GoTest.MatchString(name):
-		out = append(out, ecoRole{"go", "test"})
-	case ks072GoConfig[name]:
-		role := "deps"
-		if strings.HasSuffix(name, ".mod") || name == "go.work" {
-			role = "config"
-		}
-		out = append(out, ecoRole{"go", role})
-	}
-	// node
-	switch {
-	case ks072NodeTest.MatchString(name) || (hasUnderTests && ks072NodeSrc.MatchString(name)) || (inTestdir && ks072NodeSrc.MatchString(name) && hasTestDir):
-		out = append(out, ecoRole{"node", "test"})
-	case ks072NodeConfig.MatchString(name) && (len(parts) == 1 || name == "package.json"):
-		out = append(out, ecoRole{"node", "config"})
-	case ks072NodeDeps[name]:
-		out = append(out, ecoRole{"node", "deps"})
-	}
-	if inFixture || (inTestdir && len(out) == 0) {
-		for _, eco := range []string{"python", "go", "node"} {
-			if !has(eco) {
-				out = append(out, ecoRole{eco, "fixture"})
-			}
-		}
-	}
-	return out
+	return runners.classify(rel, ks072Ignored)
 }
 
 type pinnedInput struct {
@@ -148,7 +65,7 @@ type discovery struct {
 // (hex). links lists the symlinked paths (reported, never pinned).
 func ks072Discover(files map[string]string, links []string) discovery {
 	eco := map[string]*ecoInputs{}
-	for _, e := range []string{"python", "go", "node"} {
+	for _, e := range runners.ecosystems() {
 		eco[e] = &ecoInputs{Tests: []pinnedInput{}, Config: []pinnedInput{}, Deps: []pinnedInput{}, Fixtures: []pinnedInput{}, TestSupport: []pinnedInput{}}
 	}
 	rels := make([]string, 0, len(files))
@@ -238,7 +155,14 @@ func ks072InputsDigest(rows []pinnedInput) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-var ks072RunnerEco = map[string]string{"pytest": "python", "go": "go", "node": "node"}
+// ks072RunnerEco: each offered runner's ecosystem, from the runner list.
+var ks072RunnerEco = func() map[string]string {
+	m := map[string]string{}
+	for _, r := range runners.offered() {
+		m[r] = runners.byRunner[r].Ecosystem
+	}
+	return m
+}()
 var ks072LegacyPytest = regexp.MustCompile(`(^|\s)(-m\s+)?pytest(\s|$)`)
 
 type ks072Selection struct {
@@ -248,54 +172,70 @@ type ks072Selection struct {
 }
 
 // ks072Select is select(): an explicit runner, a legacy pytest command, or
-// the single ecosystem with tests; refused as ks_check_ambiguous or
+// the single ecosystem with tests (the first, legacy ecosystems chosen among
+// themselves first, as the verifier does); refused as ks_check_ambiguous or
 // ks_check_not_found otherwise.
 func ks072Select(d discovery, runner, legacyCommand string) (ks072Selection, string, error) {
 	var sel ks072Selection
 	switch {
 	case runner != "":
-		if _, ok := ks072RunnerEco[runner]; !ok {
-			return sel, "ks_check_invalid", fmt.Errorf("--check is pytest, go or node (got %q)", runner)
+		if runners.offeredRunner(runner) == nil {
+			return sel, "ks_check_invalid", fmt.Errorf("--check is %s (got %q)", runners.choices(), runner)
 		}
 		sel = ks072Selection{Runner: runner, Source: "explicit"}
 	case legacyCommand != "" && ks072LegacyPytest.MatchString(legacyCommand):
 		sel = ks072Selection{Runner: "pytest", Source: "legacy_command"}
 	default:
-		switch len(d.WithTests) {
-		case 0:
-			return sel, "ks_check_not_found", fmt.Errorf("no Python, Node or Go tests were discovered in the workspace")
-		case 1:
-			for r, e := range ks072RunnerEco {
-				if e == d.WithTests[0] {
-					sel = ks072Selection{Runner: r, Source: "discovered"}
-				}
+		found := []string{}
+		for _, e := range d.WithTests {
+			if runners.legacy(e) {
+				found = append(found, e)
 			}
+		}
+		if len(found) == 0 {
+			found = d.WithTests
+		}
+		switch len(found) {
+		case 0:
+			return sel, "ks_check_not_found", fmt.Errorf("no %s tests were discovered in the workspace", runners.languages())
+		case 1:
+			r, ok := runners.offeredEco(found[0])
+			if !ok {
+				return sel, "ks_check_not_found", fmt.Errorf("%s tests were discovered; their check is not offered (the check is %s)", found[0], runners.choices())
+			}
+			sel = ks072Selection{Runner: r, Source: "discovered"}
 		default:
-			var runners []string
-			for _, r := range []string{"pytest", "go", "node"} {
-				for _, e := range d.WithTests {
+			var choices []string
+			for _, r := range runners.offered() {
+				for _, e := range found {
 					if ks072RunnerEco[r] == e {
-						runners = append(runners, r)
+						choices = append(choices, r)
 					}
 				}
 			}
-			return sel, "ks_check_ambiguous", fmt.Errorf("tests for %s were discovered; choose the check with --check %s", strings.Join(d.WithTests, ", "), strings.Join(runners, "|"))
+			return sel, "ks_check_ambiguous", fmt.Errorf("tests for %s were discovered; choose the check with --check %s", strings.Join(found, ", "), strings.Join(choices, "|"))
 		}
 	}
 	sel.Ecosystem = ks072RunnerEco[sel.Runner]
 	if d.Ecosystems[sel.Ecosystem] == nil {
 		return sel, "ks_check_not_found", fmt.Errorf("the selected %s check has no %s tests in the workspace", sel.Runner, sel.Ecosystem)
 	}
+	if need := runners.byRunner[sel.Runner].RequiresDeps; need != "" {
+		ok := false
+		for _, r := range d.Ecosystems[sel.Ecosystem].Deps {
+			ok = ok || path.Base(r.Path) == need
+		}
+		if !ok {
+			return sel, "ks_check_not_found", fmt.Errorf("the %s check needs the project's %s in the workspace", sel.Runner, need)
+		}
+	}
 	return sel, "", nil
 }
 
 // ks072Command is the verifier.command a runner is recorded with.
 func ks072Command(runner string) string {
-	switch runner {
-	case "pytest":
-		return "python3 -m pytest -q"
-	case "go":
-		return "go test ./..."
+	if d := runners.byRunner[runner]; d != nil {
+		return d.Command
 	}
-	return "node --test"
+	return ""
 }
