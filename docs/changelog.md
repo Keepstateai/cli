@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.1.28 (2026-10-28)
+
+- `ks session harness <session> <harness> --key <key-id|keepstate>` names the
+  key the new harness calls. A switch to a harness of another provider now
+  binds a key for that provider in the same change, or is refused before
+  anything changes; the refusals (no key, more than one key, a key that is
+  not that provider's, a switch that would cut off a provider the session
+  calls) print with what to do next.
+- A session being saved reads "being saved" for harness and model changes,
+  not "pause it first".
+
 ## v0.1.27 (2026-10-22)
 
 - Model calls on KeepState's key, where the service offers it: `ks run --agent
