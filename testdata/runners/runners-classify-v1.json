@@ -1,6 +1,6 @@
 {
  "about": "the service's runner classification vectors (path -> ecosystem roles), vendored without their source note",
- "runners_sha256": "07b7d290dbb6d6c0551f6a5022bec3df2ceea239be8ebb342208b6750dc57a0b",
+ "runners_sha256": "cb761d80ed78481dc13ec952773793fa5a166a17bba29f776cd60271258e966f",
  "cases": [
   {"path":".babelrc","roles":[["node","config"]]},
   {"path":".git/.babelrc","roles":[]},

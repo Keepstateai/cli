@@ -201,6 +201,7 @@ const runnersJSON = `{
    "ecosystem": "ruby-rspec",
    "offered": false,
    "runner": "rspec",
+   "generated": true,
    "language": "Ruby (RSpec)",
    "legacy": false,
    "test": "^.+_spec\\.rb$",
