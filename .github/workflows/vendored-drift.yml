@@ -37,7 +37,7 @@ jobs:
         with:
           go-version: "1.26.0"
       - name: Vendored files against SOURCE.json, the port against the golden, the canonical form against the vectors, the service's Go toolchain pin
-        run: go test -count=1 -run 'TestKS072|TestKS074|TestC12|TestVerifierSkipDirs|TestGoToolchainVendoredPinMatchesTheServer' ./...
+        run: go test -count=1 -run 'TestKS072|TestKS074|TestC12|TestVerifierSkipDirs|TestGoToolchainVendoredPinMatchesTheServer|TestRunners' ./...
       - name: Server comparison NOT CONFIGURED
         if: ${{ env.KS_SERVER_REPO == '' || env.TOKEN_SET != 'true' }}
         run: |
@@ -51,6 +51,7 @@ jobs:
           sparse-checkout: |
             judge/tests/golden
             docs/upgrade/vectors
+            ctl
       - name: Vendored files against the service's current ones
         if: ${{ env.KS_SERVER_REPO != '' && env.TOKEN_SET == 'true' }}
-        run: KS_SERVER_CHECKOUT="$GITHUB_WORKSPACE/server" go test -count=1 -run 'TestKS072VendoredGolden|TestKS074VendoredVectors|TestC12VendoredFixtures|TestVerifierSkipDirs|TestGoToolchainVendoredPinMatchesTheServer' -v ./...
+        run: KS_SERVER_CHECKOUT="$GITHUB_WORKSPACE/server" go test -count=1 -run 'TestKS072VendoredGolden|TestKS074VendoredVectors|TestC12VendoredFixtures|TestVerifierSkipDirs|TestGoToolchainVendoredPinMatchesTheServer|TestRunnersVendoredListMatchesTheServer' -v ./...

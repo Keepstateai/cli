@@ -41,6 +41,10 @@ func checkRunnerOf(ver map[string]any) string {
 		return "go"
 	case strings.HasPrefix(cmd, "npm ") || strings.HasPrefix(cmd, "node "):
 		return "node"
+	case strings.HasPrefix(cmd, "cargo "):
+		return "cargo"
+	case strings.HasPrefix(cmd, "ruby "):
+		return "minitest"
 	}
 	return ""
 }

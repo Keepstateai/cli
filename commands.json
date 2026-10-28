@@ -222,7 +222,7 @@
     },
     {
      "flag": "--check RUNNER",
-     "summary": "the check to pin and run: pytest, go or node; required when tests of more than one ecosystem are found"
+     "summary": "the check to pin and run: pytest, go, node, cargo or minitest; required when tests of more than one ecosystem are found"
     },
     {
      "flag": "--paths GLOB...",
@@ -1360,7 +1360,7 @@
     },
     {
      "flag": "--check RUNNER",
-     "summary": "the check to pin and run: pytest, go or node; needed when tests of more than one ecosystem are found"
+     "summary": "the check to pin and run: pytest, go, node, cargo or minitest; needed when tests of more than one ecosystem are found"
     },
     {
      "flag": "--allow PATH...",
@@ -1449,7 +1449,7 @@
     },
     {
      "flag": "--check RUNNER",
-     "summary": "the check to pin and run: pytest, go or node"
+     "summary": "the check to pin and run: pytest, go, node, cargo or minitest"
     },
     {
      "flag": "--ladder family:model,...",

@@ -345,7 +345,7 @@ func draftTerms(inv *Invocation, body map[string]any) {
 	if inv.Set("check") {
 		r := strings.TrimSpace(inv.Str("check"))
 		if _, ok := ks072RunnerEco[r]; !ok {
-			fail(&cliError{Code: exitUsage, Kind: "usage", Message: fmt.Sprintf("--check is pytest, go or node (got %q)", r)})
+			fail(&cliError{Code: exitUsage, Kind: "usage", Message: fmt.Sprintf("--check is %s (got %q)", runners.choices(), r)})
 		}
 		body["check"] = r
 	}
