@@ -174,6 +174,8 @@ const runnersJSON = `{
    "ecosystem": "php",
    "offered": false,
    "runner": "phpunit",
+   "generated": true,
+   "source": "\\.php$",
    "language": "PHP",
    "legacy": false,
    "test": "^.+Test\\.php$",
