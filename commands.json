@@ -2086,6 +2086,40 @@
      "summary": "what you established, recorded with the decision; optional"
     }
    ]
+  },
+  {
+   "verb": "session runner",
+   "aliases": [],
+   "usage": "ks session runner <session> [--harness HARNESS] [--model MODEL] [--key KEY] [--spend-limit DOLLARS] [--resume] [--stop-running]",
+   "summary": "what a session runs (harness, model, key) and one change of any of them, in any state: the service checks first, saves and starts it again only as a part needs",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--harness HARNESS",
+     "summary": "switch the harness (ks cruise models lists them); while an instruction runs, the switch waits for it to finish"
+    },
+    {
+     "flag": "--model MODEL",
+     "summary": "the model, one of the harness's models"
+    },
+    {
+     "flag": "--key KEY",
+     "summary": "the key the runner calls: one of your keys by id, or keepstate for KeepState's key"
+    },
+    {
+     "flag": "--spend-limit DOLLARS",
+     "summary": "the session's spend limit on KeepState's key"
+    },
+    {
+     "flag": "--resume",
+     "summary": "start the session again once the change is applied"
+    },
+    {
+     "flag": "--stop-running",
+     "summary": "with --harness: ask the instruction in progress to stop instead of waiting for it"
+    }
+   ]
   }
  ]
 }
