@@ -21,16 +21,17 @@ type runnerDef struct {
 		Name string   `json:"name"`
 		Dirs []string `json:"dirs"`
 	} `json:"testInDirs"`
-	ConfigAnywhere   string `json:"configAnywhere"`
-	ConfigRoot       string `json:"configRoot"`
-	DepsAnywhere     string `json:"depsAnywhere"`
-	DepsRoot         string `json:"depsRoot"`
-	SupportInTestDir string `json:"supportInTestDir"`
-	TestPath         string `json:"testPath"`
-	ConfigPath       string `json:"configPath"`
-	SupportPath      string `json:"supportPath"`
-	RequiresDeps     string `json:"requiresDeps"`
-	Command          string `json:"command"`
+	ConfigAnywhere   string   `json:"configAnywhere"`
+	ConfigRoot       string   `json:"configRoot"`
+	DepsAnywhere     string   `json:"depsAnywhere"`
+	DepsRoot         string   `json:"depsRoot"`
+	SupportInTestDir string   `json:"supportInTestDir"`
+	TestPath         string   `json:"testPath"`
+	ConfigPath       string   `json:"configPath"`
+	SupportPath      string   `json:"supportPath"`
+	SkipDirs         []string `json:"skipDirs"`
+	RequiresDeps     string   `json:"requiresDeps"`
+	Command          string   `json:"command"`
 
 	re map[string]*regexp.Regexp
 }
@@ -102,6 +103,10 @@ func (l *runnerList) classify(rel string, ignored func(string) bool) []ecoRole {
 	var out []ecoRole
 	for i := range l.Ecosystems {
 		e := &l.Ecosystems[i]
+		if e.skips(dirs) {
+			// a dependency tree of this ecosystem (PHP's vendor/)
+			continue
+		}
 		inDirs := false
 		if e.TestInDirs != nil && match(e, "testInDirs") {
 			for _, d := range dirs {
@@ -138,7 +143,7 @@ func (l *runnerList) classify(rel string, ignored func(string) bool) []ecoRole {
 	all := len(out)
 	for i := range l.Ecosystems {
 		e := &l.Ecosystems[i]
-		if has[e.Ecosystem] {
+		if has[e.Ecosystem] || e.skips(dirs) {
 			continue
 		}
 		basis := all
@@ -150,6 +155,19 @@ func (l *runnerList) classify(rel string, ignored func(string) bool) []ecoRole {
 		}
 	}
 	return out
+}
+
+// skips says a path in dirs lies in a directory this ecosystem classifies
+// nothing in (skipDirs: its dependency tree).
+func (e *runnerDef) skips(dirs []string) bool {
+	for _, d := range dirs {
+		for _, s := range e.SkipDirs {
+			if d == s {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (l *runnerList) legacy(eco string) bool {
