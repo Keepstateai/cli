@@ -496,6 +496,16 @@ var registry = []*Command{
 		Effects:  "returns the held instructions to the agent's queue in the order they were committed, so a worker may start them and their work is metered like the session. The instruction that blocked them is NOT restarted and its recorded outcome is not changed: continuing the rest of the queue and running failed or unresolved work again are different actions, and this verb is only the first. The decision is bound to what you were shown — the hold is read again and compared immediately before anything is sent, and a queue that changed since it was displayed (its blocked instruction resolved, different work waiting behind it, the session restored underneath it) is displayed and refused without sending any decision at all",
 		Examples: []string{"ks agent queue resume main --session 3f2a1c --finding \"checked by hand: the publish never happened\""},
 		Nothing:  "Nothing was resumed.", Run: hosted(hostedQueueDecision(decisionResume))},
+	{Path: []string{"agent", "queue", "retry"}, Summary: "run a failed instruction again first, when it failed before doing anything; what waited behind it runs after", Surface: "hosted",
+		Args: []Arg{{Name: "name", Required: true}},
+		Flags: []Flag{
+			{Name: "session", Kind: flagString, Value: "ID", Summary: "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"},
+			{Name: "finding", Kind: flagString, Value: "TEXT", Summary: "what you established, recorded with the decision; optional"},
+		},
+		Needs: "tasks.cancel", Fallback: "agent.workspace",
+		Effects:  "queues the failed instruction's text again at the head of the agent's queue as a new task and releases the instructions held behind it, in one decision. The service offers it only for an instruction that failed before doing anything (no tool ran), and refuses it while the session has no key for its runner's provider; the failed attempt keeps its outcome. The same comparison applies as for a resume: a queue that changed since it was displayed is shown and refused without sending any decision",
+		Examples: []string{"ks agent queue retry main --session 3f2a1c"},
+		Nothing:  "Nothing was queued again.", Run: hosted(hostedQueueDecision(decisionRetryBlocking))},
 	{Path: []string{"agent", "queue", "hold"}, Summary: "record that an agent's queue stays held, and what you established", Surface: "hosted",
 		Args: []Arg{{Name: "name", Required: true}},
 		Flags: []Flag{

@@ -2068,6 +2068,24 @@
    "summary": "drop a draft's generated tests; ask again with ks cruise tests generate",
    "status": "available",
    "surface": "hosted"
+  },
+  {
+   "verb": "agent queue retry",
+   "aliases": [],
+   "usage": "ks agent queue retry <name> [--session ID] [--finding TEXT]",
+   "summary": "run a failed instruction again first, when it failed before doing anything; what waited behind it runs after",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--finding TEXT",
+     "summary": "what you established, recorded with the decision; optional"
+    }
+   ]
   }
  ]
 }

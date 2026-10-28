@@ -77,6 +77,10 @@ type recoveryCtl struct {
 	backlog        int    // conversation entries the journal already carries
 	cancelled      bool   // one instruction was cancelled while the queue was held
 	retryOffered   bool   // a later service that DOES offer a new attempt
+	// retryBlocking: "" a service without the decision; "offered" the
+	// instruction failed before doing anything; "nokey" and the session has
+	// no key for its runner's provider
+	retryBlocking string
 }
 
 func newRecoveryCtl() *recoveryCtl {
@@ -187,6 +191,19 @@ func (c *recoveryCtl) holdDoc() map[string]any {
 				"state_after": "nothing moves: the held instructions keep their id, their committed order and their content, and stay held",
 				"cost":        "nothing runs, so nothing is metered"},
 			retry,
+		}
+		if c.retryBlocking != "" {
+			rb := map[string]any{"decision": "retry_blocking", "available": c.retryBlocking == "offered",
+				"effect":      "the failed instruction's text is queued again at the head of the queue as a new task, and the instructions this hold stopped run after it in their order",
+				"state_after": "the failed attempt keeps its outcome; a new task with the same text runs first",
+				"cost":        "the new task's model calls are admitted afresh and metered like any other work"}
+			fix := map[string]any{"kind": "retry", "provider": "anthropic", "words": "The instruction failed before it did anything, so running it again repeats nothing."}
+			if c.retryBlocking == "nokey" {
+				rb["unavailable_reason"] = "the session still has no key for Anthropic, so the instruction would fail the same way; choose a key first"
+				fix = map[string]any{"kind": "choose_key", "provider": "anthropic", "words": "This session has no key for Anthropic, so the instruction could not run. Nothing was charged. Choose a key, and it runs again."}
+			}
+			doc["choices"] = append(doc["choices"].([]map[string]any), rb)
+			doc["fix"] = fix
 		}
 	} else {
 		doc["choices"] = []map[string]any{}
@@ -546,20 +563,27 @@ func (c *recoveryCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		decision, _ := body["decision"].(string)
 		finding, _ := body["finding"].(string)
+		if decision == "retry_blocking" && c.retryBlocking != "offered" {
+			fault(409, "ks_retry_unavailable", "the session still has no key for Anthropic, so the instruction would fail the same way; choose a key first")
+			return
+		}
 		c.mu.Lock()
 		c.decision = decision
 		c.finding = finding
 		c.revision++
 		released := []string{}
-		if decision == "release_successors" {
+		if decision == "release_successors" || decision == "retry_blocking" {
 			c.state = "released"
 			released = c.held
 			c.held = []string{}
 		}
 		doc := c.holdDoc()
 		c.mu.Unlock()
-		if decision == "release_successors" {
+		if decision == "release_successors" || decision == "retry_blocking" {
 			doc["released_tasks"] = released
+		}
+		if decision == "retry_blocking" {
+			doc["retry_task"] = "tsk_retry"
 		}
 		env(200, doc)
 	default:
@@ -1414,5 +1438,41 @@ func TestTheRetryIsOfferedOnlyWithTheServicesSavePointAndRoute(t *testing.T) {
 		if strings.HasPrefix(req, "POST ") {
 			t.Fatalf("naming the offer sent a mutation: %v", c.seen())
 		}
+	}
+}
+
+// ks agent queue retry: an instruction that failed before doing anything is
+// queued again first, and what waited behind it after; the service decides
+// whether that is offered, and a session with no key is told how to fix it.
+func TestQueueRetryRunsTheFailedInstructionAgainFirst(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	c.set(func(c *recoveryCtl) { c.retryBlocking = "offered" })
+	dir := t.TempDir()
+	out, errs, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "agent", "queue", "show", "main", "--session", agentSessionShort)
+	if code != 0 || !strings.Contains(out, "ks agent queue retry main --session "+agentSessionShort) || !strings.Contains(out, "failed before it did anything") {
+		t.Fatalf("show: exit %d\n%s%s", code, out, errs)
+	}
+	out, errs, code = auditExec(t, bin, cfg, dir, fastEnv(cfg), "agent", "queue", "retry", "main", "--session", agentSessionShort)
+	if code != 0 || !strings.Contains(out, "again as tsk_retry; it runs first") || !strings.Contains(out, "then 2 instruction(s)") || !strings.Contains(out, "keeps its outcome") {
+		t.Fatalf("retry: exit %d\n%s%s", code, out, errs)
+	}
+	sent := c.sentDecisions()
+	var body map[string]any
+	if len(sent) != 1 || json.Unmarshal([]byte(sent[0]), &body) != nil || body["decision"] != "retry_blocking" || body["finding"] == "" {
+		t.Fatalf("the retry sent: %v", sent)
+	}
+}
+
+func TestQueueRetryWithNoKeySaysHowToChooseOne(t *testing.T) {
+	c, bin, cfg := recoveryFixture(t)
+	c.set(func(c *recoveryCtl) { c.retryBlocking = "nokey" })
+	dir := t.TempDir()
+	out, _, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "agent", "queue", "show", "main", "--session", agentSessionShort)
+	if code != 0 || !strings.Contains(out, "no key for Anthropic") || !strings.Contains(out, "ks session key set "+agentSessionShort+" --key <key-id|keepstate>") {
+		t.Fatalf("show with no key:\n%s", out)
+	}
+	_, errs, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "agent", "queue", "retry", "main", "--session", agentSessionShort)
+	if code != exitConflict || !strings.Contains(errs, "nothing was queued again") || !strings.Contains(errs, "ks session key set "+agentSessionShort) {
+		t.Fatalf("retry with no key: exit %d\n%s", code, errs)
 	}
 }
