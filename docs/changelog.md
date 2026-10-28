@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.29 (2026-10-28)
+
+- Cruise checks in Rust and Ruby: the client reads the service's runner
+  list, so a Rust crate with its Cargo.lock selects `cargo test` and a Ruby
+  project selects minitest, beside Python, Go and Node as before. `--check`
+  and its refusals name the runners the service offers, and `ks cruise init
+  --tests` maps `cargo test` and `ruby ...` to them.
+
 ## v0.1.28 (2026-10-28)
 
 - `ks session harness <session> <harness> --key <key-id|keepstate>` names the
