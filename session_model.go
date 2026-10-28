@@ -50,6 +50,8 @@ func modelChangeStanding(state, pauseHint string) (can bool, text string) {
 	switch state {
 	case "parked":
 		return true, "can change now: the session is paused, and the change takes effect when it resumes"
+	case "stopping", "checkpointing":
+		return false, "cannot change yet: the session is being saved; it can change once it reads paused (ks session model again in a moment)"
 	case "provisioning":
 		return true, "can change now if its machine has not been given yet (the first start carries it); once the machine runs, pause it first"
 	case "dead", "deleting", "deleted":
