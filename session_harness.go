@@ -3,7 +3,7 @@
 //	ks session harness <session>                     the harness, and whether
 //	                                                 it can switch now
 //	ks session harness <session> <harness> [--model] switch it, while the
-//	                                                 session is paused
+//	                    [--key <id|keepstate>]       session is paused
 //
 // A switch keeps the session's files. Its agents' next instruction starts a
 // new conversation in the other harness, which does not see the one so far;
@@ -11,6 +11,10 @@
 // the catalog offers and the session's own image carries: a session created
 // before its image carried a harness cannot switch to it. The model moves
 // with the harness, to its default unless --model names one of its models.
+// A switch to a harness of another provider binds a key for that provider:
+// the one --key names, else the session's or the account's default; with no
+// key, or more than one to choose from, the service refuses and nothing
+// changes.
 package main
 
 import (
@@ -35,6 +39,8 @@ func harnessSwitchStanding(state, pauseHint string) (bool, string) {
 	switch state {
 	case "parked":
 		return true, "can switch now: the session is paused, and the switch takes effect when it resumes"
+	case "stopping", "checkpointing":
+		return false, "cannot switch yet: the session is being saved; it can switch once it reads paused (ks session harness again in a moment)"
 	case "provisioning":
 		return true, "can switch now if its machine has not been given yet; once the machine runs, pause it first"
 	case "dead", "deleting", "deleted":
@@ -70,6 +76,9 @@ func hostedSessionHarness(cr hostedCreds, inv *Invocation) {
 		if inv.Set("model") {
 			fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--model goes with a harness to switch to; to change only the model: ks session model " + sess.ShortID + " <model>"})
 		}
+		if inv.Set("key") {
+			fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--key goes with a harness to switch to; to bind a key without a switch: ks session key set " + sess.ShortID + " --key <key-id|keepstate>"})
+		}
 		image := rec.ImageHarnesses
 		if len(image) == 0 {
 			image = []string{defaultHarness}
@@ -91,6 +100,10 @@ func hostedSessionHarness(cr hostedCreds, inv *Invocation) {
 	if m := strings.TrimSpace(inv.Str("model")); m != "" {
 		body["runner_model"] = m
 	}
+	key := strings.TrimSpace(inv.Str("key"))
+	if key != "" {
+		body["key"] = key
+	}
 	progress("switch session %s from %s to %s, against revision %d; it takes effect when the session resumes, and the next instruction starts a new conversation",
 		sess.ShortID, sanitize(current), sanitize(to), rec.Revision)
 	var out struct {
@@ -102,6 +115,11 @@ func hostedSessionHarness(cr hostedCreds, inv *Invocation) {
 	emit(map[string]any{"session": out.Data, "from": current, "in_effect": "from the next resume; the next instruction starts a new conversation"}, func() {
 		fmt.Printf("session %s will run %s on %s from its next resume (was %s; revision %d)\n",
 			sess.ShortID, sanitize(firstNonEmptyStr(out.Data.Harness, to)), sanitize(notRecorded(out.Data.RunnerModel)), sanitize(current), out.Data.Revision)
+		if key == "keepstate" {
+			fmt.Printf("  its calls to the new harness's provider go on KeepState's key\n")
+		} else if key != "" {
+			fmt.Printf("  its calls to the new harness's provider go on your key %s\n", sanitize(key))
+		}
 		fmt.Printf("  its files stay; the next instruction starts a new conversation, and the one so far stays readable: ks agent history %s --session %s\n",
 			primaryAgentName(cr, sess.RecordID), sess.ShortID)
 		fmt.Printf("  the new agent is handed KeepState's handoff brief of the work with that instruction; read it after the resume: ks session brief %s\n", sess.ShortID)
@@ -125,7 +143,13 @@ func harnessSwitchRefusal(err error, sess inventoryRow, pauseHint, to string) er
 	case "ks_harness_unavailable", "ks_harness_invalid", "ks_model_harness_mismatch", "ks_model_invalid":
 		ce.NextAction = "ks cruise models (the harnesses and the models each runs)"
 	case "ks_no_inference_key":
-		ce.NextAction = "ks key add (a key for the harness's provider)"
+		ce.NextAction = "ks key add --provider <provider> < key.txt, or ks session harness " + sess.ShortID + " " + sanitize(to) + " --key keepstate"
+	case "ks_key_ambiguous":
+		ce.NextAction = "ks key list, then ks session harness " + sess.ShortID + " " + sanitize(to) + " --key <key-id>"
+	case "ks_key_invalid":
+		ce.NextAction = "ks key list (an enabled key of the new harness's provider), then ks session harness " + sess.ShortID + " " + sanitize(to) + " --key <key-id>"
+	case "ks_key_unroutable":
+		ce.NextAction = "ks session key set " + sess.ShortID + " --key <key-id|keepstate>, then ks session harness " + sess.ShortID + " " + sanitize(to)
 	case "ks_session_killed":
 		ce.NextAction = "ks session list"
 	case "ks_harness_same":
