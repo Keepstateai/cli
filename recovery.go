@@ -93,6 +93,21 @@ type queueHold struct {
 	ReleasedTasks []string     `json:"released_tasks"`
 	Consequence   string       `json:"consequence"`
 	Choices       []holdChoice `json:"choices"`
+
+	// CauseDetail and Fix: what failed, as the service diagnoses it, and the
+	// one action that moves the queue; RetryTask is the task a retry queued
+	CauseDetail string    `json:"cause_detail,omitempty"`
+	Fix         *holdFixV `json:"fix,omitempty"`
+	RetryTask   string    `json:"retry_task,omitempty"`
+}
+
+// holdFixV is the service's fix for a held queue: choose_key (the session
+// has no key for its runner's provider) or retry (the instruction failed
+// before it did anything)
+type holdFixV struct {
+	Kind     string `json:"kind"`
+	Provider string `json:"provider"`
+	Words    string `json:"words"`
 }
 
 // holdChoice is one option the SERVICE states: what it would do, what the
@@ -129,8 +144,13 @@ const (
 	decisionResume = "release_successors"
 	decisionKeep   = "keep_held"
 	decisionRetry  = "retry_from_safe_point"
-	holdIsActive   = "active"
-	causeFailed    = "task_failed"
+	// decisionRetryBlocking queues the failed instruction again at the head,
+	// as a new task, and releases what waited behind it. The service offers
+	// it only for an instruction that failed before doing anything, and
+	// refuses it while the session has no key for its runner's provider.
+	decisionRetryBlocking = "retry_blocking"
+	holdIsActive          = "active"
+	causeFailed           = "task_failed"
 )
 
 func fetchQueueHolds(cr hostedCreds, agentID string) ([]queueHold, error) {
@@ -323,6 +343,10 @@ func verbFor(c holdChoice, blocking, agent string, sess inventoryRow) string {
 		return fmt.Sprintf("ks agent queue resume %s --session %s --finding \"...\"", agent, sess.ShortID)
 	case decisionKeep:
 		return fmt.Sprintf("ks agent queue hold %s --session %s --finding \"...\"", agent, sess.ShortID)
+	case decisionRetryBlocking:
+		if c.Available {
+			return fmt.Sprintf("ks agent queue retry %s --session %s", agent, sess.ShortID)
+		}
 	}
 	return ""
 }
@@ -475,6 +499,12 @@ func hostedAgentQueueShow(cr hostedCreds, inv *Invocation) {
 			fmt.Printf("  %-15s %s\n", "it reported", sanitize(h.BlockingSummary))
 		}
 		fmt.Printf("  %-15s %s\n", "held because", sanitize(figure(h.Reason)))
+		if h.Fix != nil && strings.TrimSpace(h.Fix.Words) != "" {
+			fmt.Printf("  %-15s %s\n", "what to do", sanitize(h.Fix.Words))
+			if h.Fix.Kind == "choose_key" {
+				fmt.Printf("  %-15s ks session key set %s --key <key-id|keepstate>, then ks agent queue retry %s --session %s\n", "", sess.ShortID, a.Name, sess.ShortID)
+			}
+		}
 		fmt.Printf("  %-15s %s\n", "waiting", sanitize(figure(h.Consequence)))
 		switch {
 		case h.SessionEpoch == 0:
@@ -669,9 +699,17 @@ func recoveryRefusal(sess inventoryRow, agentName string, h queueHold, decision 
 			Message:    fmt.Sprintf("this queue was already decided elsewhere, so nothing was %s here; read it again before deciding.", what),
 			NextAction: reread}
 	case "ks_retry_unavailable":
-		// this client never sends that decision. If a control plane answers
-		// with it anyway, the reason is the service's to state and not this
-		// client's to soften.
+		if decision == decisionRetryBlocking {
+			// the service's own reason, with what to do about it
+			next := reread
+			if strings.Contains(he.Message, "no key") {
+				next = fmt.Sprintf("ks session key set %s --key <key-id|keepstate>, then ks agent queue retry %s --session %s", sess.ShortID, agentName, sess.ShortID)
+			}
+			return &cliError{Code: exitConflict, Kind: "retry_unavailable", Message: sanitize(he.Message) + "; nothing was queued again", NextAction: next}
+		}
+		// this client never sends retry_from_safe_point. If a control plane
+		// answers with it anyway, the reason is the service's to state and
+		// not this client's to soften.
 		return &cliError{Code: exitIntegrity, Kind: "retry_unavailable",
 			Message: sanitize(he.Message), NextAction: reread}
 	}
@@ -699,6 +737,14 @@ func findingOf(inv *Invocation, usage string) string {
 func decisionReport(sess inventoryRow, agentName string, before, after queueHold, decision string) {
 	emit(map[string]any{"session": sess.ID, "agent": after.AgentID, "hold": after,
 		"decision": after.Decision, "decided_at": after.DecidedAt}, func() {
+		if decision == decisionRetryBlocking {
+			fmt.Printf("queued the failed instruction %s again as %s; it runs first\n", after.BlockingTask, sanitize(figure(after.RetryTask)))
+			if n := len(after.ReleasedTasks); n > 0 {
+				fmt.Printf("  then %d instruction(s) that waited behind it, in the order they were committed\n", n)
+			}
+			fmt.Printf("the failed attempt keeps its outcome (%s)\n", figure(after.BlockingState))
+			return
+		}
 		if decision == decisionKeep {
 			fmt.Printf("the queue of agent %s stays held behind %s %s (%s): %s\n",
 				agentName, blockedWord(after), after.BlockingTask, figure(after.BlockingState), sanitize(figure(after.Finding)))
@@ -738,7 +784,17 @@ func hostedQueueDecision(decision string) func(hostedCreds, *Invocation) {
 		if decision == decisionKeep {
 			verb = "hold"
 		}
-		finding := findingOf(inv, fmt.Sprintf("ks agent queue %s %s --session %s --finding \"what you established\"", verb, a.Name, sess.ShortID))
+		var finding string
+		if decision == decisionRetryBlocking {
+			// the service decided the instruction did nothing before it failed;
+			// what the person adds is kept beside that, and is optional
+			finding = strings.TrimSpace(inv.Str("finding"))
+			if finding == "" {
+				finding = "retried with ks agent queue retry: the instruction failed before it did anything"
+			}
+		} else {
+			finding = findingOf(inv, fmt.Sprintf("ks agent queue %s %s --session %s --finding \"what you established\"", verb, a.Name, sess.ShortID))
+		}
 		holds, err := fetchQueueHolds(cr, a.ID)
 		if err != nil {
 			die(err)
