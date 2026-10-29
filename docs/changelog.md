@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.1.31 (2026-10-29)
+
+- `ks file download <path>` downloads one file of any size from a session's
+  workspace to a new local file (`--out FILE`, or the file's own name in
+  this directory). The bytes are checked against the size and sha256 the
+  service states before sending them; an interrupted or changed download
+  writes nothing, and an existing file is never replaced. A secret file, a
+  folder and a session that is not running are refused, and nothing wakes a
+  session.
+
 ## v0.1.30 (2026-10-29)
 
 - `ks session runner <session>` shows what a session runs (harness, model,
