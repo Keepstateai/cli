@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.1.30 (2026-10-29)
+
+- `ks session runner <session>` shows what a session runs (harness, model,
+  key) and changes any part of it in one step, in any state: `--harness`,
+  `--model`, `--key <key-id|keepstate>` and `--spend-limit DOLLARS`. The
+  service checks the change first, then saves the session and starts it
+  again only as the change needs (`--resume` starts it once applied). A
+  harness switch while an instruction runs waits for it to finish;
+  `--stop-running` asks that instruction to stop instead, and `--cancel`
+  cancels a change still waiting.
+- `ks agent queue retry <name>` runs a failed instruction again first, when
+  it failed before doing anything (for example for a missing key); what
+  waited behind it runs after. `--finding` is optional.
+- Cruise: the client's runner list now also knows Java and Kotlin (Maven),
+  C# (dotnet), PHP (PHPUnit) and Ruby under RSpec, and it skips a project's
+  own dependency folders (such as vendor or node_modules) when it looks for
+  tests. A runner is used only when the service offers it.
+
 ## v0.1.29 (2026-10-28)
 
 - Cruise checks in Rust and Ruby: the client reads the service's runner
