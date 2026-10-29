@@ -1145,6 +1145,24 @@
    ]
   },
   {
+   "verb": "file download",
+   "aliases": [],
+   "usage": "ks file download <path> [--session ID] [--out FILE]",
+   "summary": "one workspace file of any size, written to a new local file and checked against the size and sha256 the service states",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session whose workspace to read; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--out FILE",
+     "summary": "the NEW local file to write (default: the file's own name in this directory); never replaced"
+    }
+   ]
+  },
+  {
    "verb": "agent queue list",
    "aliases": [],
    "usage": "ks agent queue list <name> [--session ID]",

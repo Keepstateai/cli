@@ -2,6 +2,7 @@
 //
 //	ks file list [path]   one directory of the session's workspace
 //	ks file show <path>   one workspace file, bounded
+//	ks file download <path>  one workspace file of any size, verified
 //	ks agent logs         the session's setup log and its agent's log
 //
 // Every one is a READ through the control plane, which asks the session's
@@ -27,9 +28,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
+	"path"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -148,6 +153,8 @@ func inspectRefusal(err error, sess inventoryRow) error {
 		ce.Message += " (a secret file's contents are never returned)"
 	case "ks_path_absent":
 		ce.Code, ce.NextAction = exitFailed, "ks file list --session "+sess.ShortID
+	case "ks_path_not_a_file":
+		ce.Code, ce.NextAction = exitUsage, "ks file list --session "+sess.ShortID
 	case "ks_session_not_running":
 		ce.Code = exitConflict
 		ce.NextAction = "ks agent resume main --session " + sess.ShortID + " (inspection never wakes a session)"
@@ -264,6 +271,89 @@ func hostedFileShow(cr hostedCreds, inv *Invocation) {
 		if c.Truncated {
 			fmt.Printf("[cut at %s of %s bytes]\n", commas(c.Returned), commas(c.Size))
 		}
+	})
+}
+
+// fileDownload is what ks file download reports.
+type fileDownload struct {
+	SessionID string `json:"session_id"`
+	Path      string `json:"path"`
+	Out       string `json:"out"`
+	Bytes     int64  `json:"bytes"`
+	SHA256    string `json:"sha256"`
+}
+
+// hostedFileDownload brings one workspace file of any size to a NEW local
+// file under the result download's rule: the named file appears only when
+// its bytes are the ones the service stated (X-KS-Size and X-KS-SHA256,
+// sent before the bytes). The bytes go to a partial file beside the target,
+// are hashed as they arrive, and are finalized without replacing anything;
+// a short, long or different body removes the partial file. A workspace
+// file can change between two runs, so an interrupted download is started
+// again, never resumed.
+func hostedFileDownload(cr hostedCreds, inv *Invocation) {
+	p := workspacePath(inv.Arg(0))
+	if p == "." {
+		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "name a file; ks file list shows a directory"})
+	}
+	dest := inv.Str("out")
+	if dest == "" {
+		dest = path.Base(p)
+	}
+	if err := checkTarget(dest, false); err != nil {
+		die(err)
+	}
+	sess := agentSession(cr, inv)
+	route := inspectBase(sess) + "/files/download?" + url.Values{"path": {p}}.Encode()
+	resp, err := hostedDo(cr, "GET", route, "", nil)
+	if err != nil {
+		die(transportErr{err: err})
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		die(inspectRefusal(hostedError("GET", route, resp, raw), sess))
+	}
+	size, err := strconv.ParseInt(resp.Header.Get("X-KS-Size"), 10, 64)
+	want := strings.ToLower(resp.Header.Get("X-KS-SHA256"))
+	if err != nil || size < 0 || len(want) != 64 || (resp.ContentLength >= 0 && resp.ContentLength != size) {
+		fail(integrity("size_unstated", "the service did not state the file's size and sha256 before its bytes; nothing was written"))
+	}
+	partial := partialPath(dest, "file")
+	_ = os.Remove(partial) // a workspace file is never resumed: it may have changed
+	f, _, err := openPartial(partial)
+	if err != nil {
+		die(err)
+	}
+	progress("downloading %s (%s bytes) from session %s", visible(p), commas(size), sess.ShortID)
+	h := sha256.New()
+	n, err := io.Copy(io.MultiWriter(f, h), io.LimitReader(resp.Body, size+1))
+	_ = f.Sync()
+	_ = f.Close()
+	switch {
+	case n > size:
+		os.Remove(partial)
+		fail(integrity("size_mismatch", fmt.Sprintf("the service sent more than the stated %s bytes; nothing was written", commas(size))))
+	case err != nil || n < size:
+		os.Remove(partial)
+		cause := "the connection ended early, or the file shrank while it was read"
+		if err != nil {
+			cause = sanitize(err.Error())
+		}
+		die(&cliError{Code: exitTemporary, Kind: "download_interrupted",
+			Message:    fmt.Sprintf("the download stopped after %s of %s bytes (%s). Nothing was written and the incomplete bytes were removed", commas(n), commas(size), cause),
+			NextAction: "run the same command again"})
+	}
+	if got := hex.EncodeToString(h.Sum(nil)); got != want {
+		os.Remove(partial)
+		fail(integrity("digest_mismatch", fmt.Sprintf("the bytes received (sha256 %s) are not the ones the service stated (sha256 %s), for example because the file changed while it was read; nothing was written", short(got), short(want))))
+	}
+	if err := finalize(partial, dest, false); err != nil {
+		die(err)
+	}
+	d := fileDownload{SessionID: agentSessionID(sess), Path: p, Out: dest, Bytes: size, SHA256: want}
+	emit(d, func() {
+		fmt.Printf("wrote %s bytes to %s (session %s, sha256 %s, checked)\n", commas(size), dest, sess.ShortID, short(want))
 	})
 }
 

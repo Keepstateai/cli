@@ -667,6 +667,16 @@ var registry = []*Command{
 		Effects:  "reads one workspace file, bounded, and checks the bytes against the size and sha256 the service states; escape sequences are shown, never acted on, a file that is not text is not printed, and a secret file's contents are never returned. --out writes a new file and never replaces one. No command runs and a session that is not running is not woken",
 		Examples: []string{"ks file show package.json --session 3f2a1c", "ks file show build/app.log --session 3f2a1c --max-bytes 65536", "ks file show dist/app.bin --session 3f2a1c --out app.bin"},
 		Nothing:  "Nothing was read.", Run: hosted(hostedFileShow)},
+	{Path: []string{"file", "download"}, Summary: "one workspace file of any size, written to a new local file and checked against the size and sha256 the service states", Surface: "hosted",
+		Args: []Arg{{Name: "path", Required: true}},
+		Flags: []Flag{
+			{Name: "session", Kind: flagString, Value: "ID", Summary: "the session whose workspace to read; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"},
+			{Name: "out", Kind: flagString, Value: "FILE", Summary: "the NEW local file to write (default: the file's own name in this directory); never replaced"},
+		},
+		Needs:    "agent.workspace",
+		Effects:  "reads one workspace file of any size and writes it to a new local file only when its bytes match the size and sha256 the service stated before sending them; an interrupted or different download writes nothing, an existing file is never replaced, and a secret file's contents are never returned. No command runs and a session that is not running is not woken",
+		Examples: []string{"ks file download dist/app.tar.gz --session 3f2a1c", "ks file download build/report.pdf --session 3f2a1c --out report.pdf"},
+		Nothing:  "Nothing was written.", Run: hosted(hostedFileDownload)},
 	{Path: []string{"result"}, Group: true, Summary: "what an agent's tasks produced: listed, described, downloaded and verified", Surface: "hosted"},
 	{Path: []string{"result", "list"}, Summary: "the results of one task, or of a session's tasks: name, size, sha256, task, verification", Surface: "hosted",
 		Flags: []Flag{
