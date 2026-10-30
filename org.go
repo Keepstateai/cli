@@ -3,7 +3,8 @@
 // from your personal account: creating one moves nothing of yours into it,
 // and you become its owner with its first seat. Inviting people, changing
 // roles and seats, and choosing an organization as the context of other
-// verbs arrive with the service's next organization changes.
+// verbs arrive with the service's next organization changes (org_members.go
+// holds inviting, joining, roles, seats, the seat limit and the audit log).
 package main
 
 import (
@@ -40,6 +41,7 @@ type customerOrgMember struct {
 	JoinedAt  string `json:"joined_at"`
 	InvitedBy string `json:"invited_by,omitempty"`
 	You       bool   `json:"you,omitempty"`
+	Revision  int64  `json:"revision"`
 }
 
 // orgPagesMax bounds how many pages a list reads before it says it stopped.
@@ -170,13 +172,10 @@ func hostedOrgShow(cr hostedCreds, inv *Invocation) {
 	})
 }
 
-func hostedMemberList(cr hostedCreds, inv *Invocation) {
-	org := strings.TrimSpace(inv.Str("organization"))
-	if org == "" {
-		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "name the organization: --organization ID (ks organization list shows yours); nothing was read", NextAction: "ks organization list"})
-	}
+// fetchOrgMembers reads every page of an organization's members.
+func fetchOrgMembers(cr hostedCreds, org string) ([]customerOrgMember, bool, error) {
 	var all []customerOrgMember
-	cursor, complete := "", false
+	cursor := ""
 	for page := 0; page < orgPagesMax; page++ {
 		path := "/api/v2/orgs/" + url.PathEscape(org) + "/members"
 		if cursor != "" {
@@ -189,14 +188,25 @@ func hostedMemberList(cr hostedCreds, inv *Invocation) {
 			} `json:"data"`
 		}
 		if err := hostedCall(cr, "GET", path, nil, &env); err != nil {
-			die(orgErr(err, "nothing was read"))
+			return nil, false, err
 		}
 		all = append(all, env.Data.Items...)
 		if env.Data.NextCursor == "" {
-			complete = true
-			break
+			return all, true, nil
 		}
 		cursor = env.Data.NextCursor
+	}
+	return all, false, nil
+}
+
+func hostedMemberList(cr hostedCreds, inv *Invocation) {
+	org := strings.TrimSpace(inv.Str("organization"))
+	if org == "" {
+		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "name the organization: --organization ID (ks organization list shows yours); nothing was read", NextAction: "ks organization list"})
+	}
+	all, complete, err := fetchOrgMembers(cr, org)
+	if err != nil {
+		die(orgErr(err, "nothing was read"))
 	}
 	emit(map[string]any{"organization": org, "members": all, "count": len(all), "complete": complete}, func() {
 		fmt.Printf("%-40s %-8s %-11s %s\n", "MEMBER", "ROLE", "SEAT", "JOINED")

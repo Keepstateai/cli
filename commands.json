@@ -2180,6 +2180,154 @@
      "summary": "the organization (ks organization list shows yours)"
     }
    ]
+  },
+  {
+   "verb": "organization set",
+   "aliases": [],
+   "usage": "ks organization set <organization> [--name NAME] [--seat-limit N] [--no-seat-limit]",
+   "summary": "rename an organization (owner or admin), or set or remove its seat limit (owner)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--name NAME",
+     "summary": "the new name"
+    },
+    {
+     "flag": "--seat-limit N",
+     "summary": "the most seats that can be assigned; never below the seats assigned now"
+    },
+    {
+     "flag": "--no-seat-limit",
+     "summary": "remove the seat limit"
+    }
+   ]
+  },
+  {
+   "verb": "organization audit",
+   "aliases": [],
+   "usage": "ks organization audit <organization>",
+   "summary": "an organization's audit log, oldest first (owner, admin, auditor; billing reads its money events only)",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "member invite",
+   "aliases": [],
+   "usage": "ks member invite <email> [--organization ID] [--role ROLE] [--seat]",
+   "summary": "invite an address into an organization with a role, and a seat if you ask (owner or admin; only an owner invites an owner)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours)"
+    },
+    {
+     "flag": "--role ROLE",
+     "summary": "owner, admin, billing, auditor or member; default member"
+    },
+    {
+     "flag": "--seat",
+     "summary": "take a seat when they join, if one is free then"
+    }
+   ]
+  },
+  {
+   "verb": "member role",
+   "aliases": [],
+   "usage": "ks member role <account> <role> [--organization ID]",
+   "summary": "change a member's role (owner or admin; only an owner makes or removes an owner)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours)"
+    }
+   ]
+  },
+  {
+   "verb": "seat assign",
+   "aliases": [],
+   "usage": "ks seat assign <account> [--organization ID]",
+   "summary": "give a member a seat, if one is free (owner or admin)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours)"
+    }
+   ]
+  },
+  {
+   "verb": "seat release",
+   "aliases": [],
+   "usage": "ks seat release <account> [--organization ID]",
+   "summary": "take a member's seat back (owner or admin); without one, the organization's work is closed to them",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours)"
+    }
+   ]
+  },
+  {
+   "verb": "invite list",
+   "aliases": [],
+   "usage": "ks invite list [--organization ID]",
+   "summary": "an organization's invitations, and the accounts waiting for your confirmation (owner or admin)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours)"
+    }
+   ]
+  },
+  {
+   "verb": "invite revoke",
+   "aliases": [],
+   "usage": "ks invite revoke <invitation> [--organization ID]",
+   "summary": "withdraw an open invitation (owner or admin)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours)"
+    }
+   ]
+  },
+  {
+   "verb": "invite confirm",
+   "aliases": [],
+   "usage": "ks invite confirm <invitation> [--organization ID] [--account ID]",
+   "summary": "let in the account that asked to join under an invitation with another address (owner or admin)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours)"
+    },
+    {
+     "flag": "--account ID",
+     "summary": "the account that asked (ks invite list shows it)"
+    }
+   ]
+  },
+  {
+   "verb": "invite accept",
+   "aliases": [],
+   "usage": "ks invite accept <token>",
+   "summary": "join the organization an invitation names; with the invited address you join, with another an admin is asked to confirm",
+   "status": "available",
+   "surface": "hosted"
   }
  ]
 }
