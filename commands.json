@@ -2328,6 +2328,92 @@
    "summary": "join the organization an invitation names; with the invited address you join, with another an admin is asked to confirm",
    "status": "available",
    "surface": "hosted"
+  },
+  {
+   "verb": "organization leave",
+   "aliases": [],
+   "usage": "ks organization leave <organization>",
+   "summary": "leave an organization: your seat is freed and your details there erased 30 days later",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "member show",
+   "aliases": [],
+   "usage": "ks member show <account> [--organization ID]",
+   "summary": "one member: role, seat and, for yourself or an owner or admin, their profile details",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours)"
+    }
+   ]
+  },
+  {
+   "verb": "member set",
+   "aliases": [],
+   "usage": "ks member set <account> [--organization ID] [--display-name NAME] [--job-title TITLE] [--department NAME] [--cost-center CODE] [--employee-ref CODE] [--timezone ZONE] [--locale TAG]",
+   "summary": "set a member's profile details: your own, or as an owner or admin the display name, job title, department and the organization's codes",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours)"
+    },
+    {
+     "flag": "--display-name NAME",
+     "summary": "the name colleagues see"
+    },
+    {
+     "flag": "--job-title TITLE",
+     "summary": "the job title"
+    },
+    {
+     "flag": "--department NAME",
+     "summary": "the department"
+    },
+    {
+     "flag": "--cost-center CODE",
+     "summary": "the organization's cost center (owner or admin)"
+    },
+    {
+     "flag": "--employee-ref CODE",
+     "summary": "the organization's employee reference (owner or admin)"
+    },
+    {
+     "flag": "--timezone ZONE",
+     "summary": "your timezone, like Europe/Istanbul (your own only)"
+    },
+    {
+     "flag": "--locale TAG",
+     "summary": "your language tag, like en-GB (your own only)"
+    }
+   ]
+  },
+  {
+   "verb": "member remove",
+   "aliases": [],
+   "usage": "ks member remove <account> [--organization ID] [--content transfer|remove] [--confirm DIGEST]",
+   "summary": "remove a member: the service's plan is shown first, and runs only with its digest confirmed (owner or admin; only an owner removes an owner)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours)"
+    },
+    {
+     "flag": "--content transfer|remove",
+     "summary": "their organization sessions and agents: transfer moves them to you, remove deletes them"
+    },
+    {
+     "flag": "--confirm DIGEST",
+     "summary": "remove exactly as the plan with this digest shows (the 12 characters shown, or all of it); never implied by --yes"
+    }
+   ]
   }
  ]
 }
