@@ -2142,6 +2142,44 @@
      "summary": "cancel a change still waiting for an instruction to finish; nothing of the session was touched"
     }
    ]
+  },
+  {
+   "verb": "organization create",
+   "aliases": [],
+   "usage": "ks organization create <name>",
+   "summary": "create an organization: you become its owner and hold its first seat",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "organization list",
+   "aliases": [],
+   "usage": "ks organization list",
+   "summary": "the organizations you belong to: your role, your seat, and the seats used in each",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "organization show",
+   "aliases": [],
+   "usage": "ks organization show <organization>",
+   "summary": "one organization: its state, its seats, your role and whether you hold a seat",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "member list",
+   "aliases": [],
+   "usage": "ks member list [--organization ID]",
+   "summary": "an organization's members, their roles and seats; for a member who holds a seat",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours)"
+    }
+   ]
   }
  ]
 }
