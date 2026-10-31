@@ -1,4 +1,4 @@
-// cruise_draft_check_test: BACKLOG-493's terminal half. On the "I have tests"
+// cruise_draft_check_test: the own-tests check's terminal half. On the "I have tests"
 // path the service checks a draft's own tests before approval, and the
 // console offers leaving out the files that stop the check. In the terminal:
 // `ks cruise draft check` asks for the check, waits for its answer, names the

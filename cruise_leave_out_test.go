@@ -1,4 +1,4 @@
-// cruise_leave_out_test: BACKLOG-488's terminal half. When Cruise's check
+// cruise_leave_out_test: the leave-out choice's terminal half. When Cruise's check
 // names project test files that stop it and can be left out, the console
 // offers one button; here the same choice is `ks cruise tests show`'s next
 // line and `ks cruise draft set --leave-out` (or --keep-all-tests to put them

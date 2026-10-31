@@ -87,7 +87,7 @@ type testsView struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
 		// the project's own test files that stop the check, when every one
-		// can be left out of it (BACKLOG-488): the one fixing choice
+		// can be left out of it: the one fixing choice
 		LeaveOut *struct {
 			Files []struct {
 				Path string `json:"path"`
@@ -319,7 +319,7 @@ func hostedCruiseTestsShow(cr hostedCreds, inv *Invocation) {
 			fmt.Printf("next: ks cruise draft approve %s\n", v.DraftID)
 		case "awaiting_aim", "refused":
 			if ps := v.leaveOutPaths(); len(ps) > 0 {
-				// BACKLOG-488: the console's one button, as two commands
+				// the console's one button, as two commands
 				fmt.Printf("next: ks cruise draft set %s --leave-out %s, then ks cruise tests generate %s\n", v.DraftID, sanitize(strings.Join(ps, " ")), v.DraftID)
 				return
 			}
