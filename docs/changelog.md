@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.1.32 (2026-10-31)
+
+- Cruise, when the project's own test files cannot load in the check (for
+  example tests that need a browser package the check cannot install):
+  `ks cruise draft set <draft> --leave-out FILE` leaves the named files out
+  of the check, and `--keep-all-tests` puts them back. The files stay in the
+  project unchanged, and the job's terms, receipt and result name them and
+  why. `ks cruise tests show` prints the refusal's next step.
+- Cruise, "I have tests" path: `ks cruise draft check <draft>` runs the job's
+  own check once on the draft's files before approval, with no machine and
+  no model, and prints what it found and the next command. `ks cruise draft
+  show` shows the result.
+- Organizations: this client carries the organization commands (`ks
+  organization`, `ks member`, `ks invite accept`, `ks context use`), for a
+  feature KeepState has not turned on yet. Until it is turned on, each of
+  them answers that organizations are not available, and nothing else
+  changes: `ks run`, keys and sessions act on your own account as before.
+
 ## v0.1.31 (2026-10-29)
 
 - `ks file download <path>` downloads one file of any size from a session's
