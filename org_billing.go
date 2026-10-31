@@ -380,3 +380,150 @@ func hostedOrgCredits(cr hostedCreds, inv *Invocation) {
 		}
 	})
 }
+
+// ---- statements ------------------------------------------------------------------
+
+type customerOrgStatementRow struct {
+	ID          string `json:"id"`
+	Seq         int64  `json:"seq"`
+	From        string `json:"period_from"`
+	To          string `json:"period_to"`
+	Total       int64  `json:"statement_total_micros"`
+	ContentHash string `json:"content_hash"`
+	IssuedAt    string `json:"issued_at"`
+	BillTo      string `json:"bill_to"`
+	PONumber    string `json:"po_number"`
+	Corrects    string `json:"corrects,omitempty"`
+}
+
+type customerOrgStatement struct {
+	Statement struct {
+		ID          string `json:"id"`
+		Seq         int64  `json:"seq"`
+		From        string `json:"period_from"`
+		To          string `json:"period_to"`
+		Total       int64  `json:"statement_total_micros"`
+		ContentHash string `json:"content_hash"`
+		Corrects    string `json:"corrects"`
+	} `json:"statement"`
+	Text        string   `json:"text"`
+	CorrectedBy []string `json:"corrected_by"`
+}
+
+func orgPeriod(from, to string) string {
+	if from == "" {
+		from = "the start"
+	}
+	if to == "" {
+		to = "now"
+	}
+	return from + " to " + to
+}
+
+func hostedOrgStatements(cr hostedCreds, inv *Invocation) {
+	org := orgArgOrContext(cr, inv.Arg(0), "nothing was read")
+	var env struct {
+		Data struct {
+			Items []customerOrgStatementRow `json:"items"`
+		} `json:"data"`
+	}
+	if err := hostedCall(cr, "GET", "/api/v2/orgs/"+url.PathEscape(org)+"/statements", nil, &env); err != nil {
+		die(orgErr(err, "nothing was read"))
+	}
+	st := env.Data.Items
+	emit(map[string]any{"organization": org, "statements": st, "count": len(st)}, func() {
+		if len(st) == 0 {
+			fmt.Println("No statements yet. An owner or billing member issues one: ks organization statement issue " + org)
+			return
+		}
+		fmt.Printf("%-14s %-4s %-12s %-28s %s\n", "STATEMENT", "#", "TOTAL", "BILLED TO", "PERIOD")
+		for _, s := range st {
+			extra := ""
+			if s.Corrects != "" {
+				extra = " (corrects " + s.Corrects + ")"
+			}
+			fmt.Printf("%-14s %-4d %-12s %-28s %s%s\n", s.ID, s.Seq, receiptMoney(s.Total), s.BillTo, orgPeriod(s.From, s.To), extra)
+		}
+	})
+}
+
+// hostedOrgStatementIssue issues the organization's statement for a period,
+// or a correction of one. Issuing settles the period's usage, as every
+// statement does, so it asks for --yes first.
+func hostedOrgStatementIssue(cr hostedCreds, inv *Invocation) {
+	const nothing = "nothing was issued"
+	org := orgArgOrContext(cr, inv.Arg(0), nothing)
+	body := map[string]any{}
+	for _, f := range []struct{ flag, key string }{{"from", "from"}, {"to", "to"}, {"po-number", "po_number"}, {"corrects", "corrects"}} {
+		if inv.Set(f.flag) {
+			body[f.key] = inv.Str(f.flag)
+		}
+	}
+	if !out.yes {
+		what := "a statement for " + orgPeriod(inv.Str("from"), inv.Str("to"))
+		if inv.Set("corrects") {
+			what = "a correction of " + inv.Str("corrects") + " (a new statement for its period; it stands as issued)"
+		}
+		emit(map[string]any{"organization": org, "request": body, "confirmed": false}, func() {
+			fmt.Printf("This issues %s for the organization %s, with its billing details as they are now; the statement never changes afterwards, and issuing it settles the period's usage from the organization's credit.\n", what, org)
+			fmt.Println("Nothing was issued; run again with --yes.")
+		})
+		return
+	}
+	var env struct {
+		Data customerOrgStatement `json:"data"`
+	}
+	if err := hostedMutate(cr, "POST", "/api/v2/orgs/"+url.PathEscape(org)+"/statements", body, &env); err != nil {
+		die(orgErr(err, nothing))
+	}
+	s := env.Data
+	emit(s, func() {
+		fmt.Print(s.Text)
+		fmt.Printf("\nIssued %s. Check it any time: ks organization statement verify %s --organization %s\n", s.Statement.ID, s.Statement.ID, org)
+	})
+}
+
+func hostedOrgStatementShow(cr hostedCreds, inv *Invocation) {
+	org := orgArgOrContext(cr, inv.Str("organization"), "nothing was read")
+	var env struct {
+		Data customerOrgStatement `json:"data"`
+	}
+	if err := hostedCall(cr, "GET", "/api/v2/orgs/"+url.PathEscape(org)+"/statements/"+url.PathEscape(inv.Arg(0)), nil, &env); err != nil {
+		die(orgErr(err, "nothing was read"))
+	}
+	s := env.Data
+	emit(s, func() {
+		fmt.Print(s.Text)
+		if len(s.CorrectedBy) > 0 {
+			fmt.Printf("\nCorrected by: %s (this statement stands as issued)\n", strings.Join(s.CorrectedBy, ", "))
+		}
+	})
+}
+
+func hostedOrgStatementVerify(cr hostedCreds, inv *Invocation) {
+	org := orgArgOrContext(cr, inv.Str("organization"), "nothing was read")
+	var env struct {
+		Data map[string]any `json:"data"`
+	}
+	if err := hostedCall(cr, "POST", "/api/v2/orgs/"+url.PathEscape(org)+"/statements/"+url.PathEscape(inv.Arg(0))+"/verify", nil, &env); err != nil {
+		die(orgErr(err, "nothing was checked"))
+	}
+	v := env.Data
+	ok, _ := v["reconciled"].(bool)
+	emit(v, func() {
+		if ok {
+			fmt.Printf("%s verifies: its total, its content hash, its chain, its billing details and the engine's statement all agree.\n", inv.Arg(0))
+			return
+		}
+		var bad []string
+		for _, k := range []string{"self_total_ok", "content_hash_ok", "chain_ok", "live_statement_ok", "billing_profile_ok"} {
+			if b, present := v[k].(bool); present && !b {
+				bad = append(bad, strings.TrimSuffix(k, "_ok"))
+			}
+		}
+		fmt.Printf("%s does NOT verify: %s.\n", inv.Arg(0), strings.Join(bad, ", "))
+	})
+	if !ok {
+		fail(&cliError{Code: exitFailed, Kind: "statement_unverified", Message: inv.Arg(0) + " does not verify"})
+	}
+}

@@ -2570,6 +2570,68 @@
    "summary": "an organization's credit: balance, what it bought, its purchases and its ledger (owner, admin, billing, auditor)",
    "status": "available",
    "surface": "hosted"
+  },
+  {
+   "verb": "organization statements",
+   "aliases": [],
+   "usage": "ks organization statements [organization]",
+   "summary": "an organization's usage statements: who each is billed to, its total and period, and what it corrects (owner, admin, billing, auditor)",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "organization statement issue",
+   "aliases": [],
+   "usage": "ks organization statement issue [organization] [--from TIME] [--to TIME] [--po-number PO] [--corrects STATEMENT]",
+   "summary": "issue an organization's usage statement, its billing details frozen in it, or a correction of one (owner or billing)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--from TIME",
+     "summary": "the period's start (RFC 3339); from the start when absent"
+    },
+    {
+     "flag": "--to TIME",
+     "summary": "the period's end (RFC 3339); now when absent"
+    },
+    {
+     "flag": "--po-number PO",
+     "summary": "this statement's PO number; the organization's default when absent"
+    },
+    {
+     "flag": "--corrects STATEMENT",
+     "summary": "issue a correction of this statement: a new statement for its period; it stands as issued"
+    }
+   ]
+  },
+  {
+   "verb": "organization statement show",
+   "aliases": [],
+   "usage": "ks organization statement show <statement> [--organization ID]",
+   "summary": "one of an organization's statements, as issued, and the statements that correct it",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization; your context's when absent"
+    }
+   ]
+  },
+  {
+   "verb": "organization statement verify",
+   "aliases": [],
+   "usage": "ks organization statement verify <statement> [--organization ID]",
+   "summary": "check one of an organization's statements against the ledger and the engine now: its total, content hash, chain and frozen billing details",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization; your context's when absent"
+    }
+   ]
   }
  ]
 }
