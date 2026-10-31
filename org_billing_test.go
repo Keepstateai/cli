@@ -38,7 +38,7 @@ func (c *orgBillingCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		return map[string]any{"org_id": "org_a", "profile": prof, "missing": missing, "issuer": map[string]any{"name": "KeepState, Inc.", "address": "San Francisco, CA"},
 			"contacts": []any{map[string]any{"account_id": "acct_bill", "kind": "both", "role": "billing", "receives": true}, map[string]any{"account_id": "acct_gone", "kind": "alerts", "receives": false}},
-			"note": "Changes apply to the next statement and the next purchase; past statements never change.", "your_role": "owner", "can_edit": true}
+			"note":     "Changes apply to the next statement and the next purchase; past statements never change.", "your_role": "owner", "can_edit": true}
 	}
 	if c.extra != nil && c.extra(w, r, b) {
 		return
