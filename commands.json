@@ -1492,6 +1492,15 @@
    ]
   },
   {
+   "verb": "cruise draft check",
+   "aliases": [],
+   "usage": "ks cruise draft check <draft>",
+   "summary": "check that a draft's own tests load in Cruise's check before you approve it (the \"I have tests\" path): no machine, no model",
+   "status": "available",
+   "surface": "hosted",
+   "flags": []
+  },
+  {
    "verb": "cruise draft approve",
    "aliases": [],
    "usage": "ks cruise draft approve <draft> [--confirm DIGEST]",
