@@ -1448,7 +1448,7 @@
   {
    "verb": "cruise draft set",
    "aliases": [],
-   "usage": "ks cruise draft set <draft> [--goal TEXT] [--paths GLOB...] [--any-file] [--check RUNNER] [--ladder family:model,...] [--spend USD] [--key PROVIDER=KEY]",
+   "usage": "ks cruise draft set <draft> [--goal TEXT] [--paths GLOB...] [--any-file] [--check RUNNER] [--ladder family:model,...] [--spend USD] [--key PROVIDER=KEY] [--leave-out PATH...] [--keep-all-tests]",
    "summary": "change a ready draft's goal, paths, check, ladder, spend limit or keys; the manifest and its digest are drafted again",
    "status": "available",
    "surface": "hosted",
@@ -1480,6 +1480,14 @@
     {
      "flag": "--key PROVIDER=KEY",
      "summary": "the key a provider of the ladder uses (repeatable)"
+    },
+    {
+     "flag": "--leave-out PATH...",
+     "summary": "leave these project test files out of the check: each one Cruise's check named as not loading; they stay in the files, unchanged and protected, and are not run"
+    },
+    {
+     "flag": "--keep-all-tests",
+     "summary": "put every left-out test file back in the check"
     }
    ]
   },
