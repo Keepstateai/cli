@@ -2438,6 +2438,108 @@
    "summary": "the context this client acts in",
    "status": "available",
    "surface": "hosted"
+  },
+  {
+   "verb": "organization billing show",
+   "aliases": [],
+   "usage": "ks organization billing show [organization]",
+   "summary": "an organization's billing details, what a purchase still needs, who issues its statements, and its billing contacts (owner, admin, billing, auditor)",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "organization billing set",
+   "aliases": [],
+   "usage": "ks organization billing set [organization] [--legal-name NAME] [--address-line1 TEXT] [--address-line2 TEXT] [--city CITY] [--region REGION] [--postal-code CODE] [--country CC] [--tax-id ID] [--tax-id-type TYPE] [--no-tax-id] [--po-number PO]",
+   "summary": "set an organization's billing details: legal name, address, country, VAT or tax id, PO number (owner or billing)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--legal-name NAME",
+     "summary": "the registered name statements and receipts carry"
+    },
+    {
+     "flag": "--address-line1 TEXT",
+     "summary": "the street address"
+    },
+    {
+     "flag": "--address-line2 TEXT",
+     "summary": "the second address line; empty to remove it"
+    },
+    {
+     "flag": "--city CITY",
+     "summary": "the city"
+    },
+    {
+     "flag": "--region REGION",
+     "summary": "the state, province or county; empty to remove it"
+    },
+    {
+     "flag": "--postal-code CODE",
+     "summary": "the postal code"
+    },
+    {
+     "flag": "--country CC",
+     "summary": "the two-letter country code, such as US, DE or GB"
+    },
+    {
+     "flag": "--tax-id ID",
+     "summary": "the VAT or tax registration number, with --tax-id-type"
+    },
+    {
+     "flag": "--tax-id-type TYPE",
+     "summary": "eu_vat, gb_vat, ch_vat, no_vat, us_ein, ca_bn, au_abn, nz_gst, in_gst, sg_gst, jp_cn or other"
+    },
+    {
+     "flag": "--no-tax-id",
+     "summary": "remove the tax id"
+    },
+    {
+     "flag": "--po-number PO",
+     "summary": "the purchase order number statements carry; empty to remove it"
+    }
+   ]
+  },
+  {
+   "verb": "organization billing contacts",
+   "aliases": [],
+   "usage": "ks organization billing contacts [organization]",
+   "summary": "an organization's billing contacts: the members who receive its statement notices, its credit alerts, or both",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "organization billing contact add",
+   "aliases": [],
+   "usage": "ks organization billing contact add <account> [--organization ID] [--kind KIND]",
+   "summary": "make a member a billing contact, for statements, alerts or both (owner or billing)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization; your context's when absent"
+    },
+    {
+     "flag": "--kind KIND",
+     "summary": "statements, alerts or both; default both"
+    }
+   ]
+  },
+  {
+   "verb": "organization billing contact remove",
+   "aliases": [],
+   "usage": "ks organization billing contact remove <account> [--organization ID]",
+   "summary": "stop sending a billing contact the organization's statement notices and alerts (owner or billing)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization; your context's when absent"
+    }
+   ]
   }
  ]
 }
