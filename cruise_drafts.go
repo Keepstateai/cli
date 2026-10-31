@@ -108,6 +108,11 @@ type draftView struct {
 		Pinned       int64    `json:"pinned"`
 		TestsDigest  string   `json:"tests_digest"`
 		InputsDigest string   `json:"inputs_digest"`
+		// the project test files the check leaves out, and why (BACKLOG-488)
+		LeftOut []struct {
+			Path string `json:"path"`
+			Why  string `json:"why"`
+		} `json:"left_out"`
 	} `json:"check"`
 	Manifest    json.RawMessage `json:"manifest"`
 	ManifestSHA string          `json:"manifest_sha"`
@@ -267,6 +272,9 @@ func printDraft(w io.Writer, v *draftView, computed string) {
 		switch v.Check.Status {
 		case "found":
 			fmt.Fprintf(w, "  check        %s (%s, %s); %d verifier inputs pinned\n", sanitize(v.Check.Command), sanitize(v.Check.Runner), sanitize(v.Check.Source), v.Check.Pinned)
+			for _, x := range v.Check.LeftOut {
+				fmt.Fprintf(w, "  left out     %s (%s): kept as it is and not run by the check\n", sanitize(x.Path), visible(sanitize(x.Why)))
+			}
 		case "ambiguous":
 			fmt.Fprintf(w, "  check        not chosen: tests of %s were found; name it: ks cruise draft set %s --check RUNNER\n", strings.Join(v.Check.WithTests, ", "), v.ID)
 		default:
@@ -732,8 +740,18 @@ func hostedCruiseDraftSet(cr hostedCreds, inv *Invocation) {
 		body["paths"] = []string{}
 	}
 	draftTerms(inv, body)
+	// BACKLOG-488: the project test files the check leaves out (each one
+	// Cruise's check named as not loading), or every one put back
+	if inv.Bool("keep-all-tests") {
+		if inv.Set("leave-out") {
+			fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--leave-out and --keep-all-tests say opposite things; give one. Nothing was changed"})
+		}
+		body["leave_out"] = []string{}
+	} else if inv.Set("leave-out") {
+		body["leave_out"] = inv.List("leave-out")
+	}
 	if len(body) == 0 {
-		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "name at least one change: --goal, --paths, --any-file, --check, --ladder, --spend or --key. Nothing was changed"})
+		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "name at least one change: --goal, --paths, --any-file, --check, --ladder, --spend, --key, --leave-out or --keep-all-tests. Nothing was changed"})
 	}
 	v, _ := fetchDraft(cr, inv.Arg(0))
 	body["expected_revision"] = v.Revision
