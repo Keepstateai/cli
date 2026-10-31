@@ -59,6 +59,10 @@ type inventoryRow struct {
 // fetchInventory reads every page: a filter answers the complete
 // authorized result, never the first page of it.
 func fetchInventory(cr hostedCreds, state string, all bool) ([]inventoryRow, error) {
+	// an organization's context: its session records (org_run.go)
+	if org := currentContext(cr); org != "" {
+		return orgInventory(cr, org, state)
+	}
 	var out []inventoryRow
 	cursor := ""
 	for page := 0; page < 1000; page++ {
@@ -215,7 +219,13 @@ func hostedSessionList(cr hostedCreds, inv *Invocation) {
 	if parkProblem != "" {
 		doc["park_reasons_unreadable"] = parkProblem
 	}
+	if org := currentContext(cr); org != "" {
+		doc["context"] = org
+	}
 	emit(doc, func() {
+		if org := currentContext(cr); org != "" {
+			fmt.Printf("Context: organization %s\n", org)
+		}
 		if len(rows) == 0 {
 			if state != "" {
 				fmt.Printf("No %s sessions.\n", state)

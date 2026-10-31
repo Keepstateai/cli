@@ -257,13 +257,22 @@ func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *i
 	// the provider the harness calls: Anthropic for Claude Code, the
 	// catalog's for another (OpenAI for Codex)
 	runnerProvider := firstNonEmptyStr(harness.Provider, runnerProvider)
-	// ---- 2. your own key or KeepState's key, chosen before anything exists ----
-	choice, err := chooseRunKey(cr, keyArg, runnerProvider, spend)
-	if err != nil {
+	// an organization's session, when the context names one: the
+	// organization's keys only, never yours (org_run.go)
+	org := currentContext(cr)
+	var choice runKeyChoice
+	var err error
+	if org != "" {
+		progress("context: organization %s (ks context use personal for your own account)", org)
+	} else if choice, err = chooseRunKey(cr, keyArg, runnerProvider, spend); err != nil {
+		// ---- 2. your own key or KeepState's key, chosen before anything exists ----
 		return none, provisionAnswer{}, customerKey{}, err
 	}
 	// ---- 2a. preflight: stop before anything exists -------------------------
 	pfBody := map[string]any{"provider": runnerProvider, "mode": "agent"}
+	if org != "" {
+		pfBody["org_id"] = org
+	}
 	if choice.answered {
 		// the service judges KeepState's key only for a run chosen on it
 		pfBody["managed"] = []string{}
@@ -291,10 +300,17 @@ func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *i
 			NextAction: next}
 	}
 	var key customerKey
-	if choice.managed {
+	switch {
+	case org != "":
+		if key, err = orgRunKey(pf.Data, org, keyArg, runnerProvider); err != nil {
+			return none, provisionAnswer{}, customerKey{}, err
+		}
+	case choice.managed:
 		key = customerKey{ID: keepstateKeyArg, Provider: runnerProvider}
-	} else if key, err = runKey(cr, choice.keyArg, runnerProvider); err != nil {
-		return none, provisionAnswer{}, customerKey{}, err
+	default:
+		if key, err = runKey(cr, choice.keyArg, runnerProvider); err != nil {
+			return none, provisionAnswer{}, customerKey{}, err
+		}
 	}
 
 	// ---- 3. the record and its primary agent --------------------------------
@@ -302,6 +318,9 @@ func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *i
 		name = "run-" + time.Now().UTC().Format("20060102-150405")
 	}
 	body := map[string]any{"name": name, "mode": "agent"}
+	if org != "" {
+		body["org_id"] = org
+	}
 	if agentName != "" {
 		body["primary_agent_name"] = agentName
 	}
