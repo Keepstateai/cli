@@ -84,8 +84,8 @@ func orgRunKey(pf map[string]any, org, keyArg, provider string) (customerKey, er
 		return usable[0], nil
 	case 0:
 		return customerKey{}, &cliError{Code: exitConflict, Kind: "organization_no_key",
-			Message:    fmt.Sprintf("the organization %s has no enabled %s key, and your own keys are never used for its sessions. An organization's own keys and credit arrive with organization billing, which is not available yet. Nothing was created", org, provider),
-			NextAction: "ks context use personal"}
+			Message:    fmt.Sprintf("the organization %s has no enabled %s key, and your own keys are never used for its sessions. Its owners and admins add the organization's own keys in its context (ks key add --provider %s). Nothing was created", org, provider, provider),
+			NextAction: "ks key add --provider " + provider}
 	}
 	var ids []string
 	for _, k := range usable {

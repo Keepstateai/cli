@@ -502,7 +502,7 @@
    "verb": "key list",
    "aliases": [],
    "usage": "ks key list",
-   "summary": "your keys: id, provider, alias, last four characters, enabled or disabled; and KeepState's key per provider where it is offered",
+   "summary": "your keys: id, provider, alias, last four characters, enabled or disabled; and KeepState's key per provider where it is offered; in an organization's context, the organization's own keys",
    "status": "available",
    "surface": "hosted"
   },
@@ -527,7 +527,7 @@
    "verb": "key add",
    "aliases": [],
    "usage": "ks key add [--provider PROVIDER] [--alias NAME]",
-   "summary": "store a provider key read from standard input; it is never an argument and never comes back",
+   "summary": "store a provider key read from standard input; it is never an argument and never comes back; in an organization's context it is stored as the organization's, never yours",
    "status": "available",
    "surface": "hosted",
    "flags": [

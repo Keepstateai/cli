@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -31,22 +32,57 @@ type customerKey struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
-func fetchKeys(cr hostedCreds) ([]customerKey, error) {
+func fetchKeys(cr hostedCreds) ([]customerKey, error) { return fetchKeysIn(cr, "") }
+
+// keyPath is a key route in a context: the organization's keys (its owners'
+// and admins') when org names one, your own otherwise, exactly as before.
+func keyPath(org, path string) string {
+	if org == "" {
+		return path
+	}
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	return path + sep + "context=" + url.QueryEscape(org)
+}
+
+// keyContext is the context the key verbs act in: ks context use names it.
+// In an organization's context they manage the organization's own keys,
+// never yours; in your personal context, your own, as always.
+func keyContext(cr hostedCreds) string { return currentContext(cr) }
+
+func fetchKeysIn(cr hostedCreds, org string) ([]customerKey, error) {
 	var env struct {
 		Data struct {
 			Items []customerKey `json:"items"`
 		} `json:"data"`
 	}
-	if err := hostedCall(cr, "GET", "/api/v2/keys", nil, &env); err != nil {
-		return nil, err
+	if err := hostedCall(cr, "GET", keyPath(org, "/api/v2/keys"), nil, &env); err != nil {
+		return nil, keyOrgErr(err, org)
 	}
 	return env.Data.Items, nil
 }
 
+// keyOrgErr says, for a refusal in an organization's context, whose keys
+// these are; a person's own refusals pass through as they were.
+func keyOrgErr(err error, org string) error {
+	if org == "" {
+		return err
+	}
+	var he *hostedErr
+	if errors.As(err, &he) && he.Status == 403 && he.Type == "ks_forbidden" {
+		return &cliError{Code: exitFailed, Kind: "forbidden", Message: "the organization " + org + "'s keys are managed by its owners and admins; your role there does not reach them. Your own keys: ks context use personal", NextAction: "ks context use personal"}
+	}
+	return orgErr(err, "nothing was done")
+}
+
 // resolveKey answers the one key an argument names: its id, or its alias
 // when exactly one key carries it.
-func resolveKey(cr hostedCreds, arg string) (customerKey, error) {
-	keys, err := fetchKeys(cr)
+func resolveKey(cr hostedCreds, arg string) (customerKey, error) { return resolveKeyIn(cr, "", arg) }
+
+func resolveKeyIn(cr hostedCreds, org, arg string) (customerKey, error) {
+	keys, err := fetchKeysIn(cr, org)
 	if err != nil {
 		return customerKey{}, err
 	}
@@ -63,6 +99,9 @@ func resolveKey(cr hostedCreds, arg string) (customerKey, error) {
 	case 1:
 		return byAlias[0], nil
 	case 0:
+		if org != "" {
+			return customerKey{}, &cliError{Code: exitUsage, Kind: "not_found", Message: fmt.Sprintf("no key of the organization %s is %q (an id or an alias); your own keys are not the organization's (ks context use personal)", org, arg), NextAction: "ks key list"}
+		}
 		return customerKey{}, &cliError{Code: exitUsage, Kind: "not_found", Message: fmt.Sprintf("no key of yours is %q (an id or an alias)", arg), NextAction: "ks key list"}
 	}
 	return customerKey{}, &cliError{Code: exitUsage, Kind: "ambiguous", Message: fmt.Sprintf("%d keys carry the alias %q; give the id", len(byAlias), arg), NextAction: "ks key list"}
@@ -81,11 +120,27 @@ func keyLine(k customerKey) string {
 }
 
 func hostedKeyList(cr hostedCreds, inv *Invocation) {
-	keys, err := fetchKeys(cr)
+	org := keyContext(cr)
+	keys, err := fetchKeysIn(cr, org)
 	if err != nil {
 		die(err)
 	}
 	facts := map[string]any{"keys": keys, "count": len(keys)}
+	if org != "" {
+		facts["organization"] = org
+		emit(facts, func() {
+			fmt.Printf("The organization %s's own keys (your context; ks context use personal for yours):\n", org)
+			if len(keys) == 0 {
+				fmt.Println("No keys yet. An owner or admin adds one: ks key add --provider anthropic < key.txt")
+				return
+			}
+			fmt.Printf("%-14s %-11s %-18s %-6s %s\n", "KEY", "PROVIDER", "ALIAS", "LAST4", "STATE")
+			for _, k := range keys {
+				fmt.Println(keyLine(k))
+			}
+		})
+		return
+	}
 	// KeepState's key beside your own, only where the service lists it
 	var managed []string
 	if _, listed := managedListed(cr); listed {
@@ -112,7 +167,7 @@ func hostedKeyList(cr hostedCreds, inv *Invocation) {
 }
 
 func hostedKeyShow(cr hostedCreds, inv *Invocation) {
-	k, err := resolveKey(cr, inv.Arg(0))
+	k, err := resolveKeyIn(cr, keyContext(cr), inv.Arg(0))
 	if err != nil {
 		die(err)
 	}
@@ -212,11 +267,17 @@ func hostedKeyAdd(cr hostedCreds, inv *Invocation) {
 	if a := inv.Str("alias"); a != "" {
 		body["alias"] = a
 	}
-	if err := hostedCall(cr, "POST", "/api/v2/keys", body, &env); err != nil {
-		die(err)
+	org := keyContext(cr)
+	if err := hostedCall(cr, "POST", keyPath(org, "/api/v2/keys"), body, &env); err != nil {
+		die(keyOrgErr(err, org))
 	}
 	k := env.Data
 	emit(k, func() {
+		if org != "" {
+			fmt.Printf("stored in the organization %s's own keys (your context), never yours: %s\n", org, keyLine(k))
+			fmt.Println("the organization's sessions bind it: ks run --agent --key " + k.ID)
+			return
+		}
 		fmt.Printf("stored: %s\n", keyLine(k))
 		fmt.Println("bind it to a session: ks session key set <session> --key " + k.ID)
 	})
@@ -224,22 +285,24 @@ func hostedKeyAdd(cr hostedCreds, inv *Invocation) {
 
 func hostedKeySetEnabled(enabled bool) func(cr hostedCreds, inv *Invocation) {
 	return func(cr hostedCreds, inv *Invocation) {
-		k, err := resolveKey(cr, inv.Arg(0))
+		org := keyContext(cr)
+		k, err := resolveKeyIn(cr, org, inv.Arg(0))
 		if err != nil {
 			die(err)
 		}
 		var env struct {
 			Data customerKey `json:"data"`
 		}
-		if err := hostedMutate(cr, "PATCH", "/api/v2/keys/"+k.ID, map[string]any{"enabled": enabled, "expected_revision": k.Revision}, &env); err != nil {
-			die(err)
+		if err := hostedMutate(cr, "PATCH", keyPath(org, "/api/v2/keys/"+k.ID), map[string]any{"enabled": enabled, "expected_revision": k.Revision}, &env); err != nil {
+			die(keyOrgErr(err, org))
 		}
 		emit(env.Data, func() { fmt.Println(keyLine(env.Data)) })
 	}
 }
 
 func hostedKeyDelete(cr hostedCreds, inv *Invocation) {
-	k, err := resolveKey(cr, inv.Arg(0))
+	org := keyContext(cr)
+	k, err := resolveKeyIn(cr, org, inv.Arg(0))
 	if err != nil {
 		die(err)
 	}
@@ -249,8 +312,8 @@ func hostedKeyDelete(cr hostedCreds, inv *Invocation) {
 			Plan map[string]any `json:"plan"`
 		} `json:"data"`
 	}
-	if err := hostedCall(cr, "POST", "/api/v2/keys/"+k.ID+"/deletion-plan", map[string]any{}, &plan); err != nil {
-		die(err)
+	if err := hostedCall(cr, "POST", keyPath(org, "/api/v2/keys/"+k.ID+"/deletion-plan"), map[string]any{}, &plan); err != nil {
+		die(keyOrgErr(err, org))
 	}
 	bound := 0
 	if b, ok := plan.Data.Plan["bindings"].(map[string]any); ok {
@@ -266,8 +329,8 @@ func hostedKeyDelete(cr hostedCreds, inv *Invocation) {
 		return
 	}
 	var res map[string]any
-	if err := hostedMutate(cr, "DELETE", "/api/v2/keys/"+k.ID+"?plan_id="+plan.Data.ID, nil, &res); err != nil {
-		die(err)
+	if err := hostedMutate(cr, "DELETE", keyPath(org, "/api/v2/keys/"+k.ID+"?plan_id="+plan.Data.ID), nil, &res); err != nil {
+		die(keyOrgErr(err, org))
 	}
 	emit(res, func() {
 		fmt.Printf("deleted %s (%s …%s); %v binding(s) dropped\n", k.ID, k.Provider, k.Last4, figure(res["bindings_dropped"]))
