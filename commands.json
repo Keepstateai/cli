@@ -2414,6 +2414,30 @@
      "summary": "remove exactly as the plan with this digest shows (the 12 characters shown, or all of it); never implied by --yes"
     }
    ]
+  },
+  {
+   "verb": "organization sessions",
+   "aliases": [],
+   "usage": "ks organization sessions [organization]",
+   "summary": "an organization's session records you may read: the one named, or your context's",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "context use",
+   "aliases": [],
+   "usage": "ks context use <organization|personal>",
+   "summary": "act in an organization, or in your personal account: personal",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "context show",
+   "aliases": [],
+   "usage": "ks context show",
+   "summary": "the context this client acts in",
+   "status": "available",
+   "surface": "hosted"
   }
  ]
 }
