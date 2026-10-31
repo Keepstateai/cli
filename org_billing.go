@@ -527,3 +527,115 @@ func hostedOrgStatementVerify(cr hostedCreds, inv *Invocation) {
 		fail(&cliError{Code: exitFailed, Kind: "statement_unverified", Message: inv.Arg(0) + " does not verify"})
 	}
 }
+
+// ---- caps on KeepState's key -----------------------------------------------------
+
+type customerOrgCapSet struct {
+	Daily      *int64 `json:"daily_cap_microusd"`
+	Monthly    *int64 `json:"monthly_cap_microusd"`
+	Concurrent *int64 `json:"concurrent_calls"`
+}
+
+type customerOrgCaps struct {
+	OrgID      string            `json:"org_id"`
+	Ceiling    customerOrgCapSet `json:"ceiling"`
+	Lowered    customerOrgCapSet `json:"lowered"`
+	InForce    customerOrgCapSet `json:"in_force"`
+	Revision   int64             `json:"revision"`
+	SpentToday int64             `json:"spent_today_microusd"`
+	SpentMonth int64             `json:"spent_this_month_microusd"`
+	InFlight   int64             `json:"calls_in_flight"`
+	Note       string            `json:"note"`
+}
+
+func capMoney(v *int64) string {
+	if v == nil {
+		return "-"
+	}
+	return receiptMoney(*v)
+}
+
+func capCount(v *int64) string {
+	if v == nil {
+		return "-"
+	}
+	return fmt.Sprint(*v)
+}
+
+func printOrgCaps(c customerOrgCaps) {
+	fmt.Printf("Caps on model use on KeepState's key for the organization %s (all its members together):\n", c.OrgID)
+	fmt.Printf("  %-18s %-12s %-12s %s\n", "", "IN FORCE", "CEILING", "LOWERED BY THE OWNER")
+	lowered := func(v *int64, f func(*int64) string) string {
+		if v == nil {
+			return "no (the ceiling)"
+		}
+		return f(v)
+	}
+	fmt.Printf("  %-18s %-12s %-12s %s\n", "a day", capMoney(c.InForce.Daily), capMoney(c.Ceiling.Daily), lowered(c.Lowered.Daily, capMoney))
+	fmt.Printf("  %-18s %-12s %-12s %s\n", "a month", capMoney(c.InForce.Monthly), capMoney(c.Ceiling.Monthly), lowered(c.Lowered.Monthly, capMoney))
+	fmt.Printf("  %-18s %-12s %-12s %s\n", "calls at once", capCount(c.InForce.Concurrent), capCount(c.Ceiling.Concurrent), lowered(c.Lowered.Concurrent, capCount))
+	fmt.Printf("Used now: %s today, %s this month, %d calls in flight.\n", receiptMoney(c.SpentToday), receiptMoney(c.SpentMonth), c.InFlight)
+}
+
+func fetchOrgCaps(cr hostedCreds, org, nothing string) customerOrgCaps {
+	var env struct {
+		Data customerOrgCaps `json:"data"`
+	}
+	if err := hostedCall(cr, "GET", "/api/v2/orgs/"+url.PathEscape(org)+"/managed-caps", nil, &env); err != nil {
+		die(orgErr(err, nothing))
+	}
+	return env.Data
+}
+
+func hostedOrgCapsShow(cr hostedCreds, inv *Invocation) {
+	org := orgArgOrContext(cr, inv.Arg(0), "nothing was read")
+	c := fetchOrgCaps(cr, org, "nothing was read")
+	emit(c, func() { printOrgCaps(c) })
+}
+
+// hostedOrgCapsSet lowers the caps given, or puts them back to the ceiling,
+// keeping the others as the owner last set them, with the revision read.
+func hostedOrgCapsSet(cr hostedCreds, inv *Invocation) {
+	const nothing = "nothing was changed"
+	org := orgArgOrContext(cr, inv.Arg(0), nothing)
+	type pair struct{ val, reset string }
+	given := false
+	for _, p := range []pair{{"daily", "daily-ceiling"}, {"monthly", "monthly-ceiling"}, {"calls", "calls-ceiling"}} {
+		if inv.Set(p.val) && inv.Bool(p.reset) {
+			fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--" + p.val + " and --" + p.reset + " are two different changes; give one; " + nothing})
+		}
+		given = given || inv.Set(p.val) || inv.Bool(p.reset)
+	}
+	if !given {
+		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "give --daily, --monthly or --calls to lower a cap, or --daily-ceiling, --monthly-ceiling or --calls-ceiling to put one back; " + nothing})
+	}
+	if inv.Set("calls") && inv.Int("calls") < 1 {
+		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--calls is 1 or more: a cap is never off; " + nothing})
+	}
+	for _, f := range []string{"daily", "monthly"} {
+		if inv.Set(f) && inv.Int(f) < 1 {
+			fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--" + f + " is above $0: a cap is never off; " + nothing})
+		}
+	}
+	cur := fetchOrgCaps(cr, org, nothing)
+	body := map[string]any{"daily_cap_microusd": cur.Lowered.Daily, "monthly_cap_microusd": cur.Lowered.Monthly, "concurrent_calls": cur.Lowered.Concurrent, "expected_revision": cur.Revision}
+	set := func(key, val, reset string) {
+		switch {
+		case inv.Set(val):
+			body[key] = inv.Int(val)
+		case inv.Bool(reset):
+			body[key] = nil
+		}
+	}
+	set("daily_cap_microusd", "daily", "daily-ceiling")
+	set("monthly_cap_microusd", "monthly", "monthly-ceiling")
+	set("concurrent_calls", "calls", "calls-ceiling")
+	var env struct {
+		Data customerOrgCaps `json:"data"`
+	}
+	if err := hostedCall(cr, "PUT", "/api/v2/orgs/"+url.PathEscape(org)+"/managed-caps", body, &env); err != nil {
+		die(orgErr(err, nothing))
+	}
+	c := env.Data
+	emit(c, func() { printOrgCaps(c) })
+}
