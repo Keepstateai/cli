@@ -7,6 +7,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -242,4 +243,140 @@ func hostedOrgBillingContactRemove(cr hostedCreds, inv *Invocation) {
 		die(orgErr(err, nothing))
 	}
 	emit(env.Data, func() { fmt.Printf("%s no longer receives %s's statement notices or alerts.\n", inv.Arg(0), org) })
+}
+
+// ---- buying credit as the organization ---------------------------------------------
+
+type customerOrgCheckout struct {
+	CheckoutID   string `json:"checkout_id"`
+	URL          string `json:"url"`
+	AmountMicros int64  `json:"amount_micros"`
+	OrgID        string `json:"org_id"`
+	OrgName      string `json:"org_name"`
+	BillTo       struct {
+		LegalName string `json:"legal_name"`
+		Address   string `json:"address"`
+		TaxID     string `json:"tax_id"`
+		TaxIDSent bool   `json:"tax_id_sent"`
+	} `json:"bill_to"`
+	PONumber string `json:"po_number"`
+	Note     string `json:"note"`
+}
+
+// hostedOrgBuy shows who the purchase is for and what the receipt will name,
+// and opens the checkout only when that is confirmed (--yes); the payment
+// itself happens on Polar's page, never in this client.
+func hostedOrgBuy(cr hostedCreds, inv *Invocation) {
+	const nothing = "nothing was bought"
+	org := orgArgOrContext(cr, inv.Arg(0), nothing)
+	amount := inv.Int("amount")
+	if !inv.Set("amount") || amount < 1_000_000 || amount%10_000 != 0 || amount > 10_000_000_000 {
+		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--amount is whole cents from $1 to $10,000, such as --amount 50; " + nothing})
+	}
+	b := fetchOrgBilling(cr, org, nothing)
+	if len(b.Missing) > 0 || b.Profile == nil {
+		fail(&cliError{Code: exitConflict, Kind: "billing_details_incomplete", Message: "the organization's receipt needs its billing details first: " + strings.Join(b.Missing, ", ") + "; " + nothing, NextAction: "ks organization billing set " + org})
+	}
+	p := b.Profile
+	withTax := p.TaxID != "" && !inv.Bool("without-tax-id")
+	receipt := p.LegalName
+	switch {
+	case withTax:
+		receipt += ", VAT id " + p.TaxID
+	case p.TaxID != "":
+		receipt += ", without its VAT id (Polar will charge VAT)"
+	}
+	if !out.yes {
+		preview := map[string]any{"organization": org, "amount_micros": amount, "bill_to": p.LegalName, "address": orgBillingAddress(p), "tax_id_sent": withTax, "confirmed": false}
+		emit(preview, func() {
+			fmt.Printf("You are buying %s of credit for the organization %s. The receipt from Polar will name %s.\n", dollars(amount), org, receipt)
+			fmt.Printf("  billed to  %s\n", orgBillingAddress(p))
+			fmt.Println("The credit is the organization's, never yours. Nothing was bought; run again with --yes to open the payment page.")
+		})
+		return
+	}
+	body := map[string]any{"amount_micros": amount}
+	if inv.Set("po-number") {
+		body["po_number"] = inv.Str("po-number")
+	}
+	if inv.Bool("without-tax-id") {
+		body["without_tax_id"] = true
+	}
+	var env struct {
+		Data customerOrgCheckout `json:"data"`
+	}
+	if err := hostedMutate(cr, "POST", "/api/v2/orgs/"+url.PathEscape(org)+"/billing/checkout", body, &env); err != nil {
+		var he *hostedErr
+		if errors.As(err, &he) && he.Type == "ks_tax_id_refused" {
+			fail(&cliError{Code: exitConflict, Kind: "tax_id_refused", Message: he.Message + ". Two ways on: correct it (ks organization billing set " + org + " --tax-id ...) and buy again, or buy without it (ks organization buy " + org + " --amount ... --without-tax-id --yes)", NextAction: "ks organization billing set " + org})
+		}
+		die(orgErr(err, nothing))
+	}
+	c := env.Data
+	emit(c, func() {
+		fmt.Println(c.Note)
+		fmt.Printf("Pay on Polar's page: %s\n", c.URL)
+		fmt.Println("The credit arrives when Polar confirms the payment: ks organization credits " + org)
+	})
+}
+
+type customerOrgCredits struct {
+	OrgID     string `json:"org_id"`
+	Balance   int64  `json:"balance_micros"`
+	Purchased int64  `json:"purchased_micros"`
+	HasBought bool   `json:"has_bought"`
+	Entries   []struct {
+		Seq          int64  `json:"seq"`
+		TS           string `json:"ts"`
+		Kind         string `json:"kind"`
+		AmountMicros int64  `json:"amount_micros"`
+		Ref          string `json:"ref"`
+		BalanceAfter int64  `json:"balance_after_micros"`
+	} `json:"entries"`
+	More   bool `json:"more"`
+	Orders []struct {
+		CheckoutID   string `json:"checkout_id"`
+		OrderID      string `json:"order_id"`
+		AmountMicros int64  `json:"amount_micros"`
+		Status       string `json:"status"`
+		PONumber     string `json:"po_number"`
+		CreatedAt    string `json:"created_at"`
+	} `json:"orders"`
+	Note string `json:"note"`
+}
+
+func hostedOrgCredits(cr hostedCreds, inv *Invocation) {
+	org := orgArgOrContext(cr, inv.Arg(0), "nothing was read")
+	var env struct {
+		Data customerOrgCredits `json:"data"`
+	}
+	if err := hostedCall(cr, "GET", "/api/v2/orgs/"+url.PathEscape(org)+"/credits", nil, &env); err != nil {
+		die(orgErr(err, "nothing was read"))
+	}
+	c := env.Data
+	emit(c, func() {
+		fmt.Printf("The organization %s's credit: %s (bought: %s)\n", org, receiptMoney(c.Balance), receiptMoney(c.Purchased))
+		if !c.HasBought {
+			fmt.Println("It has bought no credit yet: buy some with ks organization buy " + org + " --amount 50")
+		}
+		if len(c.Orders) > 0 {
+			fmt.Println("Purchases:")
+			for _, o := range c.Orders {
+				po := ""
+				if o.PONumber != "" {
+					po = "  PO " + o.PONumber
+				}
+				fmt.Printf("  %s  %-8s %s%s\n", o.CreatedAt, o.Status, receiptMoney(o.AmountMicros), po)
+			}
+		}
+		if len(c.Entries) > 0 {
+			fmt.Println("Ledger, newest first:")
+			for _, e := range c.Entries {
+				fmt.Printf("  %s  %-6s %12s  balance %s\n", e.TS, e.Kind, receiptMoney(e.AmountMicros), receiptMoney(e.BalanceAfter))
+			}
+		}
+		if c.More {
+			fmt.Println("Older ledger rows are kept on the service.")
+		}
+	})
 }
