@@ -28,6 +28,8 @@ type testsFake struct {
 	shaShown  string            // the sha256 shown beside it (default: the content's)
 	setShown  string            // the set digest the service states (default: computed)
 	state     string
+	refusal   map[string]any // the view's refusal, when set (BACKLOG-488)
+	patched   []byte         // the last PATCH of the draft
 }
 
 func sum(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
@@ -49,7 +51,7 @@ func (f *testsFake) view() map[string]any {
 		"files":      []any{map[string]any{"path": "tests/keepstate/test_calc_add.py", "sha256": sha, "bytes": len(f.content), "content": f.content}},
 		"tests": []any{map[string]any{"id": "tests.keepstate.test_calc_add::test_add_two_positives", "file": "tests/keepstate/test_calc_add.py", "name": "test_add_two_positives",
 			"sentence": "Adding 2 and 3 gives 5.", "acceptance": "the sum", "red": []any{"failed", "failed"}, "status": "red", "witnessed": true}},
-		"dropped": []any{}, "untested": []any{}, "set_digest": set, "usage": "unavailable", "cost": "unavailable"}
+		"dropped": []any{}, "untested": []any{}, "set_digest": set, "usage": "unavailable", "cost": "unavailable", "refusal": f.refusal}
 }
 
 func (f *testsFake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -77,6 +79,18 @@ func (f *testsFake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.posted = body
 		data(201, draft)
 	case r.Method == "PUT" && r.URL.Path == route+"/upload", r.Method == "GET" && r.URL.Path == route:
+		data(200, draft)
+	case r.Method == "PATCH" && r.URL.Path == route:
+		f.patched = body
+		var b map[string]any
+		_ = json.Unmarshal(body, &b)
+		lo := []any{}
+		ps, _ := b["leave_out"].([]any)
+		for _, p := range ps {
+			lo = append(lo, map[string]any{"path": p, "why": "ModuleNotFoundError: No module named 'playwright'"})
+		}
+		draft["revision"] = 5
+		draft["check"] = map[string]any{"status": "found", "runner": "pytest", "command": "python3 -m pytest -q", "source": "explicit", "pinned": 3, "left_out": lo}
 		data(200, draft)
 	case r.Method == "POST" && r.URL.Path == route+"/tests/estimate":
 		data(200, map[string]any{"runner": "pytest", "model": map[string]any{"family": "anthropic", "model": "claude-sonnet-5"}, "key_route": map[string]any{"source": "own", "provider": "anthropic"},

@@ -86,7 +86,29 @@ type testsView struct {
 	Refusal        *struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
+		// the project's own test files that stop the check, when every one
+		// can be left out of it (BACKLOG-488): the one fixing choice
+		LeaveOut *struct {
+			Files []struct {
+				Path string `json:"path"`
+				Why  string `json:"why"`
+			} `json:"files"`
+			Label string `json:"label"`
+			Note  string `json:"note"`
+		} `json:"leave_out"`
 	} `json:"refusal"`
+}
+
+// leaveOutPaths is the files a refusal offers to leave out of the check.
+func (v *testsView) leaveOutPaths() []string {
+	if v.Refusal == nil || v.Refusal.LeaveOut == nil {
+		return nil
+	}
+	var out []string
+	for _, f := range v.Refusal.LeaveOut.Files {
+		out = append(out, f.Path)
+	}
+	return out
 }
 
 func testsRoute(id string) string { return draftsRoute + "/" + url.PathEscape(id) + "/tests" }
@@ -162,6 +184,14 @@ func printTests(w io.Writer, v *testsView, withFiles bool) {
 	}
 	if v.Refusal != nil {
 		fmt.Fprintf(w, "  refused      %s: %s\n", sanitize(v.Refusal.Code), visible(sanitize(v.Refusal.Message)))
+		if lo := v.Refusal.LeaveOut; lo != nil {
+			for _, f := range lo.Files {
+				fmt.Fprintf(w, "  can leave out %s (%s)\n", sanitize(f.Path), visible(sanitize(f.Why)))
+			}
+			if lo.Note != "" {
+				fmt.Fprintf(w, "  if left out  %s\n", visible(sanitize(lo.Note)))
+			}
+		}
 	}
 	for _, t := range v.Tests {
 		how := "fails now, twice"
@@ -288,6 +318,11 @@ func hostedCruiseTestsShow(cr hostedCreds, inv *Invocation) {
 		case "reviewed":
 			fmt.Printf("next: ks cruise draft approve %s\n", v.DraftID)
 		case "awaiting_aim", "refused":
+			if ps := v.leaveOutPaths(); len(ps) > 0 {
+				// BACKLOG-488: the console's one button, as two commands
+				fmt.Printf("next: ks cruise draft set %s --leave-out %s, then ks cruise tests generate %s\n", v.DraftID, sanitize(strings.Join(ps, " ")), v.DraftID)
+				return
+			}
 			fmt.Printf("next: ks cruise tests generate %s\n", v.DraftID)
 		}
 	})
