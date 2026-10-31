@@ -107,6 +107,9 @@ func fetchSessionRecords(cr hostedCreds) (map[string]sessionRecordFacts, error) 
 	cursor := ""
 	for page := 0; page < 1000; page++ {
 		q := url.Values{"limit": {"200"}}
+		if org := currentContext(cr); org != "" {
+			q.Set("context", org) // an organization's records in its context (org_run.go)
+		}
 		if cursor != "" {
 			q.Set("cursor", cursor)
 		}
