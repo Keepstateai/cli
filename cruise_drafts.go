@@ -113,6 +113,8 @@ type draftView struct {
 			Path string `json:"path"`
 			Why  string `json:"why"`
 		} `json:"left_out"`
+		// the newest check of the person's own tests (BACKLOG-493)
+		Run *draftCheckRun `json:"run"`
 	} `json:"check"`
 	Manifest    json.RawMessage `json:"manifest"`
 	ManifestSHA string          `json:"manifest_sha"`
@@ -274,6 +276,9 @@ func printDraft(w io.Writer, v *draftView, computed string) {
 			fmt.Fprintf(w, "  check        %s (%s, %s); %d verifier inputs pinned\n", sanitize(v.Check.Command), sanitize(v.Check.Runner), sanitize(v.Check.Source), v.Check.Pinned)
 			for _, x := range v.Check.LeftOut {
 				fmt.Fprintf(w, "  left out     %s (%s): kept as it is and not run by the check\n", sanitize(x.Path), visible(sanitize(x.Why)))
+			}
+			if r := v.Check.Run; r != nil {
+				fmt.Fprintf(w, "  your tests   %s\n", visible(sanitize(r.words())))
 			}
 		case "ambiguous":
 			fmt.Fprintf(w, "  check        not chosen: tests of %s were found; name it: ks cruise draft set %s --check RUNNER\n", strings.Join(v.Check.WithTests, ", "), v.ID)
@@ -1031,5 +1036,89 @@ func verifyDraft(cr hostedCreds, v *draftView, raw json.RawMessage) {
 	})
 	if failed > 0 {
 		fail(integrity("draft_unverified", fmt.Sprintf("%d of %d checks of draft %s failed; do not approve it", failed, len(checks), v.ID)))
+	}
+}
+
+// ---- the check of the person's own tests (BACKLOG-493) -----------------------------
+
+// draftCheckRun is the draft's newest check of its own tests.
+type draftCheckRun struct {
+	ID       string `json:"id"`
+	State    string `json:"state"`
+	Current  bool   `json:"current"`
+	Tests    int    `json:"tests"`
+	Code     string `json:"code"`
+	Message  string `json:"message"`
+	LeaveOut *struct {
+		Files []struct {
+			Path string `json:"path"`
+			Why  string `json:"why"`
+		} `json:"files"`
+		Label string `json:"label"`
+	} `json:"leave_out"`
+}
+
+func (r *draftCheckRun) words() string {
+	stale := ""
+	if !r.Current {
+		stale = " (checked before the draft's terms changed; check again)"
+	}
+	switch r.State {
+	case "queued", "running":
+		return "being checked in Cruise's check" + stale
+	case "loads":
+		return fmt.Sprintf("they load in Cruise's check: %d ran%s", r.Tests, stale)
+	case "refused":
+		return r.Code + ": " + r.Message + stale
+	}
+	return "the check did not finish: " + r.Message + stale
+}
+
+func (r *draftCheckRun) leaveOutPaths() []string {
+	if r == nil || r.LeaveOut == nil {
+		return nil
+	}
+	var out []string
+	for _, f := range r.LeaveOut.Files {
+		out = append(out, f.Path)
+	}
+	return out
+}
+
+// draftCheckWait is how long `ks cruise draft check` follows a check.
+const draftCheckWait = 3 * time.Minute
+
+func hostedCruiseDraftCheck(cr hostedCreds, inv *Invocation) {
+	v, _ := fetchDraft(cr, inv.Arg(0))
+	var env draftEnvelope
+	if err := hostedMutate(cr, "POST", draftsRoute+"/"+url.PathEscape(v.ID)+"/check", map[string]any{"expected_revision": v.Revision}, &env); err != nil {
+		die(err)
+	}
+	progress("Cruise is running your tests once on the draft's files, as the job's check will (no machine, no model)")
+	deadline := time.Now().Add(draftCheckWait)
+	v, raw := fetchDraft(cr, v.ID)
+	for v.Check.Run == nil || v.Check.Run.State == "queued" || v.Check.Run.State == "running" {
+		if time.Now().After(deadline) {
+			fail(&cliError{Code: exitTemporary, Kind: "check_pending", WorkStarted: workYes,
+				Message:    fmt.Sprintf("the check of draft %s has not answered after %s", v.ID, draftCheckWait),
+				NextAction: "ks cruise draft show " + v.ID})
+		}
+		time.Sleep(time.Second)
+		v, raw = fetchDraft(cr, v.ID)
+	}
+	r := v.Check.Run
+	emit(raw, func() {
+		fmt.Printf("your tests   %s\n", visible(sanitize(r.words())))
+		if ps := r.leaveOutPaths(); len(ps) > 0 {
+			for _, f := range r.LeaveOut.Files {
+				fmt.Printf("  can leave out %s (%s)\n", sanitize(f.Path), visible(sanitize(f.Why)))
+			}
+			fmt.Printf("next: ks cruise draft set %s --leave-out %s, then ks cruise draft check %s\n", v.ID, sanitize(strings.Join(ps, " ")), v.ID)
+		} else if r.State == "loads" {
+			fmt.Printf("next: ks cruise draft approve %s\n", v.ID)
+		}
+	})
+	if r.State == "refused" {
+		os.Exit(exitConflict)
 	}
 }
