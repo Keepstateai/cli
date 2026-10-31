@@ -2632,6 +2632,48 @@
      "summary": "the organization; your context's when absent"
     }
    ]
+  },
+  {
+   "verb": "organization caps show",
+   "aliases": [],
+   "usage": "ks organization caps show [organization]",
+   "summary": "an organization's caps on KeepState's key: in force, the ceiling, what its owner lowered, and what is used now (owner, admin, billing, auditor)",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "organization caps set",
+   "aliases": [],
+   "usage": "ks organization caps set [organization] [--daily USD] [--monthly USD] [--calls N] [--daily-ceiling] [--monthly-ceiling] [--calls-ceiling]",
+   "summary": "lower an organization's daily, monthly or concurrent-call cap on KeepState's key, or put one back to the ceiling (owner); never above KeepState's",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--daily USD",
+     "summary": "the most a day, in dollars, up to the ceiling"
+    },
+    {
+     "flag": "--monthly USD",
+     "summary": "the most a month, in dollars, up to the ceiling"
+    },
+    {
+     "flag": "--calls N",
+     "summary": "the most calls at once, up to the ceiling"
+    },
+    {
+     "flag": "--daily-ceiling",
+     "summary": "put the daily cap back to the ceiling"
+    },
+    {
+     "flag": "--monthly-ceiling",
+     "summary": "put the monthly cap back to the ceiling"
+    },
+    {
+     "flag": "--calls-ceiling",
+     "summary": "put the calls cap back to the ceiling"
+    }
+   ]
   }
  ]
 }
