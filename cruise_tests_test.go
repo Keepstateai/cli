@@ -30,6 +30,8 @@ type testsFake struct {
 	state     string
 	refusal   map[string]any // the view's refusal, when set (BACKLOG-488)
 	patched   []byte         // the last PATCH of the draft
+	run       map[string]any // the draft's check of its own tests (BACKLOG-493)
+	checked   int            // POST .../check asked
 }
 
 func sum(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
@@ -68,7 +70,21 @@ func (f *testsFake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	draft := map[string]any{"id": fakeDraftID, "revision": 4, "state": "ready", "source": map[string]any{"kind": "upload", "format": "tar.gz", "layout": "folder"},
 		"check": map[string]any{"status": "none"}, "manifest": nil, "manifest_sha": "", "tests": map[string]any{"source": "generated", "state": "awaiting_aim"},
 		"upload": map[string]any{"method": "PUT", "path": route + "/upload", "max_bytes": 100 << 20}}
+	if f.run != nil {
+		draft["check"] = map[string]any{"status": "found", "runner": "pytest", "command": "python3 -m pytest -q", "source": "explicit", "pinned": 3, "run": f.run}
+	}
 	switch {
+	case r.Method == "POST" && r.URL.Path == route+"/check":
+		// as ctl's idempotency layer answers an accepted request: 202, its
+		// answer kept under the operation id the client waits on
+		f.checked++
+		resp, _ := json.Marshal(map[string]any{"schema_version": 2, "request_id": "req_fake", "data": draft})
+		if f.ops == nil {
+			f.ops = map[string][]byte{}
+		}
+		f.ops[r.Header.Get("Idempotency-Key")] = resp
+		w.WriteHeader(202)
+		_, _ = w.Write(resp)
 	case r.Method == "GET" && r.URL.Path == "/api/capabilities":
 		caps := []any{}
 		for _, id := range []string{"cruise.drafts", "cruise.generated_tests"} {
