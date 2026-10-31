@@ -108,12 +108,12 @@ type draftView struct {
 		Pinned       int64    `json:"pinned"`
 		TestsDigest  string   `json:"tests_digest"`
 		InputsDigest string   `json:"inputs_digest"`
-		// the project test files the check leaves out, and why (BACKLOG-488)
+		// the project test files the check leaves out, and why
 		LeftOut []struct {
 			Path string `json:"path"`
 			Why  string `json:"why"`
 		} `json:"left_out"`
-		// the newest check of the person's own tests (BACKLOG-493)
+		// the newest check of the person's own tests
 		Run *draftCheckRun `json:"run"`
 	} `json:"check"`
 	Manifest    json.RawMessage `json:"manifest"`
@@ -745,7 +745,7 @@ func hostedCruiseDraftSet(cr hostedCreds, inv *Invocation) {
 		body["paths"] = []string{}
 	}
 	draftTerms(inv, body)
-	// BACKLOG-488: the project test files the check leaves out (each one
+	// the project test files the check leaves out (each one
 	// Cruise's check named as not loading), or every one put back
 	if inv.Bool("keep-all-tests") {
 		if inv.Set("leave-out") {
@@ -1039,7 +1039,7 @@ func verifyDraft(cr hostedCreds, v *draftView, raw json.RawMessage) {
 	}
 }
 
-// ---- the check of the person's own tests (BACKLOG-493) -----------------------------
+// ---- the check of the person's own tests -----------------------------
 
 // draftCheckRun is the draft's newest check of its own tests.
 type draftCheckRun struct {

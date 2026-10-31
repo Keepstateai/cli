@@ -28,9 +28,9 @@ type testsFake struct {
 	shaShown  string            // the sha256 shown beside it (default: the content's)
 	setShown  string            // the set digest the service states (default: computed)
 	state     string
-	refusal   map[string]any // the view's refusal, when set (BACKLOG-488)
+	refusal   map[string]any // the view's refusal, when set
 	patched   []byte         // the last PATCH of the draft
-	run       map[string]any // the draft's check of its own tests (BACKLOG-493)
+	run       map[string]any // the draft's check of its own tests
 	checked   int            // POST .../check asked
 }
 
