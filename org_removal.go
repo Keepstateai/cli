@@ -50,6 +50,12 @@ func hostedMemberShow(cr hostedCreds, inv *Invocation) {
 		Data struct {
 			customerOrgMember
 			Profile *customerOrgMemberProfile `json:"profile"`
+			Teams   []struct {
+				TeamID string `json:"team_id"`
+				Name   string `json:"name"`
+				Role   string `json:"role"`
+				Home   bool   `json:"home"`
+			} `json:"teams"`
 		} `json:"data"`
 	}
 	if err := hostedCall(cr, "GET", "/api/v2/orgs/"+url.PathEscape(org)+"/members/"+url.PathEscape(inv.Arg(0)), nil, &env); err != nil {
@@ -58,6 +64,16 @@ func hostedMemberShow(cr hostedCreds, inv *Invocation) {
 	d := env.Data
 	emit(d, func() {
 		memberLine(d.customerOrgMember)
+		home := "none: their spend counts against the organization only"
+		for _, t := range d.Teams {
+			tag := t.Role
+			if t.Home {
+				home = t.Name + " (" + t.TeamID + ")"
+				tag += ", home team"
+			}
+			fmt.Printf("  team %s (%s)\n", t.Name, tag)
+		}
+		fmt.Println("  home team " + home)
 		if d.Profile == nil {
 			fmt.Println("Profile details are shown to the member and to the organization's owners and admins.")
 			return
@@ -80,11 +96,30 @@ func hostedMemberSet(cr hostedCreds, inv *Invocation) {
 			change[f.field] = inv.Str(f.flag)
 		}
 	}
-	if len(change) == 0 {
-		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "give at least one detail to set, like --display-name or --timezone; nothing was changed"})
+	if inv.Set("home-team") && inv.Bool("no-home-team") {
+		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--home-team and --no-home-team are two different changes; give one; nothing was changed"})
+	}
+	if len(change) == 0 && !inv.Set("home-team") && !inv.Bool("no-home-team") {
+		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "give at least one detail to set, like --display-name, --timezone or --home-team; nothing was changed"})
+	}
+	switch {
+	case inv.Set("home-team"):
+		t, _ := resolveTeam(cr, org, inv.Str("home-team"), "nothing was changed")
+		change["home_team_id"] = t.ID
+	case inv.Bool("no-home-team"):
+		change["home_team_id"] = ""
 	}
 	m := orgMemberChange(cr, org, inv.Arg(0), change, "nothing was changed")
-	emit(m, func() { fmt.Printf("%s: details set\n", m.AccountID) })
+	emit(m, func() {
+		fmt.Printf("%s: details set\n", m.AccountID)
+		if _, ok := change["home_team_id"]; ok {
+			if m.HomeTeamID == "" {
+				fmt.Println("No home team: their spend counts against the organization only.")
+			} else {
+				fmt.Printf("Home team %s: they are in it, and from the budgets on their spend counts against it and the teams above it.\n", m.HomeTeamID)
+			}
+		}
+	})
 }
 
 func hostedMemberRemove(cr hostedCreds, inv *Invocation) {

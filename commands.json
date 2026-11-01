@@ -2371,7 +2371,7 @@
   {
    "verb": "member set",
    "aliases": [],
-   "usage": "ks member set <account> [--organization ID] [--display-name NAME] [--job-title TITLE] [--department NAME] [--cost-center CODE] [--employee-ref CODE] [--timezone ZONE] [--locale TAG]",
+   "usage": "ks member set <account> [--organization ID] [--display-name NAME] [--job-title TITLE] [--department NAME] [--cost-center CODE] [--employee-ref CODE] [--timezone ZONE] [--locale TAG] [--home-team TEAM] [--no-home-team]",
    "summary": "set a member's profile details: your own, or as an owner or admin the display name, job title, department and the organization's codes",
    "status": "available",
    "surface": "hosted",
@@ -2407,6 +2407,14 @@
     {
      "flag": "--locale TAG",
      "summary": "your language tag, like en-GB (your own only)"
+    },
+    {
+     "flag": "--home-team TEAM",
+     "summary": "their home team, by id, path or name (owner or admin); they join it if not in it"
+    },
+    {
+     "flag": "--no-home-team",
+     "summary": "no home team: their spend counts against the organization only (owner or admin)"
     }
    ]
   },
@@ -2689,6 +2697,120 @@
     {
      "flag": "--calls-ceiling",
      "summary": "put the calls cap back to the ceiling"
+    }
+   ]
+  },
+  {
+   "verb": "team list",
+   "aliases": [],
+   "usage": "ks team list [--organization ID]",
+   "summary": "the organization's teams as a tree, with who is in each, their role there and their home team (a member with a seat)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours)"
+    }
+   ]
+  },
+  {
+   "verb": "team create",
+   "aliases": [],
+   "usage": "ks team create <name> [--organization ID] [--parent TEAM]",
+   "summary": "create a team at the top or under another team, at most 4 deep (owner or admin)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours)"
+    },
+    {
+     "flag": "--parent TEAM",
+     "summary": "the team it sits under, by id, path or name; the top when absent"
+    }
+   ]
+  },
+  {
+   "verb": "team rename",
+   "aliases": [],
+   "usage": "ks team rename <team> <name> [--organization ID]",
+   "summary": "rename a team (owner or admin)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours)"
+    }
+   ]
+  },
+  {
+   "verb": "team move",
+   "aliases": [],
+   "usage": "ks team move <team> [--organization ID] [--parent TEAM] [--top]",
+   "summary": "move a team, with the teams under it, under another team or to the top (owner or admin)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours)"
+    },
+    {
+     "flag": "--parent TEAM",
+     "summary": "the team to move it under, by id, path or name"
+    },
+    {
+     "flag": "--top",
+     "summary": "make it a top-level team"
+    }
+   ]
+  },
+  {
+   "verb": "team delete",
+   "aliases": [],
+   "usage": "ks team delete <team> [--organization ID]",
+   "summary": "delete a team that has no teams under it and is nobody's home team (owner or admin)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours)"
+    }
+   ]
+  },
+  {
+   "verb": "team add",
+   "aliases": [],
+   "usage": "ks team add <team> <account> [--organization ID] [--lead]",
+   "summary": "put a member of the organization in a team, or change their role there (owner or admin)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours)"
+    },
+    {
+     "flag": "--lead",
+     "summary": "as the team's lead; a member when absent"
+    }
+   ]
+  },
+  {
+   "verb": "team remove",
+   "aliases": [],
+   "usage": "ks team remove <team> <account> [--organization ID]",
+   "summary": "take a member out of a team (owner or admin); refused while it is their home team",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours)"
     }
    ]
   }

@@ -42,6 +42,8 @@ type customerOrgMember struct {
 	InvitedBy string `json:"invited_by,omitempty"`
 	You       bool   `json:"you,omitempty"`
 	Revision  int64  `json:"revision"`
+	// HomeTeamID: the team whose budget their spend counts against; "" for none
+	HomeTeamID string `json:"home_team_id,omitempty"`
 }
 
 // orgPagesMax bounds how many pages a list reads before it says it stopped.
