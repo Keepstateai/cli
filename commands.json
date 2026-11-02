@@ -1497,8 +1497,7 @@
    "usage": "ks cruise draft check <draft>",
    "summary": "check that a draft's own tests load in Cruise's check before you approve it (the \"I have tests\" path): no machine, no model",
    "status": "available",
-   "surface": "hosted",
-   "flags": []
+   "surface": "hosted"
   },
   {
    "verb": "cruise draft approve",
@@ -2811,6 +2810,122 @@
     {
      "flag": "--organization ID",
      "summary": "the organization (ks organization list shows yours)"
+    }
+   ]
+  },
+  {
+   "verb": "organization spend",
+   "aliases": [],
+   "usage": "ks organization spend <organization> [--by member|team] [--period YYYY-MM]",
+   "summary": "this month's spend by member and by team, with the organization's total and each budget; tokens on the organization's own keys are shown, not counted",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--by member|team",
+     "summary": "only members or only teams; both when absent"
+    },
+    {
+     "flag": "--period YYYY-MM",
+     "summary": "another month; this month when absent"
+    }
+   ]
+  },
+  {
+   "verb": "budget list",
+   "aliases": [],
+   "usage": "ks budget list [--organization ID] [--period YYYY-MM]",
+   "summary": "the budgets you may read, with this month's spend, holds and status (your own, your teams' and the organization's; all for owners, admins, billing members and auditors)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours)"
+    },
+    {
+     "flag": "--period YYYY-MM",
+     "summary": "another month; this month when absent"
+    }
+   ]
+  },
+  {
+   "verb": "budget show",
+   "aliases": [],
+   "usage": "ks budget show <budget> [--organization ID]",
+   "summary": "one budget: its amount, this month's spend and holds, its alerts and what happens at the limit",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours)"
+    }
+   ]
+  },
+  {
+   "verb": "budget set",
+   "aliases": [],
+   "usage": "ks budget set [--organization ID] [--organization-wide] [--team TEAM] [--member ACCOUNT] [--monthly DOLLARS] [--alerts PCTS]",
+   "summary": "set or change a monthly budget: the organization's (owner, billing), a team's or a member's (owner, admin, billing; a team lead below a team they lead)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours)"
+    },
+    {
+     "flag": "--organization-wide",
+     "summary": "the organization's own budget"
+    },
+    {
+     "flag": "--team TEAM",
+     "summary": "a team's budget, by id, path or name"
+    },
+    {
+     "flag": "--member ACCOUNT",
+     "summary": "a member's budget, by account id"
+    },
+    {
+     "flag": "--monthly DOLLARS",
+     "summary": "the amount a month, in dollars and whole cents, like 500 or 12.50"
+    },
+    {
+     "flag": "--alerts PCTS",
+     "summary": "the percents that alert, like 50,80,100 (the default)"
+    }
+   ]
+  },
+  {
+   "verb": "budget clear",
+   "aliases": [],
+   "usage": "ks budget clear <budget> [--organization ID]",
+   "summary": "clear a budget (whoever may set it); the budgets above it still hold",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours)"
+    }
+   ]
+  },
+  {
+   "verb": "budget ask",
+   "aliases": [],
+   "usage": "ks budget ask <budget> [--organization ID] [--monthly DOLLARS]",
+   "summary": "ask the people who may raise a budget to raise it",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours)"
+    },
+    {
+     "flag": "--monthly DOLLARS",
+     "summary": "the amount you ask for, in dollars and whole cents"
     }
    ]
   }
