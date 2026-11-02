@@ -115,6 +115,13 @@ func runDoctor() int {
 		note("note", "version", "update available: "+version+" -> "+latest+" (run: ks update)")
 	}
 
+	// 4. terminal status: whether a stream writes OSC 7501 here, and why
+	_, why := statusOSCModeOf(false, false)
+	note("--", "terminal-status", "Terminal status (OSC 7501): "+why)
+	if _, _, ok := herdrPane(); ok {
+		note("--", "terminal-status", "Terminal status in herdr: reported to this herdr pane (herdr pane report-agent)")
+	}
+
 	if fails > 0 {
 		progress("doctor: %d failure(s)", fails)
 		return 1
