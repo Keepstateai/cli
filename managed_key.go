@@ -219,6 +219,15 @@ func checkManagedFlags(inv *Invocation) {
 				fail(err)
 			}
 		}
+	case "agent run":
+		if inv.Set("spend-limit") {
+			if key != keepstateKeyArg {
+				usage("--spend-limit is the child's spend limit on KeepState's key, so it goes with --key keepstate. Nothing was created", "ks agent run --key keepstate --spend-limit 20 --name <name> \"<task>\"")
+			}
+			if _, err := parseDollars("spend-limit", inv.Str("spend-limit")); err != nil {
+				fail(err)
+			}
+		}
 	case "session key set":
 		if !inv.Set("key") && !inv.Set("spend-limit") {
 			usage("name the key with --key (a key's id or alias, or keepstate for KeepState's key), or change the spend limit with --spend-limit. Nothing was changed", "ks session key set <session> --key keepstate")

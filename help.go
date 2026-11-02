@@ -19,7 +19,7 @@ var helpSections = []struct {
 	title string
 	names []string
 }{
-	{"Agents", []string{"agent", "task", "approval", "adviser", "advice", "result", "file", "check"}},
+	{"Agents", []string{"agent", "task", "approval", "adviser", "advice", "result", "file", "check", "skill"}},
 	{"Sessions", []string{"run", "session", "checkpoint", "wake", "kill", "fork", "exec", "attach", "meter"}},
 	{"Cruise", []string{"cruise"}},
 	{"Keys and setup", []string{"key", "preflight", "project"}},

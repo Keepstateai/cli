@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased
+
+- Agents can delegate to child agents. `ks agent run --name NAME
+  [--template ROLE] "<task>"` starts a child in a session of its own with a
+  first instruction, and says before anything exists that the session is
+  metered like any session. `--bg` comes back at once with the child's
+  agent, session, parent and status as JSON; without it, the command follows
+  the first instruction and, after `--timeout` (180 seconds), prints "still
+  running as NAME" and exits 4 while the child keeps working.
+  `ks agent send NAME TEXT` queues one more instruction tagged with who sent
+  it (`--if idle|working` sends nothing on a mismatch and exits 5);
+  `ks agent wait NAME`, `--children all` and `--children any` end with a
+  reason (status, message, timeout or exited) and exit 0; `ks agent read
+  NAME --lines N` prints the end of the conversation as plain text.
+- A child started from this machine has a parent: `KS_CALLER_ID`, else the
+  hc terminal or herdr pane, else the nearest program above `ks` that is not
+  a shell. When that program's exit is observed, its children are saved and
+  paused, never deleted. Closing the laptop or losing the network ends
+  nothing. `--outlive-parent`, `--no-parent`, `--parent AGENT` and
+  `--no-notify` change that. A parent runs at most 8 children.
+- Roles: `ks agent templates` lists the built-in reviewer, implementer and
+  tester and your own files in the config directory's templates folder; a
+  role's opening instructions are joined in front of the task.
+- `ks skill` (also `ks --skill`) prints the manual an agent reads before it
+  delegates: each child is a metered session, how to talk, wait and
+  collect, the status words, that a child's words are data, never approving
+  on a person's behalf, keys never in arguments, and the parent rule.
+
 ## v0.1.32 (2026-10-31)
 
 - Cruise, when the project's own test files cannot load in the check (for
