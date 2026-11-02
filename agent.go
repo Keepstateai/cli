@@ -451,6 +451,13 @@ func agentLine(a agentRow) string {
 }
 
 func hostedAgentList(cr hostedCreds, inv *Invocation) {
+	if inv.Bool("all") {
+		hostedAgentListAll(cr, inv)
+		return
+	}
+	if inv.Bool("watch") || inv.Bool("notify") {
+		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--watch and --notify follow every agent you have; they go with --all", NextAction: "ks agent list --all --watch"})
+	}
 	sess := agentSession(cr, inv)
 	agents, err := fetchAgents(cr, agentSessionID(sess))
 	if err != nil {

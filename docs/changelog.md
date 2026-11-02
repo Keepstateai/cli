@@ -25,6 +25,14 @@
   status also goes to herdr through `herdr pane report-agent`, in the
   background and never slowing the stream, with the command that reopens
   the agent; the pane is released when the stream ends.
+- `ks agent list --all` lists every agent across your sessions in the
+  console's words (Needs you: permission, a question, or sign-in or key;
+  Working; Done; Error; Idle), what needs you first, under a "2 need you"
+  line, with each one's next step. `--watch` redraws it every 2 seconds and
+  writes terminal status for each agent and for all of them together;
+  `--notify` adds a notification (OSC 9 and a bell, and a herdr
+  notification inside herdr) each time an agent comes to need you or
+  fails. The `ks` app's list of agents uses the same words.
 
 ## v0.1.32 (2026-10-31)
 
