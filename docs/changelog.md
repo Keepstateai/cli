@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- `ks cruise result <job> --wait` follows a Cruise job every 5 seconds until
+  it ends, saying each change once, then prints the receipt: the badge
+  exactly as served, the checks and provenance, the limitations, the
+  changeset, the spend (a figure only where the service gives one, never
+  $0 for a missing one) and the pull-request line. Until KeepState opens
+  pull requests the receipt says there is none yet and offers `ks cruise
+  apply <job>`; a served pull request is shown only as a plain https link.
+  A job that fails, waits for review or is cancelled ends the wait with its
+  own card and one next command. Ctrl-C ends only the wait.
+
 ## v0.1.32 (2026-10-31)
 
 - Cruise, when the project's own test files cannot load in the check (for
