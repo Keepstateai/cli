@@ -453,6 +453,14 @@ func (s *screen) Print(text string) {
 	s.draw()
 }
 
+// raw writes bytes that neither move the cursor nor show anything (a
+// terminal status report) between frames, under the lock.
+func (s *screen) raw(b string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	fmt.Fprint(s.w, b)
+}
+
 // update changes the live region under the lock and redraws it.
 func (s *screen) update(f func()) {
 	s.mu.Lock()

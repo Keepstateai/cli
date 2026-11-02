@@ -11,6 +11,20 @@
   apply <job>`; a served pull request is shown only as a plain https link.
   A job that fails, waits for review or is cancelled ends the wait with its
   own card and one next command. Ctrl-C ends only the wait.
+- Terminal status: `ks agent open`, `ks agent status --watch`, an agent's
+  window in the `ks` app and `ks cruise status --watch` write the agent's
+  (or the job's) status as OSC 7501, the program status protocol, so a
+  terminal or multiplexer that reads it shows whether the agent works,
+  needs you (with permission, question or sign-in), is done or failed. The
+  status is the service's own record: a session paused for credit reads
+  as needing you even when its harness would say otherwise. It is written
+  once per change and cleared when the stream ends. `KS_STATUS_OSC=off`
+  turns it off and `on` writes it even when stdout is not a terminal; by
+  default it is written only to a terminal and never with `--json` or
+  `--plain`. `ks doctor` says which applies. Inside a herdr pane the same
+  status also goes to herdr through `herdr pane report-agent`, in the
+  background and never slowing the stream, with the command that reopens
+  the agent; the pane is released when the stream ends.
 
 ## v0.1.32 (2026-10-31)
 

@@ -275,10 +275,20 @@ func appWindow(cr hostedCreds, scr *screen, keys <-chan keyEvent, sess inventory
 			refresh()
 		}
 	}()
+	// the agent's status as terminal status while its window is open
+	status := newStatusEmitter(scr.raw, a.Name, agentResumeArgv(a.Name, sess.ShortID))
 	go func() {
-		_ = streamEvents(cr, agentSessionID(sess), w.Resume.AfterSeq, func(kind string, data []byte) bool {
+		_ = streamEventsWith(cr, agentSessionID(sess), w.Resume.AfterSeq, status.active(), func(kind string, data []byte) bool {
 			if leaving.Load() {
 				return true
+			}
+			if kind == "status" {
+				var rec statusRecord
+				if json.Unmarshal(data, &rec) == nil && (rec.AgentID == "" || rec.AgentID == a.ID) {
+					if r, ok := recordStatus(rec, "", statusTitle(a.Name, sess.ShortID)); ok {
+						status.report(r)
+					}
+				}
 			}
 			if kind == "event" {
 				var e journalEvent
@@ -306,6 +316,7 @@ func appWindow(cr hostedCreds, scr *screen, keys <-chan keyEvent, sess inventory
 	})
 	leave := func() {
 		leaving.Store(true)
+		status.leave()
 		// stop the renewal loop FIRST (lose), then release: a renewal racing
 		// the release would otherwise report control lost after leaving
 		l, held := win.hold()

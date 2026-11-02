@@ -548,6 +548,28 @@ func hostedAgentStatus(cr hostedCreds, inv *Invocation) {
 	}
 	// --watch: read again every 2 s; Ctrl-C stops watching and nothing
 	// remote changes (VER-037-2)
+	//
+	// Each read also reports the agent's status record as terminal status,
+	// when the service serves one.
+	status := newStatusEmitter(nil, a.Name, agentResumeArgv(a.Name, sess.ShortID))
+	defer status.leave()
+	statusServed := status.active()
+	readStatus := func() {
+		if !statusServed {
+			return
+		}
+		rec, err := fetchAgentStatus(cr, a.ID)
+		if err != nil {
+			if statusUnsupported(err) {
+				statusServed = false // an older control plane: nothing is guessed
+			}
+			return
+		}
+		if r, ok := recordStatus(rec, "", statusTitle(a.Name, sess.ShortID)); ok {
+			status.report(r)
+		}
+	}
+	readStatus()
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(stop)
@@ -565,6 +587,7 @@ func hostedAgentStatus(cr hostedCreds, inv *Invocation) {
 			continue
 		}
 		show(now)
+		readStatus()
 	}
 }
 
@@ -968,6 +991,16 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 	followAgent(cr, win, w)
 }
 
+// agentResumeArgv is the command that reopens an agent's window, for a
+// terminal that can run it again later (herdr); none for a name that is
+// not safe to put on a command line as it is.
+func agentResumeArgv(name, short string) []string {
+	if !agentNameSafe.MatchString(name) || !agentNameSafe.MatchString(short) {
+		return nil
+	}
+	return []string{"ks", "agent", "open", name, "--session", short}
+}
+
 // heldSummary answers, in one sentence, whether this agent's queue is
 // moving — and says so from the service's own hold record rather than from
 // the queue depth, which cannot carry the difference.
@@ -1049,7 +1082,11 @@ func followAgent(cr hostedCreds, win *liveWindow, w *agentWindow) {
 	if paste {
 		fmt.Print("\x1b[?2004h")
 	}
+	// the agent's status, from the service's status frames, as terminal
+	// status (and to herdr inside a herdr pane); cleared on every way out
+	status := newStatusEmitter(nil, win.agent.Name, agentResumeArgv(win.agent.Name, sess.ShortID))
 	restore := func() {
+		status.leave()
 		stopSizes()
 		if paste {
 			fmt.Print("\x1b[?2004l")
@@ -1076,8 +1113,15 @@ func followAgent(cr hostedCreds, win *liveWindow, w *agentWindow) {
 	}()
 	go win.renew(cr)
 	go win.readInput(cr, restore)
-	err := streamEvents(cr, agentSessionID(sess), w.Resume.AfterSeq, func(kind string, data []byte) bool {
+	err := streamEventsWith(cr, agentSessionID(sess), w.Resume.AfterSeq, status.active(), func(kind string, data []byte) bool {
 		switch kind {
+		case "status":
+			var rec statusRecord
+			if json.Unmarshal(data, &rec) == nil && (rec.AgentID == "" || rec.AgentID == win.agent.ID) {
+				if r, ok := recordStatus(rec, "", statusTitle(win.agent.Name, sess.ShortID)); ok {
+					status.report(r)
+				}
+			}
 		case "hello":
 			var hello struct {
 				Epoch any `json:"epoch"`
@@ -1329,7 +1373,18 @@ func compactPayload(raw json.RawMessage) string {
 // the caller, which reports whether the stream is finished. The body is
 // not time-bounded: a live window is as long as the person leaves it open.
 func streamEvents(cr hostedCreds, sessionID string, afterSeq int64, onFrame func(kind string, data []byte) bool) error {
+	return streamEventsWith(cr, sessionID, afterSeq, false, onFrame)
+}
+
+// streamEventsWith is streamEvents, also asking for the service's status
+// frames (kind "status", data the agent's status record) when withStatus
+// is set. A control plane that does not send them sends the same stream as
+// before, and nothing is written for them.
+func streamEventsWith(cr hostedCreds, sessionID string, afterSeq int64, withStatus bool, onFrame func(kind string, data []byte) bool) error {
 	q := url.Values{"after_seq": {strconv.FormatInt(afterSeq, 10)}}
+	if withStatus {
+		q.Set("status", "1")
+	}
 	path := "/api/v2/sessions/" + url.PathEscape(sessionID) + "/events/stream?" + q.Encode()
 	resp, err := hostedDo(cr, "GET", path, "", nil)
 	if err != nil {
