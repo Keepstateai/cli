@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- You choose how hard the model thinks: `ks session runner <session> --effort
+  <level>` changes it from the next instruction, with no pause, and `--effort
+  default` goes back to the harness's own level for the model;
+  `ks run --agent --effort <level>` and `ks agent run --effort <level>` choose
+  it for a new session. The levels are low, medium, high, xhigh (extra high)
+  and max; the service accepts only a level the session's model takes and
+  says which ones it does. `ks session runner <session>` shows the effort
+  chosen, or the default and which level that is, or why the session cannot
+  take one, and `ks cruise models` lists each model's levels and its default.
+  Higher effort thinks longer: more output tokens per instruction at the same
+  per-token price, so it spends more and reaches the session's token budget
+  and spend limit sooner; the words say so next to the choice.
+
 ## v0.1.35 (2026-11-03)
 
 - When `ks agent run` or `ks run --agent` cannot start a session because no

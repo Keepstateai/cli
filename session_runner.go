@@ -2,8 +2,9 @@
 //
 //	ks session runner <session>                          the harness, the model and the key,
 //	                                                     and a change under way
-//	ks session runner <session> [--harness H] [--model M] [--key K] [--spend-limit D]
-//	                  [--resume] [--stop-running]        change any of them, in any state
+//	ks session runner <session> [--harness H] [--model M] [--effort E] [--key K]
+//	                  [--spend-limit D] [--resume] [--stop-running]
+//	                                                     change any of them, in any state
 //	ks session runner <session> --cancel                 cancel a change still waiting
 //
 // The service takes the steps (POST /api/v2/sessions/{id}/runner-change): it
@@ -54,6 +55,12 @@ type sessionRunnerRecord struct {
 	Harness      string            `json:"harness"`
 	RunnerKey    *runnerKeyRead    `json:"runner_key"`
 	RunnerChange *runnerChangeRead `json:"runner_change"`
+	// RunnerEffort is the effort chosen ("" = the default), RunnerEffortDefault
+	// the level the runner uses for the model when none is chosen, and
+	// RunnerEffortUnavailable, when set, why the session cannot take one now
+	RunnerEffort            string `json:"runner_effort"`
+	RunnerEffortDefault     string `json:"runner_effort_default"`
+	RunnerEffortUnavailable string `json:"runner_effort_unavailable,omitempty"`
 }
 
 // runnerStepWords: a change's steps, as a person reads them
@@ -104,8 +111,9 @@ func hostedSessionRunner(cr hostedCreds, inv *Invocation) {
 			Message:    fmt.Sprintf("session %s has no workspace record, so it runs no agent and has no runner. Nothing changed", sess.ShortID),
 			NextAction: "ks run --agent"})
 	}
+	effort, effortSet := effortFlag(inv) // a word that is no level is refused before anything is read
 	rec := readSessionRunner(cr, sess.RecordID)
-	changing := inv.Set("harness") || inv.Set("model") || inv.Set("key") || inv.Set("spend-limit")
+	changing := inv.Set("harness") || inv.Set("model") || effortSet || inv.Set("key") || inv.Set("spend-limit")
 	if inv.Bool("cancel") {
 		if changing || inv.Set("resume") || inv.Set("stop-running") {
 			fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--cancel cancels the change under way and takes no change of its own. Nothing was sent", NextAction: "ks session runner " + sess.ShortID + " --cancel"})
@@ -123,19 +131,24 @@ func hostedSessionRunner(cr hostedCreds, inv *Invocation) {
 	}
 	if !changing {
 		if inv.Set("resume") || inv.Set("stop-running") {
-			fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--resume and --stop-running go with a change: --harness, --model, --key or --spend-limit"})
+			fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--resume and --stop-running go with a change: --harness, --model, --effort, --key or --spend-limit"})
 		}
 		emit(map[string]any{"session": sess.ID, "record": rec.ID, "harness": firstNonEmptyStr(rec.Harness, defaultHarness), "runner_model": rec.RunnerModel,
-			"runner_key": rec.RunnerKey, "runner_change": rec.RunnerChange, "runtime_state": rec.RuntimeState, "revision": rec.Revision}, func() {
+			"runner_key": rec.RunnerKey, "runner_change": rec.RunnerChange, "runtime_state": rec.RuntimeState, "revision": rec.Revision,
+			"runner_effort": rec.RunnerEffort, "runner_effort_default": rec.RunnerEffortDefault, "runner_effort_unavailable": rec.RunnerEffortUnavailable}, func() {
 			fmt.Printf("session %s runs %s on %s, calling %s\n", sess.ShortID, sanitize(firstNonEmptyStr(rec.Harness, defaultHarness)), sanitize(notRecorded(rec.RunnerModel)), sanitize(runnerKeyWords(rec.RunnerKey)))
 			fmt.Printf("  state          %s\n", stateWords("session_runtime", rec.RuntimeState))
+			fmt.Printf("  effort         %s\n", effortLine(rec))
+			if rec.RunnerEffortUnavailable == "" {
+				fmt.Printf("                 %s\n", effortMoney)
+			}
 			if rec.RunnerKey != nil && rec.RunnerKey.Route == "none" && rec.RunnerKey.Problem != nil {
 				fmt.Printf("  key            %s\n", sanitize(rec.RunnerKey.Problem.Words))
 			}
 			if c := rec.RunnerChange; c != nil && c.State == "open" {
 				fmt.Printf("  changing       %s: %s\n", sanitize(runnerStepWords[c.Step]), sanitize(c.Words))
 			}
-			fmt.Printf("  change         ks session runner %s --harness <h> --model <m> --key <key-id|keepstate>; the service saves and starts it again as needed\n", sess.ShortID)
+			fmt.Printf("  change         ks session runner %s --harness <h> --model <m> --effort <level> --key <key-id|keepstate>; the service saves and starts it again as needed\n", sess.ShortID)
 		})
 		return
 	}
@@ -145,6 +158,9 @@ func hostedSessionRunner(cr hostedCreds, inv *Invocation) {
 	}
 	if inv.Set("model") {
 		body["runner_model"] = strings.TrimSpace(inv.Str("model"))
+	}
+	if effortSet {
+		body["runner_effort"] = effort // "" is back to the default
 	}
 	if inv.Set("key") {
 		body["key"] = strings.TrimSpace(inv.Str("key"))
@@ -201,6 +217,9 @@ func hostedSessionRunner(cr hostedCreds, inv *Invocation) {
 	emit(map[string]any{"change": out.Data, "session": after}, func() {
 		fmt.Printf("session %s runs %s on %s, calling %s\n", sess.ShortID, sanitize(firstNonEmptyStr(after.Harness, defaultHarness)), sanitize(notRecorded(after.RunnerModel)), sanitize(runnerKeyWords(after.RunnerKey)))
 		fmt.Printf("  %s\n", sanitize(firstNonEmptyStr(out.Data.Words, "Done.")))
+		if effortSet {
+			fmt.Printf("  effort         %s, from the next instruction\n", effortLine(after))
+		}
 		if out.Data.Outcome == "applied_not_resumed" {
 			fmt.Printf("  resume it when ready: ks session resume %s\n", sess.ShortID)
 		}
@@ -239,9 +258,10 @@ func runnerChangeRefusal(cr hostedCreds, err error, sess inventoryRow) error {
 	case "ks_no_inference_key", "ks_key_invalid", "ks_key_unroutable", "ks_key_ambiguous":
 		ce.Message = sanitize(he.Message) + "; nothing changed"
 		ce.NextAction = "ks key list, then ks session runner " + sess.ShortID + " --key <key-id|keepstate>"
-	case "ks_harness_invalid", "ks_harness_same", "ks_harness_unavailable", "ks_harness_not_in_image", "ks_model_invalid", "ks_model_harness_mismatch":
+	case "ks_harness_invalid", "ks_harness_same", "ks_harness_unavailable", "ks_harness_not_in_image", "ks_model_invalid", "ks_model_harness_mismatch",
+		"ks_effort_invalid", "ks_effort_unavailable":
 		ce.Message = sanitize(he.Message) + "; nothing changed"
-		ce.NextAction = "ks cruise models (the harnesses and the models each runs)"
+		ce.NextAction = "ks cruise models (the harnesses, the models each runs and the effort levels each model takes)"
 	case "ks_change_running":
 		ce.Message = sanitize(he.Message)
 		ce.NextAction = "ks session runner " + sess.ShortID + " (it says what the change did once it finishes)"

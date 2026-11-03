@@ -222,7 +222,11 @@ func cruiseModels(inv *Invocation) {
 				if h.Offer.Standing == "withheld" && h.Offer.Note != "" {
 					fmt.Printf("    withheld: %s\n", sanitize(h.Offer.Note))
 				}
+				for _, l := range harnessEffortLines(h) {
+					fmt.Printf("    effort %s\n", l)
+				}
 			}
+			fmt.Println("effort: how hard the model thinks (ks run --agent --effort, ks session runner --effort). " + effortMoney)
 		}
 		fmt.Println("under runner: exercised = a record shows the Cruise runner ran it; not_verified = nothing does (no interchangeability is claimed)")
 		if c.Note != "" {
