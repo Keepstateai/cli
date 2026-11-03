@@ -24,6 +24,14 @@
   `--tell-text` with your words); it is off by default. `--discard` throws an
   unfinished upload away. Uploaded files count toward your storage: saved
   points keep them, as they keep everything in the workspace.
+- `ks file upload <folder> --with-git` carries the folder's `.git` too, so a
+  project arrives with its history. Without it `.git` is left out as before,
+  and the list of what was left out says how to include it. The other skips
+  stay (dependency folders, `.env` and other secret file names). `.git`
+  counts toward the 1 GB limit like any file, and the size refusal says how
+  much of the size it is.
+- The `ks herdr` commands' notes say they have run against a real herdr
+  0.9.5 and hc 0.1.16, not only a stand-in.
 
 ## v0.1.34 (2026-11-03)
 

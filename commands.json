@@ -3120,7 +3120,7 @@
    "summary": "write the KeepState plugin for herdr, show it, and link it into herdr (herdr plugin link); nothing is downloaded",
    "status": "available",
    "surface": "client",
-   "note": "Built against herdr 0.9.5's documented plugin and CLI contract (herdr plugin link and unlink, tab create, pane run, notification show) and tested with a stand-in herdr; not yet run against a real herdr."
+   "note": "Built against herdr 0.9.5's documented plugin and CLI contract (herdr plugin link and unlink, tab create, pane run, notification show), tested with a stand-in herdr, and run against a real herdr 0.9.5 and hc 0.1.16."
   },
   {
    "verb": "herdr uninstall",
@@ -3129,7 +3129,7 @@
    "summary": "unlink the KeepState plugin from herdr and remove the files ks herdr install wrote",
    "status": "available",
    "surface": "client",
-   "note": "Built against herdr 0.9.5's documented plugin and CLI contract (herdr plugin link and unlink, tab create, pane run, notification show) and tested with a stand-in herdr; not yet run against a real herdr."
+   "note": "Built against herdr 0.9.5's documented plugin and CLI contract (herdr plugin link and unlink, tab create, pane run, notification show), tested with a stand-in herdr, and run against a real herdr 0.9.5 and hc 0.1.16."
   },
   {
    "verb": "herdr status",
@@ -3138,7 +3138,7 @@
    "summary": "the herdr found and its version, whether the plugin is installed and current, and whether this terminal is a herdr pane",
    "status": "available",
    "surface": "client",
-   "note": "Built against herdr 0.9.5's documented plugin and CLI contract (herdr plugin link and unlink, tab create, pane run, notification show) and tested with a stand-in herdr; not yet run against a real herdr."
+   "note": "Built against herdr 0.9.5's documented plugin and CLI contract (herdr plugin link and unlink, tab create, pane run, notification show), tested with a stand-in herdr, and run against a real herdr 0.9.5 and hc 0.1.16."
   },
   {
    "verb": "herdr pane agents",
@@ -3147,7 +3147,7 @@
    "summary": "your sessions and agents with each one's status; Enter opens an agent in a new herdr tab, c the console, s saved points, r receipts",
    "status": "available",
    "surface": "hosted",
-   "note": "Built against herdr 0.9.5's documented plugin and CLI contract (herdr plugin link and unlink, tab create, pane run, notification show) and tested with a stand-in herdr; not yet run against a real herdr."
+   "note": "Built against herdr 0.9.5's documented plugin and CLI contract (herdr plugin link and unlink, tab create, pane run, notification show), tested with a stand-in herdr, and run against a real herdr 0.9.5 and hc 0.1.16."
   },
   {
    "verb": "herdr pane receipts",
@@ -3156,7 +3156,7 @@
    "summary": "your recent Cruise jobs, the running ones followed: each finished job's receipt, and a herdr notification when one finishes",
    "status": "available",
    "surface": "hosted",
-   "note": "Built against herdr 0.9.5's documented plugin and CLI contract (herdr plugin link and unlink, tab create, pane run, notification show) and tested with a stand-in herdr; not yet run against a real herdr."
+   "note": "Built against herdr 0.9.5's documented plugin and CLI contract (herdr plugin link and unlink, tab create, pane run, notification show), tested with a stand-in herdr, and run against a real herdr 0.9.5 and hc 0.1.16."
   },
   {
    "verb": "herdr action console",
@@ -3165,12 +3165,12 @@
    "summary": "open the KeepState console in your browser",
    "status": "available",
    "surface": "hosted",
-   "note": "Built against herdr 0.9.5's documented plugin and CLI contract (herdr plugin link and unlink, tab create, pane run, notification show) and tested with a stand-in herdr; not yet run against a real herdr."
+   "note": "Built against herdr 0.9.5's documented plugin and CLI contract (herdr plugin link and unlink, tab create, pane run, notification show), tested with a stand-in herdr, and run against a real herdr 0.9.5 and hc 0.1.16."
   },
   {
    "verb": "file upload",
    "aliases": [],
-   "usage": "ks file upload <local path> [--to PATH] [--agent NAME] [--session ID] [--replace] [--tell] [--tell-text TEXT] [--discard]",
+   "usage": "ks file upload <local path> [--to PATH] [--agent NAME] [--session ID] [--replace] [--with-git] [--tell] [--tell-text TEXT] [--discard]",
    "summary": "one file or a folder, up to 1 GB, into a session's workspace: sent in chunks that resume, checked by sha256, never replacing a path unless --replace",
    "status": "available",
    "surface": "hosted",
@@ -3190,6 +3190,10 @@
     {
      "flag": "--replace",
      "summary": "replace the path when it already exists in the workspace (said when it happens); without it an existing path is refused"
+    },
+    {
+     "flag": "--with-git",
+     "summary": "a folder: carry its .git too (the project's history, every file of it); it counts toward the 1 GB limit. Without it .git is left out"
     },
     {
      "flag": "--tell",
