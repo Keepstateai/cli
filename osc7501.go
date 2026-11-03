@@ -50,8 +50,12 @@ type statusRecord struct {
 	Action      *statusAction `json:"action"`
 	Since       string        `json:"since"`
 	NeedsYou    bool          `json:"needs_you"`
-	Source      string        `json:"source"`
-	Parent      *statusParent `json:"parent"`
+	// ErrorID names an error, so the person can mark the one they read;
+	// Read says they have, and a read error no longer needs them
+	ErrorID string        `json:"error_id"`
+	Read    bool          `json:"read"`
+	Source  string        `json:"source"`
+	Parent  *statusParent `json:"parent"`
 }
 
 type statusAction struct {
@@ -348,4 +352,19 @@ func fetchAgentStatus(cr hostedCreds, agentID string) (statusRecord, error) {
 	}
 	err := json.Unmarshal(env.Data, &rec)
 	return rec, err
+}
+
+// unreadError: an error the service names that the person has not read.
+// It is the only record that can be marked read: anything that waits on an
+// action (blocked) counts until the action is taken.
+func unreadError(rec statusRecord) bool {
+	return rec.State == "error" && rec.ErrorID != "" && !rec.Read
+}
+
+// markErrorRead tells the service the person read this error
+// (POST /api/v2/agents/{id}/status/read), so it leaves "N need you" in
+// ks agent list --all and in the console on every device. The record stays
+// an error, in the same words.
+func markErrorRead(cr hostedCreds, rec statusRecord) error {
+	return hostedCall(cr, "POST", "/api/v2/agents/"+url.PathEscape(rec.AgentID)+"/status/read", map[string]any{"error_id": rec.ErrorID}, nil)
 }

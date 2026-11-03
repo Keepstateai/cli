@@ -19,6 +19,14 @@
   its model calls are measured. A figure at or below what is used, a meter
   that cannot be read, and a free-tier session above the free tier's cap are
   each refused with nothing changed and the next command.
+- An agent's error counts in "N need you" only until you have read it.
+  `ks agent status <name>` now says the agent's error and its next step,
+  and marks the error read on the service, as opening the agent's page in
+  the console does; it then leaves the count in `ks agent list --all`, the
+  `ks` app and the console on every device. The error is still listed, in
+  the same words. A permission request, a question, a sign-in, credit or a
+  budget keeps counting until it is resolved, and a new error counts again.
+  Nothing is marked read with `--json`.
 
 ## v0.1.35 (2026-11-03)
 
