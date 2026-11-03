@@ -297,3 +297,38 @@ func TestManifestDeclaresTheGlobalFlags(t *testing.T) {
 		}
 	}
 }
+
+// TestMCPToolsNameRealVerbs: every tool ks mcp serves is a verb this binary
+// dispatches, with flags that verb takes, so a tool can never ask for
+// something the verb would not do.
+func TestMCPToolsNameRealVerbs(t *testing.T) {
+	for _, tool := range mcpTools {
+		c, rest, _ := lookup(registry, tool.Verb)
+		if c == nil || c.Group || len(rest) != 0 || c.Name() != strings.Join(tool.Verb, " ") {
+			t.Errorf("%s names %q, which is not a verb", tool.Name, strings.Join(tool.Verb, " "))
+			continue
+		}
+		positional := 0
+		flags := append([]string{}, tool.Fixed...)
+		for _, p := range tool.Props {
+			if p.Flag == "" {
+				positional++
+				continue
+			}
+			flags = append(flags, "--"+p.Flag)
+		}
+		if tool.ExtraOnConfirm != nil {
+			for _, f := range tool.ExtraOnConfirm(map[string]any{"name": "x"}) {
+				flags = append(flags, strings.SplitN(f, "=", 2)[0])
+			}
+		}
+		for _, f := range flags {
+			if c.findFlag(strings.TrimPrefix(f, "--")) == nil {
+				t.Errorf("%s passes %s, which ks %s does not take", tool.Name, f, c.Name())
+			}
+		}
+		if positional > len(c.Args) {
+			t.Errorf("%s passes %d positionals; ks %s takes %d", tool.Name, positional, c.Name(), len(c.Args))
+		}
+	}
+}

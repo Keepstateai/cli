@@ -3098,6 +3098,20 @@
    "summary": "print the manual an agent reads before it delegates work to child agents (also ks --skill)",
    "status": "available",
    "surface": "client"
+  },
+  {
+   "verb": "mcp",
+   "aliases": [],
+   "usage": "ks mcp [--read-only]",
+   "summary": "serve KeepState to an MCP client (an agent harness) on stdio: reads, sending and pausing, and starting, resuming or stopping work only after a confirm step",
+   "status": "available",
+   "surface": "client",
+   "flags": [
+    {
+     "flag": "--read-only",
+     "summary": "serve only the tools that change nothing"
+    }
+   ]
   }
  ]
 }
