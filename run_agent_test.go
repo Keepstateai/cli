@@ -91,7 +91,11 @@ func (c *runCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		} else if model == "" {
 			model = "claude-haiku-4-5-20251001"
 		}
-		env(201, map[string]any{"id": "session_abc123", "revision": 1, "primary_agent_id": "agent_main1", "runner_model": model, "harness": harness})
+		rec := map[string]any{"id": "session_abc123", "revision": 1, "primary_agent_id": "agent_main1", "runner_model": model, "harness": harness}
+		if e, ok := body["runner_effort"]; ok {
+			rec["runner_effort"] = e // the record carries the effort chosen
+		}
+		env(201, rec)
 	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/provision"):
 		env(200, c.prov)
 	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/v2/sessions/") && strings.Count(r.URL.Path, "/") == 4 && c.record != nil:

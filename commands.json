@@ -49,7 +49,7 @@
   {
    "verb": "run",
    "aliases": [],
-   "usage": "ks run [--image I] [--budget-tokens N] [--agent] [--name NAME] [--agent-name NAME] [--key KEY] [--spend-limit DOLLARS] [--task TEXT] [--open] [--model MODEL] [--harness HARNESS]",
+   "usage": "ks run [--image I] [--budget-tokens N] [--agent] [--name NAME] [--agent-name NAME] [--key KEY] [--spend-limit DOLLARS] [--task TEXT] [--open] [--model MODEL] [--harness HARNESS] [--effort LEVEL]",
    "summary": "start a hosted session; with --agent, an agent session whose main agent is running and supervised",
    "status": "available",
    "surface": "hosted",
@@ -105,6 +105,10 @@
     {
      "flag": "--harness HARNESS",
      "summary": "the runner the agent works inside (with --agent): claude-code, or another the catalog offers (codex calls your OpenAI key); default claude-code"
+    },
+    {
+     "flag": "--effort LEVEL",
+     "summary": "how hard the model thinks (with --agent): low, medium, high, xhigh or max, one the model takes (ks cruise models); default the harness's own level for the model. Higher effort thinks longer: more output tokens per instruction at the same per-token price, so it spends more and reaches the session's token budget and spend limit sooner"
     }
    ]
   },
@@ -2144,8 +2148,8 @@
   {
    "verb": "session runner",
    "aliases": [],
-   "usage": "ks session runner <session> [--harness HARNESS] [--model MODEL] [--key KEY] [--spend-limit DOLLARS] [--token-budget TOKENS] [--resume] [--stop-running] [--cancel]",
-   "summary": "what a session runs (harness, model, key) and one change of any of them or of its limits, in any state: the service checks first, saves and starts it again only as a part needs",
+   "usage": "ks session runner <session> [--harness HARNESS] [--model MODEL] [--effort LEVEL] [--key KEY] [--spend-limit DOLLARS] [--token-budget TOKENS] [--resume] [--stop-running] [--cancel]",
+   "summary": "what a session runs (harness, model, effort, key) and one change of any of them or of its limits, in any state: the service checks first, saves and starts it again only as a part needs",
    "status": "available",
    "surface": "hosted",
    "flags": [
@@ -2156,6 +2160,10 @@
     {
      "flag": "--model MODEL",
      "summary": "the model, one of the harness's models"
+    },
+    {
+     "flag": "--effort LEVEL",
+     "summary": "how hard the model thinks: low, medium, high, xhigh or max, one the model takes (ks cruise models), or default for the harness's own level; from the next instruction, with no pause. Higher effort spends more output tokens at the same per-token price"
     },
     {
      "flag": "--key KEY",
@@ -2840,14 +2848,14 @@
   {
    "verb": "organization spend",
    "aliases": [],
-   "usage": "ks organization spend <organization> [--by member|team] [--period YYYY-MM]",
+   "usage": "ks organization spend <organization> [--by member|team|day] [--period YYYY-MM]",
    "summary": "this month's spend by member and by team, with the organization's total and each budget; tokens on the organization's own keys are shown, not counted",
    "status": "available",
    "surface": "hosted",
    "flags": [
     {
-     "flag": "--by member|team",
-     "summary": "only members or only teams; both when absent"
+     "flag": "--by member|team|day",
+     "summary": "only members, only teams, or the organization's spend on each UTC day of the month (several joined by commas); members and teams when absent"
     },
     {
      "flag": "--period YYYY-MM",
@@ -2956,7 +2964,7 @@
   {
    "verb": "agent run",
    "aliases": [],
-   "usage": "ks agent run <task> [--bg] [--name NAME] [--template ROLE] [--harness HARNESS] [--model MODEL] [--key KEY] [--spend-limit DOLLARS] [--parent AGENT] [--no-parent] [--outlive-parent] [--no-notify] [--timeout SECONDS]",
+   "usage": "ks agent run <task> [--bg] [--name NAME] [--template ROLE] [--harness HARNESS] [--model MODEL] [--effort LEVEL] [--key KEY] [--spend-limit DOLLARS] [--parent AGENT] [--no-parent] [--outlive-parent] [--no-notify] [--timeout SECONDS]",
    "summary": "start a child agent in a session of its own with a first instruction and a parent (this caller, a hosted agent, or none); with --bg, come back at once",
    "status": "available",
    "surface": "hosted",
@@ -2980,6 +2988,10 @@
     {
      "flag": "--model MODEL",
      "summary": "the model the child calls, one ks cruise models lists as offered; default the role's, else the service's"
+    },
+    {
+     "flag": "--effort LEVEL",
+     "summary": "how hard the child's model thinks: low, medium, high, xhigh or max, one the model takes (ks cruise models); default the harness's own level. Higher effort spends more output tokens at the same per-token price"
     },
     {
      "flag": "--key KEY",

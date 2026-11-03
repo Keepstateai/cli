@@ -19,6 +19,26 @@
   its model calls are measured. A figure at or below what is used, a meter
   that cannot be read, and a free-tier session above the free tier's cap are
   each refused with nothing changed and the next command.
+- An agent's error counts in "N need you" only until you have read it.
+  `ks agent status <name>` now says the agent's error and its next step,
+  and marks the error read on the service, as opening the agent's page in
+  the console does; it then leaves the count in `ks agent list --all`, the
+  `ks` app and the console on every device. The error is still listed, in
+  the same words. A permission request, a question, a sign-in, credit or a
+  budget keeps counting until it is resolved, and a new error counts again.
+  Nothing is marked read with `--json`.
+- You choose how hard the model thinks: `ks session runner <session> --effort
+  <level>` changes it from the next instruction, with no pause, and `--effort
+  default` goes back to the harness's own level for the model;
+  `ks run --agent --effort <level>` and `ks agent run --effort <level>` choose
+  it for a new session. The levels are low, medium, high, xhigh (extra high)
+  and max; the service accepts only a level the session's model takes and
+  says which ones it does. `ks session runner <session>` shows the effort
+  chosen, or the default and which level that is, or why the session cannot
+  take one, and `ks cruise models` lists each model's levels and its default.
+  Higher effort thinks longer: more output tokens per instruction at the same
+  per-token price, so it spends more and reaches the session's token budget
+  and spend limit sooner; the words say so next to the choice.
 - In an organization's context (`ks context use <organization>`), `ks agent
   list --all` lists that organization's agents that are yours and says the
   context on its first line; it no longer lists your personal agents there.

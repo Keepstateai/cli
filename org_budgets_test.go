@@ -58,6 +58,13 @@ func (c *orgBudgetsCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		env(200, map[string]any{"id": "obud_org", "cleared": true})
 	case r.Method == "POST" && r.URL.Path == "/api/v2/orgs/org_a/budgets/obud_plat/raise-requests":
 		env(201, map[string]any{"id": "obrr_1", "budget_id": "obud_plat", "amount_microusd": 800000000, "recipients": []string{"acct_x", "acct_y"}, "words": "Asked the 2 people who may raise the Platform team's budget"})
+	case r.Method == "GET" && r.URL.Path == "/api/v2/orgs/org_a/spend" && r.URL.Query().Get("by") == "day" && r.URL.Query().Get("period") == "2026-10":
+		env(200, map[string]any{"period": "2026-10", "note": "n", "days_unavailable": true, "items": []any{
+			map[string]any{"scope_kind": "org", "scope_id": "org_a", "name": "Acme", "charged_microusd": nil, "held_microusd": nil, "provider_billed_tokens": 0}}})
+	case r.Method == "GET" && r.URL.Path == "/api/v2/orgs/org_a/spend" && r.URL.Query().Get("by") == "day":
+		env(200, map[string]any{"period": "2026-11", "note": "n", "items": []any{
+			map[string]any{"scope_kind": "org", "scope_id": "org_a", "name": "Acme", "charged_microusd": 12500000, "held_microusd": 500000, "provider_billed_tokens": 42000}},
+			"days": []any{map[string]any{"date": "2026-11-01", "charged_microusd": 2500000, "held_microusd": 0}, map[string]any{"date": "2026-11-02", "charged_microusd": 10000000, "held_microusd": 500000}}})
 	case r.Method == "GET" && r.URL.Path == "/api/v2/orgs/org_a/spend":
 		env(200, map[string]any{"period": "2026-11", "note": "n", "items": []any{
 			map[string]any{"scope_kind": "org", "scope_id": "org_a", "name": "Acme", "charged_microusd": 12500000, "held_microusd": 500000, "provider_billed_tokens": 42000, "budget_id": "obud_org", "budget_microusd": 1000000000},
@@ -131,6 +138,20 @@ func TestOrganizationBudgetVerbs(t *testing.T) {
 	if out, _, code := run("organization", "spend", "org_a", "--by", "member"); code != 0 || !strings.Contains(c.last("GET /api/v2/orgs/org_a/spend"), "by=member") || !strings.Contains(out, "member acct_bob: unavailable spent, unavailable held") ||
 		!strings.Contains(out, "$12.50 spent, $0.50 held; budget $1000.00; 42000 provider-billed tokens") || !strings.Contains(out, "shown, not counted") {
 		t.Errorf("organization spend: %d %s", code, out)
+	}
+	// by day: the organization's days, which add up to its month; unreadable days are unavailable, not zero
+	if out, _, code := run("organization", "spend", "org_a", "--by", "day"); code != 0 || !strings.Contains(c.last("GET /api/v2/orgs/org_a/spend"), "by=day") ||
+		!strings.Contains(out, "2026-11-01  $2.50 spent, $0.00 held") || !strings.Contains(out, "2026-11-02  $10.00 spent, $0.50 held") || !strings.Contains(out, "by UTC day") {
+		t.Errorf("organization spend --by day: %d %s", code, out)
+	}
+	if out, _, code := run("organization", "spend", "org_a", "--by", "day", "--period", "2026-10"); code != 0 || !strings.Contains(out, "By UTC day: unavailable, not zero") || strings.Contains(out, "$0.00 spent") {
+		t.Errorf("organization spend --by day, unreadable: %d %s", code, out)
+	}
+	if _, _, code := run("organization", "spend", "org_a", "--by", "week"); code != 2 {
+		t.Errorf("--by week is refused before anything is sent: %d", code)
+	}
+	if _, _, code := run("organization", "spend", "org_a", "--by", "day,day"); code != 2 {
+		t.Errorf("--by day,day is refused before anything is sent: %d", code)
 	}
 	// refused before anything is sent
 	for _, bad := range [][]string{

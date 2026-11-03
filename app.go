@@ -193,7 +193,7 @@ func (r homeRow) rowNeedsYou() bool {
 		return false
 	}
 	if r.status != nil {
-		return r.status.NeedsYou || r.status.State == "blocked" || r.status.State == "error"
+		return r.status.NeedsYou || r.status.State == "blocked" || (r.status.State == "error" && !r.status.Read)
 	}
 	_, funds, running := r.sessionState()
 	return funds || (running && needsYou(r.agent.Activity))

@@ -74,6 +74,7 @@ func hostedAgentRun(cr hostedCreds, inv *Invocation) {
 		}
 		spend = &v
 	}
+	effort, _ := effortFlag(inv) // a word that is no level creates nothing
 	harness, err := chooseHarness(cr, firstNonEmpty(inv.Str("harness"), tmpl.Harness))
 	if err != nil {
 		die(err)
@@ -103,7 +104,7 @@ func hostedAgentRun(cr hostedCreds, inv *Invocation) {
 	fmt.Fprintf(os.Stderr, meteredLine+"\n", name)
 
 	// ---- 3. the record, its agent and its key ------------------------------
-	rec, _, err := createAgentRecord(cr, name, name, keyArg, firstNonEmpty(inv.Str("model"), tmpl.Model), harness, spend)
+	rec, _, err := createAgentRecord(cr, name, name, keyArg, firstNonEmpty(inv.Str("model"), tmpl.Model), effort, harness, spend)
 	if err != nil {
 		die(err)
 	}
@@ -173,7 +174,7 @@ func hostedAgentRun(cr hostedCreds, inv *Invocation) {
 	}
 	doc := map[string]any{"agent": agentID, "name": name, "session": rec.ID, "parent": parent, "outlive_parent": outlive, "notify": notify,
 		"first_message": map[string]any{"sent": true, "task_id": t.ID}, "template": tmpl.Name, "metered": fmt.Sprintf(meteredLine, name),
-		"harness": firstNonEmptyStr(rec.Harness, harness.ID), "runner_model": rec.RunnerModel}
+		"harness": firstNonEmptyStr(rec.Harness, harness.ID), "runner_model": rec.RunnerModel, "runner_effort": rec.RunnerEffort}
 
 	// ---- 6. back at once, or follow ----------------------------------------
 	if inv.Bool("bg") {

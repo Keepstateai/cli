@@ -114,7 +114,9 @@ func sortStatusRecords(items []statusRecord) {
 func countRecords(items []statusRecord) agentStatusCounts {
 	var c agentStatusCounts
 	for _, it := range items {
-		if it.NeedsYou || it.State == "blocked" || it.State == "error" {
+		// an error the person has read is still listed, and no longer
+		// counted as needing them
+		if it.NeedsYou || it.State == "blocked" || (it.State == "error" && !it.Read) {
 			c.NeedsYou++
 		}
 		switch it.State {
@@ -219,7 +221,7 @@ func aggregateStatus(items []statusRecord) oscStatus {
 				break
 			}
 		}
-	case c.Error > 0:
+	case unreadErrors(items) > 0:
 		r.State = "error"
 	case c.Working > 0:
 		r.State = "working"
@@ -229,6 +231,17 @@ func aggregateStatus(items []statusRecord) oscStatus {
 		r.State = "idle"
 	}
 	return r
+}
+
+// unreadErrors counts the errors the person has not read yet.
+func unreadErrors(items []statusRecord) int {
+	n := 0
+	for _, it := range items {
+		if it.State == "error" && !it.Read {
+			n++
+		}
+	}
+	return n
 }
 
 // notifyText is a notification's words: who, and what it needs.
