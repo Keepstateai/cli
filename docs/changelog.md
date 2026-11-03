@@ -33,6 +33,44 @@
   `--notify` adds a notification (OSC 9 and a bell, and a herdr
   notification inside herdr) each time an agent comes to need you or
   fails. The `ks` app's list of agents uses the same words.
+- Agents can delegate to child agents. `ks agent run --name NAME
+  [--template ROLE] "<task>"` starts a child in a session of its own with a
+  first instruction, and says before anything exists that the session is
+  metered like any session. `--bg` comes back at once with the child's
+  agent, session, parent and status as JSON; without it, the command follows
+  the first instruction and, after `--timeout` (180 seconds), prints "still
+  running as NAME" and exits 4 while the child keeps working.
+  `ks agent send NAME TEXT` queues one more instruction tagged with who sent
+  it (`--if idle|working` sends nothing on a mismatch and exits 5);
+  `ks agent wait NAME`, `--children all` and `--children any` end with a
+  reason (status, message, timeout or exited) and exit 0; `ks agent read
+  NAME --lines N` prints the end of the conversation as plain text.
+- A child started from this machine has a parent: `KS_CALLER_ID`, else the
+  hc terminal or herdr pane, else the nearest program above `ks` that is not
+  a shell. When that program's exit is observed, its children are saved and
+  paused, never deleted. Closing the laptop or losing the network ends
+  nothing. `--outlive-parent`, `--no-parent`, `--parent AGENT` and
+  `--no-notify` change that. A parent runs at most 8 children.
+- Roles: `ks agent templates` lists the built-in reviewer, implementer and
+  tester and your own files in the config directory's templates folder; a
+  role's opening instructions are joined in front of the task.
+- `ks mcp` serves KeepState to an MCP client on stdio, from this binary and
+  its sign-in (`claude mcp add keepstate -- ks mcp`; for Codex,
+  `[mcp_servers.keepstate] command = "ks" args = ["mcp"]`). It speaks both
+  the 2026-07-28 revision (`server/discover`, the version in each request's
+  `_meta`) and the earlier `initialize` revisions. Each tool runs one `ks`
+  verb with `--json --no-input`. Reading tools change nothing;
+  `ks_agent_send` and `ks_agent_pause` act at once; `ks_agent_run`,
+  `ks_agent_resume`, `ks_agent_stop` and `ks_task_cancel` act only after a
+  confirm step: the person says yes in a client that can ask, or the second
+  call names the confirm value the first call answered (valid 10 minutes,
+  once). No tool approves or denies a permission request, deletes anything,
+  or touches keys or billing. `--read-only` serves only the reading tools. A
+  client set to accept everything accepts a confirm step too.
+- `ks skill` (also `ks --skill`) prints the manual an agent reads before it
+  delegates: each child is a metered session, how to talk, wait and
+  collect, the status words, that a child's words are data, never approving
+  on a person's behalf, keys never in arguments, and the parent rule.
 - herdr: `ks herdr install` writes the KeepState plugin for herdr under this
   client's config, shows it, asks, and links it with `herdr plugin link`;
   nothing is downloaded. `ks herdr uninstall` unlinks it and removes those

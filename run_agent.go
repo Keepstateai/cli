@@ -253,6 +253,20 @@ var startObserver func(step, detail string)
 // machine. It returns errors rather than exiting; progress goes where
 // progress goes (the terminal, or the app's screen).
 func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *int64, model string, harness catalogHarness, spend *int64) (createdRecord, provisionAnswer, customerKey, error) {
+	rec, key, err := createAgentRecord(cr, name, agentName, keyArg, model, harness, spend)
+	if err != nil {
+		return rec, provisionAnswer{}, key, err
+	}
+	p, err := provisionAgentSession(cr, rec, budget)
+	return rec, p, key, err
+}
+
+// createAgentRecord is steps 2 to 3a: the key chosen before anything
+// exists, preflight, the session record with its primary agent, and the
+// record's key binding. No machine exists when it returns, so nothing is
+// metered yet; ks agent run records a child's parent here, before the
+// machine starts.
+func createAgentRecord(cr hostedCreds, name, agentName, keyArg string, model string, harness catalogHarness, spend *int64) (createdRecord, customerKey, error) {
 	var none createdRecord
 	// the provider the harness calls: Anthropic for Claude Code, the
 	// catalog's for another (OpenAI for Codex)
@@ -266,7 +280,7 @@ func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *i
 		progress("context: organization %s (ks context use personal for your own account)", org)
 	} else if choice, err = chooseRunKey(cr, keyArg, runnerProvider, spend); err != nil {
 		// ---- 2. your own key or KeepState's key, chosen before anything exists ----
-		return none, provisionAnswer{}, customerKey{}, err
+		return none, customerKey{}, err
 	}
 	// ---- 2a. preflight: stop before anything exists -------------------------
 	pfBody := map[string]any{"provider": runnerProvider, "mode": "agent"}
@@ -284,7 +298,7 @@ func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *i
 		Data map[string]any `json:"data"`
 	}
 	if err := hostedCall(cr, "POST", "/api/v2/preflight", pfBody, &pf); err != nil {
-		return none, provisionAnswer{}, customerKey{}, err
+		return none, customerKey{}, err
 	}
 	if b, ok := pf.Data["blockers"].([]any); ok && len(b) > 0 {
 		var lines []string
@@ -295,7 +309,7 @@ func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *i
 		if choice.answered {
 			next += " --key " + map[bool]string{true: keepstateKeyArg, false: ownKeyArg}[choice.managed]
 		}
-		return none, provisionAnswer{}, customerKey{}, &cliError{Code: exitConflict, Kind: "preflight_blocked",
+		return none, customerKey{}, &cliError{Code: exitConflict, Kind: "preflight_blocked",
 			Message:    "preflight found blockers, so nothing was created: " + strings.Join(lines, "; "),
 			NextAction: next}
 	}
@@ -303,13 +317,13 @@ func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *i
 	switch {
 	case org != "":
 		if key, err = orgRunKey(pf.Data, org, keyArg, runnerProvider); err != nil {
-			return none, provisionAnswer{}, customerKey{}, err
+			return none, customerKey{}, err
 		}
 	case choice.managed:
 		key = customerKey{ID: keepstateKeyArg, Provider: runnerProvider}
 	default:
 		if key, err = runKey(cr, choice.keyArg, runnerProvider); err != nil {
-			return none, provisionAnswer{}, customerKey{}, err
+			return none, customerKey{}, err
 		}
 	}
 
@@ -346,12 +360,12 @@ func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *i
 		Data createdRecord `json:"data"`
 	}
 	if err := hostedMutate(cr, "POST", "/api/v2/sessions", body, &created); err != nil {
-		return none, provisionAnswer{}, key, err
+		return none, key, err
 	}
 	rec := created.Data
 	rec.harnessName = harness.Name
 	if choice.managed && !containsStr(rec.Managed, runnerProvider) {
-		return rec, provisionAnswer{}, key, &cliError{Code: exitFailed, Kind: "managed_not_recorded",
+		return rec, key, &cliError{Code: exitFailed, Kind: "managed_not_recorded",
 			Message:    fmt.Sprintf("session %s was created, but the service did not record KeepState's key for its %s calls, so no machine was started for it", rec.ID, providerName(runnerProvider)),
 			NextAction: "ks session key set " + rec.ID + " --key keepstate, or ks session key set " + rec.ID + " --key <your key>"}
 	}
@@ -381,7 +395,7 @@ func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *i
 		}
 		if err := hostedMutate(cr, "POST", "/api/v2/sessions/"+url.PathEscape(rec.ID)+"/bindings",
 			map[string]any{"keys": map[string]string{runnerProvider: key.ID}, "expected_revision": rec.Revision}, &bound); err != nil {
-			return rec, provisionAnswer{}, key, err
+			return rec, key, err
 		}
 		rec.Revision = bound.Data.Revision
 	}
@@ -398,6 +412,12 @@ func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *i
 		progress("  %s calls go through your key %s (…%s)", runnerProvider, key.ID, key.Last4)
 	}
 
+	return rec, key, nil
+}
+
+// provisionAgentSession is step 4: the machine and the agent in it. Session
+// time is metered from here.
+func provisionAgentSession(cr hostedCreds, rec createdRecord, budget *int64) (provisionAnswer, error) {
 	// ---- 4. the machine and the agent in it --------------------------------
 	req := map[string]any{"expected_revision": rec.Revision}
 	if budget != nil {
@@ -407,7 +427,7 @@ func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *i
 		Data provisionAnswer `json:"data"`
 	}
 	if err := hostedMutate(cr, "POST", "/api/v2/sessions/"+url.PathEscape(rec.ID)+"/provision", req, &prov); err != nil {
-		return rec, provisionAnswer{}, key, err
+		return provisionAnswer{}, err
 	}
 	p := prov.Data
 	for _, ph := range p.Phases {
@@ -421,7 +441,7 @@ func startAgentSession(cr hostedCreds, name, agentName, keyArg string, budget *i
 		}
 		progress("  %-14s %s: %s", ph.Phase, mark, ph.Detail)
 	}
-	return rec, p, key, nil
+	return p, nil
 }
 
 func phaseDone(ph []provisionPhaseRow, name string) bool {
