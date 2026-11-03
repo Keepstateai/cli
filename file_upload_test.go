@@ -603,3 +603,91 @@ func TestFileUploadSnapshots(t *testing.T) {
 	drive("refusal-not-running", []string{"file", "upload", root, "--session", "fleetins", "--to", "other"},
 		[][]string{{"Next:", "", "snap:refusal"}})
 }
+
+// --with-git: a folder's .git is uploaded only when asked. Without the flag
+// it is left out as before, and the left-out summary says how to include it;
+// with it, every file of .git is carried (links still never are), the other
+// skips stay (dependency folders, .env), and .git counts toward the 1 GB
+// limit, which the size refusal says.
+func TestFileUploadWithGitCarriesTheHistoryOnlyWhenAsked(t *testing.T) {
+	c, dir, run := uploadHarness(t)
+	root := filepath.Join(dir, "proj")
+	write := func(rel string, b string) {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		if err := os.WriteFile(p, []byte(b), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("main.go", "package main\n")
+	write(".git/HEAD", "ref: refs/heads/main\n")
+	write(".git/config", "[core]\n")
+	write(".git/objects/ab/cdef", "blob")
+	write("node_modules/x/index.js", "x")
+	write(".env", "TOKEN=x\n")
+	if err := os.Symlink("HEAD", filepath.Join(root, ".git", "link")); err != nil {
+		t.Fatal(err)
+	}
+	// without the flag: left out, and the summary offers --with-git
+	out, errs, code := run("file", "upload", "proj", "--session", "fleetins")
+	if code != 0 || !strings.Contains(out+errs, "--with-git") {
+		t.Fatalf("without --with-git: %d, the summary does not offer --with-git:\n%s\n%s", code, out, errs)
+	}
+	c.with(func() {
+		for _, f := range c.declared[0]["files"].([]any) {
+			if strings.HasPrefix(f.(map[string]any)["path"].(string), ".git/") {
+				t.Fatalf(".git was carried without --with-git: %v", f)
+			}
+		}
+	})
+	// with the flag: the history is carried, the other skips stay
+	out, errs, code = run("file", "upload", "proj", "--session", "fleetins", "--to", "proj2", "--with-git")
+	if code != 0 {
+		t.Fatalf("--with-git: %d\n%s\n%s", code, out, errs)
+	}
+	var paths []string
+	c.with(func() {
+		for _, f := range c.declared[1]["files"].([]any) {
+			paths = append(paths, f.(map[string]any)["path"].(string))
+		}
+	})
+	got := strings.Join(paths, ",")
+	for _, want := range []string{".git/HEAD", ".git/config", ".git/objects/ab/cdef", "main.go"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("--with-git did not carry %s: %v", want, paths)
+		}
+	}
+	for _, never := range []string{"node_modules", ".env", ".git/link"} {
+		if strings.Contains(got, never) {
+			t.Errorf("--with-git carried %s: %v", never, paths)
+		}
+	}
+	if strings.Contains(out+errs, "add --with-git") {
+		t.Errorf("--with-git still offers --with-git:\n%s\n%s", out, errs)
+	}
+	// .git counts toward the limit, and the refusal says so (a sparse pack
+	// stands in for a large history; nothing is read before the refusal)
+	big := filepath.Join(root, ".git", "objects", "pack", "pack-1.pack")
+	os.MkdirAll(filepath.Dir(big), 0o755)
+	f, err := os.Create(big)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Truncate(1_100_000_000)
+	f.Close()
+	before := 0
+	c.with(func() { before = len(c.declared) })
+	out, errs, code = run("file", "upload", "proj", "--session", "fleetins", "--to", "proj3", "--with-git")
+	if code == 0 || !strings.Contains(out+errs, "the limit is 1 GB") || !strings.Contains(out+errs, ".git holds") {
+		t.Fatalf("a history over 1 GB: %d, the refusal does not say .git counts:\n%s\n%s", code, out, errs)
+	}
+	c.with(func() {
+		if len(c.declared) != before {
+			t.Fatal("something was declared for an upload over 1 GB")
+		}
+	})
+	// without the flag the same folder is small and goes
+	if _, errs, code := run("file", "upload", "proj", "--session", "fleetins", "--to", "proj4"); code != 0 {
+		t.Fatalf("the same folder without its history: %d\n%s", code, errs)
+	}
+}

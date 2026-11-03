@@ -2,7 +2,7 @@
 // session's workspace.
 //
 //	ks file upload <local path> [--to PATH] [--agent NAME | --session ID]
-//	               [--replace] [--tell] [--tell-text TEXT] [--discard]
+//	               [--replace] [--with-git] [--tell] [--tell-text TEXT] [--discard]
 //
 // The upload is declared first (what it carries: its kind, the workspace
 // path, the byte count and sha256 of what will be sent, and for a folder the
@@ -22,7 +22,9 @@
 // (ks-upload-policy/2: the repository's history, the client's job files,
 // dependency and tool trees, credential-shaped names and what .gitignore
 // lists are left out), plus the workspace's secret-file rule; links are left
-// out. The tar is generated twice, once to hash it and once to send it, never
+// out. With --with-git a folder's .git is carried too (every file of it,
+// links still never), and it counts toward the 1 GB limit like any file. The
+// tar is generated twice, once to hash it and once to send it, never
 // written to disk, and is the same bytes on every run over the same files.
 package main
 
@@ -99,6 +101,8 @@ type uploadPlan struct {
 	Size    int64 // the bytes sent
 	SHA256  string
 	Skipped []uploadSkip
+	WithGit bool  // --with-git: the folder's .git is carried
+	GitSize int64 // what the carried .git holds, for the size refusal
 }
 
 // uploadView is the service's answer about one upload.
@@ -174,9 +178,18 @@ func refuseSecret(name, rule string) {
 		Message: fmt.Sprintf("%s is a secret file name (it matches %s): a secret file's contents are never uploaded or downloaded; nothing was sent", sanitize(name), rule)})
 }
 
-func refuseTooLarge(name string, n int64) {
-	fail(&cliError{Code: exitConflict, Kind: "upload_too_large",
-		Message: fmt.Sprintf("%s is %s (%s bytes); the limit is 1 GB (1,000,000,000 bytes). Nothing was sent.", sanitize(name), bytesText(n), commas(n))})
+func refuseTooLarge(name string, n int64) { refuseTooLargeWith(name, n, 0) }
+
+// refuseTooLargeWith says, when the folder's history was asked for, how much
+// of the size it is: .git counts toward the limit like any file.
+func refuseTooLargeWith(name string, n, git int64) {
+	msg := fmt.Sprintf("%s is %s (%s bytes); the limit is 1 GB (1,000,000,000 bytes). Nothing was sent.", sanitize(name), bytesText(n), commas(n))
+	next := ""
+	if git > 0 {
+		msg = fmt.Sprintf("%s is %s (%s bytes) with its history, and .git holds %s of it: .git counts toward the limit like any file, and the limit is 1 GB (1,000,000,000 bytes). Nothing was sent.", sanitize(name), bytesText(n), commas(n), bytesText(git))
+		next = "run the same command without --with-git to upload the files without the history"
+	}
+	fail(&cliError{Code: exitConflict, Kind: "upload_too_large", Message: msg, NextAction: next})
 }
 
 func modeWord(m os.FileMode) string {
@@ -187,7 +200,7 @@ func modeWord(m os.FileMode) string {
 }
 
 // planUpload reads what the upload will carry, without its bytes.
-func planUpload(local, to string) *uploadPlan {
+func planUpload(local, to string, withGit bool) *uploadPlan {
 	abs, err := filepath.Abs(local)
 	if err != nil {
 		die(err)
@@ -196,7 +209,7 @@ func planUpload(local, to string) *uploadPlan {
 	if err != nil {
 		fail(&cliError{Code: exitUsage, Kind: "usage", Message: fmt.Sprintf("%s cannot be read (%v); nothing was sent", sanitize(local), err)})
 	}
-	p := &uploadPlan{Local: abs, Name: filepath.Base(abs), Skipped: []uploadSkip{}}
+	p := &uploadPlan{Local: abs, Name: filepath.Base(abs), Skipped: []uploadSkip{}, WithGit: withGit}
 	if to == "" {
 		to = p.Name
 	}
@@ -229,7 +242,12 @@ func planFolder(p *uploadPlan) {
 		// the walk itself failed (an unreadable folder, a socket or a device)
 		fail(&cliError{Code: exitUsage, Kind: "usage", Message: fmt.Sprintf("%s cannot be packed: %s; nothing was sent", sanitize(p.Name), sanitize(err.Error()))})
 	}
+	var gitDirs []string
 	for _, x := range sel.Excluded {
+		if p.WithGit && path.Base(x.Path) == ".git" && strings.HasPrefix(x.Reason, "mandatory") {
+			gitDirs = append(gitDirs, x.Path) // carried below, on request
+			continue
+		}
 		p.Skipped = append(p.Skipped, uploadSkip{Path: x.Path, Reason: x.Reason})
 	}
 	for _, l := range sel.Symlinks {
@@ -248,9 +266,12 @@ func planFolder(p *uploadPlan) {
 		p.Entries = append(p.Entries, uploadEntry{Path: f.Path, Size: fi.Size(), Mode: modeWord(fi.Mode()), mtime: fi.ModTime(), abs: abs})
 		p.Content += fi.Size()
 	}
+	for _, g := range gitDirs {
+		addGit(p, g)
+	}
 	sort.Slice(p.Skipped, func(i, j int) bool { return p.Skipped[i].Path < p.Skipped[j].Path })
 	if p.Content > uploadLimit {
-		refuseTooLarge(p.Name, p.Content)
+		refuseTooLargeWith(p.Name, p.Content, p.GitSize)
 	}
 	if len(p.Entries) > uploadMaxFiles {
 		fail(&cliError{Code: exitConflict, Kind: "upload_too_many",
@@ -259,6 +280,47 @@ func planFolder(p *uploadPlan) {
 	if len(p.Entries) == 0 {
 		fail(&cliError{Code: exitUsage, Kind: "usage", Message: fmt.Sprintf("%s has no file to upload once %d paths are left out; nothing was sent", sanitize(p.Name), len(p.Skipped))})
 	}
+}
+
+// addGit carries one .git of the folder (--with-git): every regular file in
+// it, in path order, after the selection's files; a link is left out and
+// said, as everywhere; a secret file name is still never carried. A .git
+// that is a file (a worktree's pointer) is carried as that file.
+func addGit(p *uploadPlan, rel string) {
+	add := func(r string, fi os.FileInfo) {
+		if rule := secretNameRule(path.Base(r)); rule != "" {
+			p.Skipped = append(p.Skipped, uploadSkip{Path: r, Reason: "secret file name (matches " + rule + "): a secret file's contents are never uploaded or downloaded"})
+			return
+		}
+		p.Entries = append(p.Entries, uploadEntry{Path: r, Size: fi.Size(), Mode: modeWord(fi.Mode()), mtime: fi.ModTime(), abs: filepath.Join(p.Local, filepath.FromSlash(r))})
+		p.Content += fi.Size()
+		p.GitSize += fi.Size()
+	}
+	var walk func(r string)
+	walk = func(r string) {
+		abs := filepath.Join(p.Local, filepath.FromSlash(r))
+		fi, err := os.Lstat(abs)
+		if err != nil {
+			fail(&cliError{Code: exitUsage, Kind: "usage", Message: fmt.Sprintf("%s cannot be read (%v); nothing was sent", sanitize(r), err)})
+		}
+		switch {
+		case fi.Mode()&os.ModeSymlink != 0:
+			p.Skipped = append(p.Skipped, uploadSkip{Path: r, Reason: "a link: links are never uploaded"})
+		case fi.IsDir():
+			ents, err := os.ReadDir(abs)
+			if err != nil {
+				fail(&cliError{Code: exitUsage, Kind: "usage", Message: fmt.Sprintf("%s cannot be read (%v); nothing was sent", sanitize(r), err)})
+			}
+			for _, e := range ents { // ReadDir answers in name order: the same tar every run
+				walk(r + "/" + e.Name())
+			}
+		case fi.Mode().IsRegular():
+			add(r, fi)
+		default:
+			p.Skipped = append(p.Skipped, uploadSkip{Path: r, Reason: "not a regular file: only files are uploaded"})
+		}
+	}
+	walk(rel)
 }
 
 // writeUploadTar writes the folder's tar: the entries in order, regular
@@ -841,7 +903,10 @@ func hostedFileUpload(cr hostedCreds, inv *Invocation) {
 		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--discard throws an unfinished upload away; it takes no --tell, --tell-text or --replace"})
 	}
 	// everything that can be refused here is refused before any request
-	p := planUpload(inv.Arg(0), inv.Str("to"))
+	p := planUpload(inv.Arg(0), inv.Str("to"), inv.Bool("with-git"))
+	if inv.Bool("with-git") && p.Kind != "folder" {
+		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--with-git carries a folder's .git; " + sanitize(p.Name) + " is a file. Nothing was sent."})
+	}
 
 	var sess inventoryRow
 	agentName := "main"
@@ -876,6 +941,12 @@ func hostedFileUpload(cr hostedCreds, inv *Invocation) {
 	if !out.json {
 		for _, l := range skippedLines(p.Skipped) {
 			progress("%s", l)
+		}
+		for _, s := range p.Skipped {
+			if path.Base(s.Path) == ".git" && strings.HasPrefix(s.Reason, "mandatory") {
+				progress("  to include the project's history, add --with-git (.git counts toward the 1 GB limit)")
+				break
+			}
 		}
 	}
 	u.declare(inv.Bool("discard"))
