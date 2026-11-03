@@ -2144,8 +2144,8 @@
   {
    "verb": "session runner",
    "aliases": [],
-   "usage": "ks session runner <session> [--harness HARNESS] [--model MODEL] [--key KEY] [--spend-limit DOLLARS] [--resume] [--stop-running] [--cancel]",
-   "summary": "what a session runs (harness, model, key) and one change of any of them, in any state: the service checks first, saves and starts it again only as a part needs",
+   "usage": "ks session runner <session> [--harness HARNESS] [--model MODEL] [--key KEY] [--spend-limit DOLLARS] [--token-budget TOKENS] [--resume] [--stop-running] [--cancel]",
+   "summary": "what a session runs (harness, model, key) and one change of any of them or of its limits, in any state: the service checks first, saves and starts it again only as a part needs",
    "status": "available",
    "surface": "hosted",
    "flags": [
@@ -2164,6 +2164,10 @@
     {
      "flag": "--spend-limit DOLLARS",
      "summary": "the session's spend limit on KeepState's key"
+    },
+    {
+     "flag": "--token-budget TOKENS",
+     "summary": "a new token budget for the session, more than it has used; a session paused at its budget continues with --resume"
     },
     {
      "flag": "--resume",
