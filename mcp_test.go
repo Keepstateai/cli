@@ -449,3 +449,14 @@ func TestMCPSchemasHoldNoSecretAndNameRealVerbs(t *testing.T) {
 		}
 	}
 }
+
+func TestMCPArgvKeepsArgumentsInTheirPlace(t *testing.T) {
+	got := strings.Join(findMCPTool("ks_agent_list").argv(map[string]any{"all": true}, false), " ")
+	if got != "agent list --json --no-input --all" {
+		t.Fatalf("ks_agent_list with all: %q", got)
+	}
+	got = strings.Join(findMCPTool("ks_agent_send").argv(map[string]any{"name": "review", "text": "--yes", "session": "-s"}, false), " ")
+	if got != "agent send --json --no-input --session=-s -- review --yes" {
+		t.Fatalf("a value that looks like a flag is kept a value: %q", got)
+	}
+}
