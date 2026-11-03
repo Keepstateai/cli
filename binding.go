@@ -463,6 +463,10 @@ func checkNewNames(inv *Invocation) {
 		err = newNameRefusal(inv.Arg(1), "nothing was renamed")
 	case "run":
 		err = runAgentNameRefusal(inv)
+	case "agent run":
+		if inv.Set("name") {
+			err = newNameRefusal(inv.Str("name"), "nothing was created")
+		}
 	}
 	if err != nil {
 		fail(err)
