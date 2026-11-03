@@ -637,10 +637,11 @@ var registry = []*Command{
 		Flags: []Flag{
 			{Name: "session", Kind: flagString, Value: "ID", Summary: "the session the request belongs to; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"},
 			{Name: "all", Kind: flagBool, Summary: "every request, decided ones too, with who decided and when"},
+			{Name: "agent", Kind: flagString, Value: "NAME", Summary: "only the requests this agent asked, by its name or id"},
 		},
 		Needs:    "agent.workspace",
 		Effects:  "reads the requests; nothing is decided and nothing changes. The pending ones printed are recorded as shown, so a decision made afterwards is compared against exactly this display",
-		Examples: []string{"ks approval list --session 3f2a1c", "ks approval list --session 3f2a1c --all --json"},
+		Examples: []string{"ks approval list --session 3f2a1c", "ks approval list --session 3f2a1c --agent main", "ks approval list --session 3f2a1c --all --json"},
 		Nothing:  "Nothing was read.", Run: hosted(hostedApprovalList)},
 	{Path: []string{"approval", "show"}, Summary: "one permission request in full: the action, its instruction, what it touches, the cost, expiry and decision", Surface: "hosted",
 		Args:     []Arg{{Name: "request", Required: true}},
