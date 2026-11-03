@@ -35,6 +35,7 @@ type interopCtl struct {
 	noParents bool                        // the callers and parent routes answer 404
 	refuse    string                      // a typed refusal the parent PUT answers
 	freeTier  bool                        // provisioning answers ks_free_tier_one_session
+	noMachine bool                        // provisioning makes no machine, and the session reads failed after it
 	ends      int
 }
 
@@ -173,6 +174,17 @@ func (c *interopCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		id := fmt.Sprintf("session_%d", c.sessions)
 		c.names[id], _ = body["name"].(string)
 		env(201, map[string]any{"id": id, "revision": 1, "primary_agent_id": fmt.Sprintf("agent_%d", c.sessions), "runner_model": "claude-haiku-4-5", "harness": "claude-code"})
+	case r.Method == "GET" && strings.HasPrefix(p, "/api/v2/sessions/") && strings.Count(p, "/") == 4:
+		sid := strings.Split(p, "/")[4]
+		if _, ok := c.names[sid]; !ok {
+			refuse(404, "ks_not_found", "no such session")
+			return
+		}
+		state := "provisioning"
+		if c.noMachine {
+			state = "failed"
+		}
+		env(200, map[string]any{"id": sid, "name": c.names[sid], "runtime_state": state, "revision": 3})
 	case r.Method == "POST" && strings.HasSuffix(p, "/bindings"):
 		env(200, map[string]any{"revision": 2})
 	case r.Method == "GET" && p == "/api/v2/agents":
@@ -199,6 +211,12 @@ func (c *interopCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		sid := strings.Split(p, "/")[4]
+		if c.noMachine {
+			env(200, map[string]any{"session_id": sid, "agent_id": strings.Replace(sid, "session_", "agent_", 1), "ready": false, "supervised": false, "agent_activity": "unavailable", "cleaned_up": false,
+				"note":   failedStartNote,
+				"phases": []any{map[string]any{"phase": "record_intent", "done": true, "detail": "on the record"}, map[string]any{"phase": "create_guest", "done": false, "detail": "no machine could be created for this session"}}})
+			return
+		}
 		env(200, map[string]any{"session_id": sid, "agent_id": strings.Replace(sid, "session_", "agent_", 1), "ready": false, "supervised": true, "agent_activity": "starting",
 			"note": "supervised", "phases": []any{map[string]any{"phase": "start_agent", "done": true, "detail": "running"}}})
 	case r.Method == "POST" && strings.HasSuffix(p, "/tasks"):

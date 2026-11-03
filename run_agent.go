@@ -96,8 +96,9 @@ func hostedRunAgent(cr hostedCreds, inv *Invocation) {
 		// setup failed (and was cleaned up), or the supervisor has not
 		// reported for the agent yet.
 		if p.CleanedUp || !phaseDone(p.Phases, "start_agent") {
-			fail(&cliError{Code: exitFailed, Kind: "run_setup_failed", Message: p.Note,
-				NextAction: "ks run --agent (to try again), or ks doctor"})
+			fail(failedStart(cr, p, rec.ID, "ks run --agent (to try again), or ks doctor", func(name string) string {
+				return "ks run --agent --name " + name
+			}))
 		}
 		fail(&cliError{Code: exitTemporary, Kind: "agent_not_ready", Message: p.Note,
 			NextAction: fmt.Sprintf("ks agent status %s --session %s", agentRef, rec.ID)})
@@ -442,6 +443,31 @@ func provisionAgentSession(cr hostedCreds, rec createdRecord, budget *int64) (pr
 		progress("  %-14s %s: %s", ph.Phase, mark, ph.Detail)
 	}
 	return p, nil
+}
+
+// failedStart is the refusal for a start whose setup did not complete. A
+// control plane that marks such a session failed keeps its name, so the same
+// command again would be refused by name: the one way on is to delete that
+// session, then start again under the same name. The service's own words
+// head it (they say "nothing ran and nothing is billed" where that is so).
+// A service that does not mark it failed keeps the older next action.
+func failedStart(cr hostedCreds, p provisionAnswer, sessionID, older string, again func(name string) string) *cliError {
+	ce := &cliError{Code: exitFailed, Kind: "run_setup_failed", Message: sanitize(p.Note), NextAction: older}
+	var env struct {
+		Data struct {
+			Name         string `json:"name"`
+			RuntimeState string `json:"runtime_state"`
+		} `json:"data"`
+	}
+	if sessionID == "" || hostedCall(cr, "GET", "/api/v2/sessions/"+url.PathEscape(sessionID), nil, &env) != nil || env.Data.RuntimeState != "failed" {
+		return ce
+	}
+	name := sanitize(env.Data.Name)
+	if !agentNameSafe.MatchString(name) {
+		name = "<name>"
+	}
+	ce.NextAction = "ks session delete " + sessionID + ", then " + again(name)
+	return ce
 }
 
 func phaseDone(ph []provisionPhaseRow, name string) bool {
