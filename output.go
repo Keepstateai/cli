@@ -201,6 +201,12 @@ func classify(err error) *cliError {
 			return &cliError{Code: exitFailed, Kind: he.Type, HTTPStatus: he.Status, WorkStarted: workNo,
 				Message:    sanitize(he.Message) + " [ks_legacy_retired]",
 				NextAction: "start an agent session instead: ks run --agent (existing sessions keep their status, saves and results)"}
+		case "ks_context_unsupported":
+			// the chosen organization's context, on a list or a creation
+			// that has no organization view: nothing personal is shown there
+			return &cliError{Code: exitUsage, Kind: he.Type, HTTPStatus: he.Status, WorkStarted: workNo,
+				Message:    sanitize(he.Message) + " [ks_context_unsupported]",
+				NextAction: "ks context use personal"}
 		}
 		if m := managedRefusal(he); m != nil {
 			// a call or a choice on KeepState's key refused before anything

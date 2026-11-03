@@ -536,7 +536,7 @@ func hostedCruiseDraftCreate(cr hostedCreds, inv *Invocation) {
 	progress("KeepState keeps these files for this draft only, does not bill for them, and deletes them when the draft is approved, discarded or expires")
 
 	var env draftEnvelope
-	if err := hostedMutate(cr, "POST", draftsRoute, body, &env); err != nil {
+	if err := hostedMutate(cr, "POST", inContext(cr, draftsRoute), body, &env); err != nil {
 		die(err)
 	}
 	v, err := decodeDraft(env.Data)
@@ -593,7 +593,7 @@ func createSessionDraft(cr hostedCreds, inv *Invocation, body map[string]any, pr
 	}
 	progress("KeepState copies the session's files into this draft only, does not bill for the copy, and deletes it when the draft is approved, discarded or expires")
 	var env draftEnvelope
-	if err := hostedMutate(cr, "POST", draftsRoute, body, &env); err != nil {
+	if err := hostedMutate(cr, "POST", inContext(cr, draftsRoute), body, &env); err != nil {
 		die(err)
 	}
 	v, err := decodeDraft(env.Data)
@@ -685,7 +685,7 @@ func hostedCruiseDraftList(cr hostedCreds, inv *Invocation) {
 			Items []json.RawMessage `json:"items"`
 		} `json:"data"`
 	}
-	if err := hostedCall(cr, "GET", draftsRoute, nil, &env); err != nil {
+	if err := hostedCall(cr, "GET", inContext(cr, draftsRoute), nil, &env); err != nil {
 		die(err)
 	}
 	var vs []*draftView

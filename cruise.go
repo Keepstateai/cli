@@ -1274,7 +1274,7 @@ func cruiseRun(inv *Invocation) error {
 	}
 
 	var job map[string]any
-	if err := hostedMutate(c, "POST", "/api/jobs", body.Bytes(), &job); err != nil {
+	if err := hostedMutate(c, "POST", inContext(c, "/api/jobs"), body.Bytes(), &job); err != nil {
 		return err
 	}
 	if separate {
@@ -1418,7 +1418,7 @@ func cruiseStatus(inv *Invocation) {
 	var job map[string]any
 	if id == "" {
 		var jobs []map[string]any
-		if err := hostedCall(c, "GET", "/api/jobs", nil, &jobs); err != nil {
+		if err := hostedCall(c, "GET", inContext(c, "/api/jobs"), nil, &jobs); err != nil {
 			die(err)
 		}
 		if len(jobs) == 0 {

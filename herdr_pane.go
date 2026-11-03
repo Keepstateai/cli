@@ -242,7 +242,7 @@ type paneJob struct {
 
 func fetchPaneJobs(cr hostedCreds) ([]paneJob, error) {
 	var jobs []map[string]any
-	if err := hostedCall(cr, "GET", "/api/jobs", nil, &jobs); err != nil {
+	if err := hostedCall(cr, "GET", inContext(cr, "/api/jobs"), nil, &jobs); err != nil {
 		return nil, err
 	}
 	var out []paneJob

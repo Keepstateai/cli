@@ -122,10 +122,17 @@ var errModelKeysNotServed = errors.New("this service does not serve account mode
 // fetchModelKeys reads the account's model keys. A service that does not
 // serve the route answers errModelKeysNotServed.
 func fetchModelKeys(cr hostedCreds) (*modelKeysDoc, error) {
+	return fetchModelKeysAt(cr, modelKeysPath)
+}
+
+// fetchModelKeysAt reads them at a path: ks key default reads them in the
+// chosen context, which the service refuses in an organization's (they are
+// the personal account's defaults).
+func fetchModelKeysAt(cr hostedCreds, path string) (*modelKeysDoc, error) {
 	var env struct {
 		Data modelKeysDoc `json:"data"`
 	}
-	if err := hostedCall(cr, "GET", modelKeysPath, nil, &env); err != nil {
+	if err := hostedCall(cr, "GET", path, nil, &env); err != nil {
 		var he *hostedErr
 		if errors.As(err, &he) && (he.Status == http.StatusNotFound || he.Status == http.StatusMethodNotAllowed) {
 			return nil, errModelKeysNotServed
@@ -334,7 +341,7 @@ func managedKeyRows(d *modelKeysDoc) []string {
 // ---- ks key default ----------------------------------------------------------------
 
 func hostedKeyDefault(cr hostedCreds, inv *Invocation) {
-	doc, err := fetchModelKeys(cr)
+	doc, err := fetchModelKeysAt(cr, inContext(cr, modelKeysPath))
 	if errors.Is(err, errModelKeysNotServed) {
 		fail(&cliError{Code: exitFailed, Kind: "not_served", Message: "this service keeps no default key per provider: every session uses your own key. Nothing was changed", NextAction: "ks key list"})
 	}
@@ -353,7 +360,7 @@ func hostedKeyDefault(cr hostedCreds, inv *Invocation) {
 	var env struct {
 		Data modelKeysDoc `json:"data"`
 	}
-	if err := hostedMutate(cr, "PUT", modelKeysPath, map[string]any{"defaults": map[string]string{p: want}, "expected_revision": doc.Revision}, &env); err != nil {
+	if err := hostedMutate(cr, "PUT", inContext(cr, modelKeysPath), map[string]any{"defaults": map[string]string{p: want}, "expected_revision": doc.Revision}, &env); err != nil {
 		var he *hostedErr
 		if errors.As(err, &he) && he.Type == "ks_revision_conflict" {
 			fail(&cliError{Code: exitConflict, Kind: he.Type, HTTPStatus: he.Status, Message: "the defaults changed since they were read, so nothing changed; read them again and retry: " + sanitize(he.Message), NextAction: "ks key default"})

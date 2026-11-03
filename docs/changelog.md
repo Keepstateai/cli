@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- In an organization's context (`ks context use <organization>`), `ks agent
+  list --all` lists that organization's agents that are yours and says the
+  context on its first line; it no longer lists your personal agents there.
+  The lists and creations that have no organization view yet (`ks cruise`
+  and `ks cruise status`, `ks cruise draft create` and `list`, `ks adviser
+  discover`, `ks agent open` by name alone, `ks key default`, a plain `ks
+  run`) are refused in the service's words with `ks context use personal` as
+  the next step, instead of showing or making your personal account's.
+
 ## v0.1.35 (2026-11-03)
 
 - When `ks agent run` or `ks run --agent` cannot start a session because no
