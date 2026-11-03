@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- `ks mcp` can now decide permission requests, only with a person's answer.
+  `ks_agent_approve` asks the person in the host app (the agent, the exact
+  command or tool, and what approving lets it do; Approve or Deny), and
+  only their Approve approves, that request at that revision, once. It
+  cannot approve on its own: a host app that cannot ask its person
+  approves nothing and says to decide in the KeepState console or with
+  `ks agent approve`. `ks_agent_deny` uses the confirm value step, since
+  denying only blocks. A request already decided or expired is refused.
+  `ks_approval_list` and `ks approval list` take `--agent` for one agent's
+  requests. `ks skill` says how.
+
 ## v0.1.35 (2026-11-03)
 
 - When `ks agent run` or `ks run --agent` cannot start a session because no

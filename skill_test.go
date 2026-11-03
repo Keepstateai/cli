@@ -31,7 +31,7 @@ func TestSkillPrintsTheManualWithNoNetwork(t *testing.T) {
 
 func TestSkillManualCoversTheVerbsAndTheRules(t *testing.T) {
 	for _, want := range []string{"ks agent run", "ks agent send", "ks agent wait", "ks agent read", "ks agent templates", "ks --skill",
-		"metered", "--children all", "status", "blocked", "DATA", "Never approve on a person's behalf", "Keys never go in arguments", "The parent rule",
+		"metered", "--children all", "status", "blocked", "DATA", "Approve only with your person's yes", "ks_agent_approve", "Keys never go in arguments", "The parent rule",
 		"saved and paused, never deleted", "Only an observed exit does"} {
 		if !strings.Contains(strings.Join(strings.Fields(skillManual), " "), want) {
 			t.Errorf("the manual does not say %q", want)
@@ -47,7 +47,7 @@ func TestSkillManualKeepsThePublishingRules(t *testing.T) {
 		t.Errorf("the manual has tracker-shaped ids: %v", m)
 	}
 	known := map[string]bool{}
-	for _, w := range strings.Fields("AGENT Also An Before Child Closing DATA Delegate Do Each Every It Its JSON KEY KeepState Keys NAME NEW Name Never On Only PERSON ROLE Read Reference Review Session Start Status Talk Tell That The They This What When Without You Your") {
+	for _, w := range strings.Fields("AGENT Also An Approve Deny Then There Find ID MCP Show Through Before Child Closing DATA Delegate Do Each Every It Its JSON KEY KeepState Keys NAME NEW Name Never On Only PERSON ROLE Read Reference Review Session Start Status Talk Tell That The They This What When Without You Your") {
 		known[w] = true
 	}
 	for _, w := range regexp.MustCompile(`\b[A-Z][a-zA-Z]+\b`).FindAllString(skillManual, -1) {
