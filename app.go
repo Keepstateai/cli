@@ -53,6 +53,9 @@ func appWanted() bool {
 type homeRow struct {
 	sess  inventoryRow
 	agent *agentRow // nil: a plain session, which has no agents
+	// the service's status record for the agent, when it serves one; the
+	// list then reads in the console rail's words
+	status *statusRecord
 }
 
 type appAction int
@@ -124,6 +127,14 @@ func loadHome(cr hostedCreds) ([]homeRow, error) {
 	if err != nil {
 		return nil, err
 	}
+	// every agent's status record in one read; an older control plane that
+	// serves none leaves the list as the agents' own words say
+	records := map[string]statusRecord{}
+	if l, serr := fetchAgentStatusList(cr); serr == nil {
+		for _, rec := range l.Items {
+			records[rec.AgentID] = rec
+		}
+	}
 	var rows []homeRow
 	for _, s := range inv {
 		if s.RecordID == "" {
@@ -138,7 +149,11 @@ func loadHome(cr hostedCreds) ([]homeRow, error) {
 		sort.SliceStable(agents, func(i, j int) bool { return agents[i].IsPrimary && !agents[j].IsPrimary })
 		for i := range agents {
 			a := agents[i]
-			rows = append(rows, homeRow{sess: s, agent: &a})
+			row := homeRow{sess: s, agent: &a}
+			if rec, ok := records[a.ID]; ok && oscStates[rec.State] && rec.State != "clear" {
+				row.status = &rec
+			}
+			rows = append(rows, row)
 		}
 	}
 	// agents that need you first, then the other agents, plain sessions last
@@ -177,6 +192,9 @@ func (r homeRow) rowNeedsYou() bool {
 	if r.agent == nil {
 		return false
 	}
+	if r.status != nil {
+		return r.status.NeedsYou || r.status.State == "blocked" || r.status.State == "error"
+	}
 	_, funds, running := r.sessionState()
 	return funds || (running && needsYou(r.agent.Activity))
 }
@@ -205,6 +223,9 @@ func sessLabel(s inventoryRow) string {
 // and the tone it is drawn in. A session that is not running reads its own
 // state, never its agent's frozen last word.
 func homeState(r homeRow) (icon string, word string, tn tone) {
+	if r.agent != nil && r.status != nil {
+		return recordState(*r.status)
+	}
 	state, funds, running := r.sessionState()
 	switch {
 	case r.agent == nil:
@@ -232,6 +253,40 @@ func homeState(r homeRow) (icon string, word string, tn tone) {
 		return iconState, stateWords("agent_activity", a), toneOK
 	}
 	return iconState, stateWords("agent_activity", a), toneDim
+}
+
+// recordState is a row's state cell from the service's record, in the
+// console rail's words: needing you in amber, a failure in red, working
+// plain, done green, a resting agent dimmed (paused when its session is).
+func recordState(rec statusRecord) (string, string, tone) {
+	word := statusWord(rec)
+	switch rec.State {
+	case "blocked":
+		// a pause that needs a person names its cause here, where the
+		// console's "Needs you" alone would not say what to do
+		if rec.Kind == "" {
+			switch rec.Reason {
+			case "funds_interlock":
+				return iconPaused, "Needs you: out of credit", toneWarn
+			case "budget", "org_budget":
+				return iconPaused, "Needs you: a budget", toneWarn
+			case "managed_limit":
+				return iconPaused, "Needs you: a spend limit", toneWarn
+			}
+		}
+		return iconNeedsYou, word, toneWarn
+	case "error":
+		return iconFailed, word, toneBad
+	case "working":
+		return iconState, word, toneNeutral
+	case "done":
+		return iconDone, word, toneOK
+	}
+	switch rec.Reason {
+	case "paused", "idle_parked", "parent_ended":
+		return iconPaused, word + " (paused)", toneDim
+	}
+	return iconState, word, toneDim
 }
 
 // homeColumns are the list's column widths for a card of inner width; the

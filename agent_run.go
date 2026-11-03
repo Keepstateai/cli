@@ -175,7 +175,7 @@ func hostedAgentRun(cr hostedCreds, inv *Invocation) {
 
 	// ---- 6. back at once, or follow ----------------------------------------
 	if inv.Bool("bg") {
-		var st *agentStatusDoc
+		var st *statusRecord
 		if s, serr := readAgentStatus(cr, rec.ID, agentID); serr == nil {
 			st = &s
 		}

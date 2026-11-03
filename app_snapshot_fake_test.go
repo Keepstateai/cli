@@ -90,6 +90,40 @@ func (c *snapCtl) agentsOf(rec string) []map[string]any {
 	return nil
 }
 
+// statusList is every agent's status record, as the service derives it
+// for the account above.
+func (c *snapCtl) statusList() map[string]any {
+	c.smu.Lock()
+	resumed, created := c.resumed, c.created
+	c.smu.Unlock()
+	rec := func(id, sess, name, sessName, state, kind, reason, msg, label, verb string) map[string]any {
+		r := map[string]any{"agent_id": id, "session_id": sess, "name": name, "session_name": sessName, "state": state, "reason": reason,
+			"msg": msg, "needs_you": state == "blocked" || state == "error", "source": "keepstate"}
+		if kind != "" {
+			r["kind"] = kind
+		}
+		if label != "" {
+			r["action"] = map[string]any{"label": label, "verb": verb, "console": "#agent/" + sess + "/" + id}
+		}
+		return r
+	}
+	items := []map[string]any{
+		rec("agt_main0001", agentSessionRecord, "main", "checkout", "blocked", "permission", "approval_pending", "shell: git push origin main", "Approve or deny", "ks agent approve apr_push1 --session 3f2a1c"),
+		rec("agt_ops00001", snapFundsRec, "ops", "billing", "blocked", "", "funds_interlock", "Paused: out of credit. Work is saved. Add credit, then resume.", "Add credit", "ks credits buy"),
+		rec("agt_fix00001", snapRecovRec, "fixer", "migrate", "blocked", "question", "recovery_required", "Its runner stopped mid-instruction; decide what happens next.", "Decide", "ks agent queue show fixer --session b7d210"),
+		rec("agt_twin0001", agentSessionRecord, "reviewer", "checkout", "idle", "", "ready", "Ready.", "", ""),
+	}
+	if resumed {
+		items = append(items, rec("agt_dev10001", snapParkRec, "dev1", "api", "idle", "", "ready", "Ready.", "", ""))
+	} else {
+		items = append(items, rec("agt_dev10001", snapParkRec, "dev1", "api", "idle", "", "paused", "Paused; work saved at 11:58.", "Resume", "ks agent resume dev1 --session 5335fa"))
+	}
+	if created {
+		items = append(items, rec("agt_help0001", snapNewRec, "helper", "helper", "idle", "", "ready", "Ready.", "", ""))
+	}
+	return map[string]any{"items": items, "counts": map[string]any{"needs_you": 3, "blocked": 3, "idle": len(items) - 3}, "truncated": false}
+}
+
 func (c *snapCtl) inventory() []map[string]any {
 	c.smu.Lock()
 	resumed, created := c.resumed, c.created
@@ -187,6 +221,9 @@ func (c *snapCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case p == "/api/v2/sessions" && r.Method == "GET" && r.URL.Query().Get("source") == "fleet":
 		env(200, map[string]any{"items": c.inventory(), "next_cursor": "", "observed_at": "x"})
+		return
+	case p == "/api/v2/agent-status" && r.Method == "GET":
+		env(200, c.statusList())
 		return
 	case p == "/api/v2/agents" && r.Method == "GET":
 		rec := r.URL.Query().Get("session_id")
