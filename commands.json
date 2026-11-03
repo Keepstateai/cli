@@ -1221,7 +1221,7 @@
   {
    "verb": "approval list",
    "aliases": [],
-   "usage": "ks approval list [--session ID] [--all]",
+   "usage": "ks approval list [--session ID] [--all] [--agent NAME]",
    "summary": "a session's permission requests with the instruction each was asked for, what it touches and what deciding costs",
    "status": "available",
    "surface": "hosted",
@@ -1233,6 +1233,10 @@
     {
      "flag": "--all",
      "summary": "every request, decided ones too, with who decided and when"
+    },
+    {
+     "flag": "--agent NAME",
+     "summary": "only the requests this agent asked, by its name or id"
     }
    ]
   },
