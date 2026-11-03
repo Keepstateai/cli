@@ -3,7 +3,8 @@
 //	ks session runner <session>                          the harness, the model and the key,
 //	                                                     and a change under way
 //	ks session runner <session> [--harness H] [--model M] [--key K] [--spend-limit D]
-//	                  [--resume] [--stop-running]        change any of them, in any state
+//	                  [--token-budget N] [--resume] [--stop-running]
+//	                                                     change any of them, in any state
 //	ks session runner <session> --cancel                 cancel a change still waiting
 //
 // The service takes the steps (POST /api/v2/sessions/{id}/runner-change): it
@@ -105,7 +106,7 @@ func hostedSessionRunner(cr hostedCreds, inv *Invocation) {
 			NextAction: "ks run --agent"})
 	}
 	rec := readSessionRunner(cr, sess.RecordID)
-	changing := inv.Set("harness") || inv.Set("model") || inv.Set("key") || inv.Set("spend-limit")
+	changing := inv.Set("harness") || inv.Set("model") || inv.Set("key") || inv.Set("spend-limit") || inv.Set("token-budget")
 	if inv.Bool("cancel") {
 		if changing || inv.Set("resume") || inv.Set("stop-running") {
 			fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--cancel cancels the change under way and takes no change of its own. Nothing was sent", NextAction: "ks session runner " + sess.ShortID + " --cancel"})
@@ -123,7 +124,7 @@ func hostedSessionRunner(cr hostedCreds, inv *Invocation) {
 	}
 	if !changing {
 		if inv.Set("resume") || inv.Set("stop-running") {
-			fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--resume and --stop-running go with a change: --harness, --model, --key or --spend-limit"})
+			fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--resume and --stop-running go with a change: --harness, --model, --key, --spend-limit or --token-budget"})
 		}
 		emit(map[string]any{"session": sess.ID, "record": rec.ID, "harness": firstNonEmptyStr(rec.Harness, defaultHarness), "runner_model": rec.RunnerModel,
 			"runner_key": rec.RunnerKey, "runner_change": rec.RunnerChange, "runtime_state": rec.RuntimeState, "revision": rec.Revision}, func() {
@@ -155,6 +156,11 @@ func hostedSessionRunner(cr hostedCreds, inv *Invocation) {
 			fail(perr)
 		}
 		body["spend_limit_microusd"] = micros
+	}
+	if inv.Set("token-budget") {
+		// a new token budget, more than the session has used; the service
+		// checks it against the machine's meter and writes it there
+		body["token_budget"] = inv.Int("token-budget")
 	}
 	if inv.Bool("resume") {
 		body["resume"] = true
@@ -248,6 +254,12 @@ func runnerChangeRefusal(cr hostedCreds, err error, sess inventoryRow) error {
 	case "ks_not_found":
 		ce.Message = "no change of this session is waiting; nothing was cancelled"
 		ce.NextAction = "ks session runner " + sess.ShortID
+	case "ks_budget_below_used", "ks_meter_unavailable":
+		ce.Message = sanitize(he.Message)
+		ce.NextAction = "ks session usage " + sess.ShortID + " (what it has used), then ks session runner " + sess.ShortID + " --token-budget <more> --resume"
+	case "ks_free_tier_budget_cap":
+		ce.Message = sanitize(he.Message)
+		ce.NextAction = "add credit in the console (Billing), then ks session runner " + sess.ShortID + " --token-budget <tokens> --resume"
 	case "ks_session_killed":
 		ce.Message = sanitize(he.Message)
 		ce.NextAction = "ks session list"
