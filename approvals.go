@@ -1,8 +1,9 @@
 // approvals.go: reading permission requests outside a live window (KS-047).
 //
 //	ks approval list   a session's requests (pending by default, --all for
-//	                   every one), each with the instruction it was asked
-//	                   for, what it touches and what deciding costs
+//	                   every one; --agent for one agent's), each with the
+//	                   instruction it was asked for, what it touches and what
+//	                   deciding costs
 //	ks approval show   one request in full
 //
 // Deciding stays where it was: ks agent approve / ks agent deny (also
@@ -78,6 +79,20 @@ func hostedApprovalList(cr hostedCreds, inv *Invocation) {
 	aps, err := fetchApprovals(cr, sess, inv.Bool("all"))
 	if err != nil {
 		die(err)
+	}
+	if name := strings.TrimSpace(inv.Str("agent")); name != "" {
+		// one agent's requests: those the service says that agent asked
+		a, aerr := resolveAgent(cr, sess, name)
+		if aerr != nil {
+			die(aerr)
+		}
+		kept := aps[:0]
+		for _, ap := range aps {
+			if ap.Requester == "agent:"+a.ID {
+				kept = append(kept, ap)
+			}
+		}
+		aps = kept
 	}
 	// this list is a display a decision will be compared against
 	for _, ap := range aps {
