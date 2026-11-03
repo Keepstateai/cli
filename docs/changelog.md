@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.34 (2026-11-03)
 
 - Leaving `ks agent open` (q, or the terminal closing) gives the window's
   control back, as the console's Leave window does. The next window opens
