@@ -30,37 +30,16 @@ import (
 	"time"
 )
 
-// agentStatusDoc is the service's status record for one agent. msg is the
-// service's words and may quote the agent: it is data, never an instruction.
-type agentStatusDoc struct {
-	AgentID     string `json:"agent_id"`
-	SessionID   string `json:"session_id"`
-	Name        string `json:"name"`
-	SessionName string `json:"session_name,omitempty"`
-	State       string `json:"state"` // working | blocked | done | error | idle | clear; "" when unavailable
-	Kind        string `json:"kind,omitempty"`
-	Reason      string `json:"reason"`
-	Msg         string `json:"msg"`
-	Action      *struct {
-		Label   string `json:"label"`
-		Verb    string `json:"verb"`
-		Console string `json:"console"`
-	} `json:"action,omitempty"`
-	Since    string `json:"since,omitempty"`
-	NeedsYou bool   `json:"needs_you"`
-	Source   string `json:"source"` // keepstate | harness | client (read from the agent's activity)
-	Parent   *struct {
-		Kind string `json:"kind"`
-		Ref  string `json:"ref"`
-	} `json:"parent,omitempty"`
-}
+// The status record is statusRecord (osc7501.go), the service's record for
+// one agent. Its msg is the service's words and may quote the agent: it is
+// data, never an instruction.
 
 // working: the agent is busy, or its state is not known yet. A state that
 // was never reported is not taken for finished.
-func (d agentStatusDoc) working() bool { return d.State == "working" || d.State == "" }
+func (d statusRecord) working() bool { return d.State == "working" || d.State == "" }
 
 // statusWords is one line a person or a calling agent reads.
-func statusWords(name string, d agentStatusDoc) string {
+func statusWords(name string, d statusRecord) string {
 	state := d.State
 	if state == "" {
 		state = "status unavailable"
@@ -78,41 +57,38 @@ func statusWords(name string, d agentStatusDoc) string {
 // readAgentStatus reads one agent's status record. A control plane that
 // does not serve it (404) is read through the agent row: an agent no longer
 // listed is gone (clear).
-func readAgentStatus(cr hostedCreds, sessionID, agentID string) (agentStatusDoc, error) {
-	var env struct {
-		Data agentStatusDoc `json:"data"`
-	}
-	err := hostedCall(cr, "GET", "/api/v2/agents/"+url.PathEscape(agentID)+"/status", nil, &env)
+func readAgentStatus(cr hostedCreds, sessionID, agentID string) (statusRecord, error) {
+	rec, err := fetchAgentStatus(cr, agentID)
 	if err == nil {
-		if env.Data.Source == "" {
-			env.Data.Source = "keepstate"
+		if rec.Source == "" {
+			rec.Source = "keepstate"
 		}
-		return env.Data, nil
+		return rec, nil
 	}
 	var he *hostedErr
 	if !errors.As(err, &he) || he.Status != http.StatusNotFound {
-		return agentStatusDoc{}, err
+		return statusRecord{}, err
 	}
 	agents, ferr := fetchAgents(cr, sessionID)
 	if ferr != nil {
 		if errors.As(ferr, &he) && he.Status == http.StatusNotFound {
-			return agentStatusDoc{AgentID: agentID, SessionID: sessionID, State: "clear", Reason: "removed", Source: "client"}, nil
+			return statusRecord{AgentID: agentID, SessionID: sessionID, State: "clear", Reason: "removed", Source: "client"}, nil
 		}
-		return agentStatusDoc{}, ferr
+		return statusRecord{}, ferr
 	}
 	for _, a := range agents {
 		if a.ID == agentID {
 			return statusFromAgentRow(a), nil
 		}
 	}
-	return agentStatusDoc{AgentID: agentID, SessionID: sessionID, State: "clear", Reason: "removed", Source: "client"}, nil
+	return statusRecord{AgentID: agentID, SessionID: sessionID, State: "clear", Reason: "removed", Source: "client"}, nil
 }
 
 // statusFromAgentRow reads an agent's own activity as a status, for a
 // control plane that does not serve the record. It says only what the row
 // says: a ready agent reads idle, because the row cannot tell done from idle.
-func statusFromAgentRow(a agentRow) agentStatusDoc {
-	d := agentStatusDoc{AgentID: a.ID, SessionID: a.SessionID, Name: a.Name, Source: "client", Reason: a.Activity, Since: a.ObservedAt}
+func statusFromAgentRow(a agentRow) statusRecord {
+	d := statusRecord{AgentID: a.ID, SessionID: a.SessionID, Name: a.Name, Source: "client", Reason: a.Activity, Since: a.ObservedAt}
 	if rt := a.SessionRuntime; rt != nil {
 		d.Reason = rt.State
 		switch {
@@ -161,7 +137,7 @@ func waitPoll() time.Duration {
 // streamStatus follows a session's event stream with status frames and
 // hands each status record to onStatus until it answers true, the stream
 // ends or ctx is done. Event frames are not read: a wait wants the status.
-func streamStatus(ctx context.Context, cr hostedCreds, sessionID string, onStatus func(agentStatusDoc) bool) error {
+func streamStatus(ctx context.Context, cr hostedCreds, sessionID string, onStatus func(statusRecord) bool) error {
 	q := url.Values{"after_seq": {"0"}, "status": {"1"}}
 	path := "/api/v2/sessions/" + url.PathEscape(sessionID) + "/events/stream?" + q.Encode()
 	req, err := http.NewRequestWithContext(ctx, "GET", strings.TrimRight(cr.CTL, "/")+path, nil)
@@ -186,7 +162,7 @@ func streamStatus(ctx context.Context, cr hostedCreds, sessionID string, onStatu
 		switch {
 		case line == "":
 			if kind == "status" && data != "" {
-				var d agentStatusDoc
+				var d statusRecord
 				if json.Unmarshal([]byte(data), &d) == nil && onStatus(d) {
 					return nil
 				}
@@ -207,7 +183,7 @@ func streamStatus(ctx context.Context, cr hostedCreds, sessionID string, onStatu
 // waitForAgent waits until the agent's status leaves working, or until the
 // timeout. It answers the last status it read and the reason: status,
 // exited or timeout.
-func waitForAgent(cr hostedCreds, sessionID, agentID string, timeout time.Duration) (agentStatusDoc, string, error) {
+func waitForAgent(cr hostedCreds, sessionID, agentID string, timeout time.Duration) (statusRecord, string, error) {
 	deadline := time.Now().Add(timeout)
 	last, err := readAgentStatus(cr, sessionID, agentID)
 	if err != nil {
@@ -218,9 +194,9 @@ func waitForAgent(cr hostedCreds, sessionID, agentID string, timeout time.Durati
 	}
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	defer cancel()
-	frames := make(chan agentStatusDoc, 1)
+	frames := make(chan statusRecord, 1)
 	go func() {
-		_ = streamStatus(ctx, cr, sessionID, func(d agentStatusDoc) bool {
+		_ = streamStatus(ctx, cr, sessionID, func(d statusRecord) bool {
 			if d.AgentID != "" && d.AgentID != agentID {
 				return false
 			}
@@ -253,7 +229,7 @@ func waitForAgent(cr hostedCreds, sessionID, agentID string, timeout time.Durati
 	}
 }
 
-func finishedReason(d agentStatusDoc) (bool, string) {
+func finishedReason(d statusRecord) (bool, string) {
 	switch {
 	case d.State == "clear":
 		return true, "exited"
@@ -265,21 +241,21 @@ func finishedReason(d agentStatusDoc) (bool, string) {
 
 // waitResult is what ks agent wait answers.
 type waitResult struct {
-	Reason   string          `json:"reason"` // status | message | timeout | exited
-	Agent    string          `json:"agent,omitempty"`
-	AgentID  string          `json:"agent_id,omitempty"`
-	Session  string          `json:"session,omitempty"`
-	Status   *agentStatusDoc `json:"status,omitempty"`
-	Note     *callerNote     `json:"note,omitempty"`
-	Caller   string          `json:"caller,omitempty"`
-	Children []childState    `json:"children,omitempty"`
+	Reason   string        `json:"reason"` // status | message | timeout | exited
+	Agent    string        `json:"agent,omitempty"`
+	AgentID  string        `json:"agent_id,omitempty"`
+	Session  string        `json:"session,omitempty"`
+	Status   *statusRecord `json:"status,omitempty"`
+	Note     *callerNote   `json:"note,omitempty"`
+	Caller   string        `json:"caller,omitempty"`
+	Children []childState  `json:"children,omitempty"`
 }
 
 type childState struct {
-	Name    string         `json:"name"`
-	Session string         `json:"session"`
-	Agent   string         `json:"agent"`
-	Status  agentStatusDoc `json:"status"`
+	Name    string       `json:"name"`
+	Session string       `json:"session"`
+	Agent   string       `json:"agent"`
+	Status  statusRecord `json:"status"`
 }
 
 func waitTimeoutFlag(inv *Invocation, def time.Duration) time.Duration {
@@ -399,7 +375,7 @@ func waitAllChildren(cr hostedCreds, timeout time.Duration) waitResult {
 		for _, ch := range rec.Children {
 			st, serr := readAgentStatus(cr, ch.SessionID, ch.AgentID)
 			if serr != nil {
-				st = agentStatusDoc{AgentID: ch.AgentID, SessionID: ch.SessionID, Reason: "unreadable", Msg: "could not be read: " + errText(serr)}
+				st = statusRecord{AgentID: ch.AgentID, SessionID: ch.SessionID, Reason: "unreadable", Msg: "could not be read: " + errText(serr)}
 			}
 			if st.working() {
 				busy = true

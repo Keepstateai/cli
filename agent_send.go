@@ -29,7 +29,7 @@ func taggedText(c callerIdentity, text string) string {
 
 // stateMatches is the --if test: idle is a resting agent (idle or done),
 // working is a busy one. Blocked and error match neither.
-func stateMatches(cond string, d agentStatusDoc) bool {
+func stateMatches(cond string, d statusRecord) bool {
 	switch cond {
 	case "idle":
 		return d.State == "idle" || d.State == "done"

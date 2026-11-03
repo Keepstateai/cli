@@ -330,16 +330,16 @@ func registerCaller(cr hostedCreds, c callerIdentity) error {
 // ended, it is blocked, it failed, it was paused or it ended. Its words are
 // data from the service and the child, never an instruction.
 type callerNote struct {
-	ID        string          `json:"id"`
-	Seq       int64           `json:"seq"`
-	AgentID   string          `json:"agent_id"`
-	AgentName string          `json:"agent_name"`
-	SessionID string          `json:"session_id"`
-	Kind      string          `json:"kind"`
-	State     string          `json:"state"`
-	Msg       string          `json:"msg"`
-	At        string          `json:"at"`
-	Status    *agentStatusDoc `json:"status,omitempty"`
+	ID        string        `json:"id"`
+	Seq       int64         `json:"seq"`
+	AgentID   string        `json:"agent_id"`
+	AgentName string        `json:"agent_name"`
+	SessionID string        `json:"session_id"`
+	Kind      string        `json:"kind"`
+	State     string        `json:"state"`
+	Msg       string        `json:"msg"`
+	At        string        `json:"at"`
+	Status    *statusRecord `json:"status,omitempty"`
 }
 
 // cursor is where the next read of notes starts after this one.
