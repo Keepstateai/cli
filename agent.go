@@ -550,7 +550,31 @@ func hostedAgentStatus(cr hostedCreds, inv *Invocation) {
 		})
 	}
 	show(a)
+	// an error shown to a person is read: it is said, and it leaves
+	// "N need you" (the console's agent page does the same). Not with
+	// --json, where no person is known to read it.
+	readError := func() {
+		if out.json {
+			return
+		}
+		rec, err := fetchAgentStatus(cr, a.ID)
+		if err != nil || rec.State != "error" {
+			return
+		}
+		// the error is always said; reading it changes only the count
+		fmt.Printf("  error          %s\n", oscText(sanitize(rec.Msg), 300))
+		if act := rec.Action; act != nil && act.Verb != "" {
+			fmt.Printf("  next           %s: %s\n", oscText(sanitize(act.Label), 80), oscText(sanitize(act.Verb), 200))
+		}
+		switch {
+		case rec.Read:
+			fmt.Println("  read           yes: it does not count in \"N need you\"; a new error counts again")
+		case unreadError(rec) && markErrorRead(cr, rec) == nil:
+			fmt.Println("  marked read    it no longer counts in \"N need you\" (ks agent list --all, the console); a new error counts again")
+		}
+	}
 	if !inv.Bool("watch") {
+		readError()
 		return
 	}
 	// --watch: read again every 2 s; Ctrl-C stops watching and nothing
@@ -574,6 +598,10 @@ func hostedAgentStatus(cr hostedCreds, inv *Invocation) {
 		}
 		if r, ok := recordStatus(rec, "", statusTitle(a.Name, sess.ShortID)); ok {
 			status.report(r)
+		}
+		// the watch shows the error to a person: it is read
+		if !out.json && unreadError(rec) && markErrorRead(cr, rec) == nil {
+			fmt.Printf("  error          %s (marked read: it no longer counts in \"N need you\")\n", oscText(sanitize(rec.Msg), 300))
 		}
 	}
 	readStatus()

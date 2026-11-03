@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- An agent's error counts in "N need you" only until you have read it.
+  `ks agent status <name>` now says the agent's error and its next step,
+  and marks the error read on the service, as opening the agent's page in
+  the console does; it then leaves the count in `ks agent list --all`, the
+  `ks` app and the console on every device. The error is still listed, in
+  the same words. A permission request, a question, a sign-in, credit or a
+  budget keeps counting until it is resolved, and a new error counts again.
+  Nothing is marked read with `--json`.
+
 ## v0.1.35 (2026-11-03)
 
 - When `ks agent run` or `ks run --agent` cannot start a session because no
