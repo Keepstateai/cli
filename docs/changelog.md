@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+- `ks file upload <local path>` puts one file or a folder, up to 1 GB, into
+  a session's workspace: `--to` names where (default: its own name at the
+  workspace root), `--agent` or `--session` names whose. A folder is packed
+  under the same upload policy as Cruise (the repository's history,
+  dependency and tool folders such as node_modules, credential and secret
+  file names, what .gitignore lists, and links are left out, and each is
+  said). The bytes go in chunks; an interrupted upload is kept for 24 hours
+  and the same command continues it from what arrived. The session's machine
+  places the upload only when its whole sha256 matches, so nothing
+  half-written is left at the path. An existing path is refused unless
+  `--replace` is given, and then it says so. More than 1 GB, a path outside
+  the workspace, a secret file name, a session that is not running and a
+  full disk are each refused in plain words with the next command. `--tell`
+  queues one instruction telling the agent where the files are (or
+  `--tell-text` with your words); it is off by default. `--discard` throws an
+  unfinished upload away. Uploaded files count toward your storage: saved
+  points keep them, as they keep everything in the workspace.
+
 ## v0.1.34 (2026-11-03)
 
 - Leaving `ks agent open` (q, or the terminal closing) gives the window's
