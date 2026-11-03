@@ -26,6 +26,11 @@ type catalogHarness struct {
 	Models []struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
+		// Efforts: the effort levels the harness and model take, in order;
+		// empty when the model takes none, absent (nil) from an older
+		// catalog. DefaultEffort: the level used when none is chosen.
+		Efforts       []string `json:"efforts"`
+		DefaultEffort string   `json:"default_effort,omitempty"`
 	} `json:"models"`
 }
 
