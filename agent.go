@@ -192,6 +192,8 @@ type approvalRow struct {
 	ActionableUntil  string   `json:"actionable_until,omitempty"`
 	DecidedBy        string   `json:"decided_by,omitempty"`
 	DecidedAt        string   `json:"decided_at,omitempty"`
+	// Requester is who asked, as the service names it (agent:<id>)
+	Requester string `json:"requester,omitempty"`
 }
 
 // UnmarshalJSON reads the approval as the control plane's route table

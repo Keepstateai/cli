@@ -213,7 +213,7 @@ func TestMCPLegacyEra(t *testing.T) {
 			words[w] = true
 		}
 	}
-	for _, never := range []string{"approve", "deny", "delete", "kill", "remove", "key", "keys", "billing", "organization", "adviser", "restore", "fork", "apply", "trust"} {
+	for _, never := range []string{"delete", "kill", "remove", "key", "keys", "billing", "organization", "adviser", "restore", "fork", "apply", "trust"} {
 		if words[never] {
 			t.Errorf("tools/list offers a tool for %s: %s", never, joined)
 		}
@@ -368,7 +368,7 @@ func TestMCPRefusalsAndSafety(t *testing.T) {
 	c := startMCP(t, bin, env)
 	c.call("initialize", map[string]any{"protocolVersion": "2025-06-18"})
 	// a destructive verb that is not a tool: refused, nothing sent
-	for _, name := range []string{"ks_session_delete", "ks_approval_approve", "ks_kill", "ks_key_delete"} {
+	for _, name := range []string{"ks_session_delete", "ks_agent_remove", "ks_kill", "ks_key_delete", "ks_organization_buy"} {
 		m := c.call("tools/call", toolCall(name, map[string]any{"session": "session_1"}, nil))
 		if e, ok := m["error"].(map[string]any); !ok || e["code"].(float64) != -32602 {
 			t.Errorf("%s: %v", name, m)
