@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+- Leaving `ks agent open` (q, or the terminal closing) gives the window's
+  control back, as the console's Leave window does. The next window opens
+  the agent at once: herdr's resume command after its server restarts, an
+  `hc run` after `hc kill`, a new tab. Before, it was refused with "another
+  window holds control" until the control ran out. Nothing is cancelled and
+  the agent keeps working.
+- herdr: the sidebar now gets KeepState's words for the state ("Needs you:
+  permission", "Needs you: a question", "Done", "Error") as a display label,
+  because herdr does not show the message of a status report. herdr shows
+  the label in rows that have `state_text` under `[ui.sidebar.agents]`;
+  `ks herdr install` says so. The label is cleared when the window is left.
+- herdr: an agent opened from the KeepState pane starts its tab in your home
+  folder, not in the plugin's folder, so herdr can restore the tab after a
+  restart even when the plugin was reinstalled.
+- `ks herdr uninstall` says the plugin was not linked when herdr removed
+  nothing, instead of "Unlinked".
+- The agent's window marks a permission request as waiting for you only
+  while it is open; its decision and what came of it are plain lines.
+
 ## v0.1.33 (2026-11-03)
 
 - `ks cruise result <job> --wait` follows a Cruise job every 5 seconds until

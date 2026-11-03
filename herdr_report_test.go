@@ -26,6 +26,18 @@ func fakeHerdr(t *testing.T) (bin, log, delay string) {
 	return bin, log, delay
 }
 
+// herdrVerb keeps the calls of one herdr verb ("report-agent",
+// "report-metadata", "release-agent").
+func herdrVerb(calls []string, verb string) []string {
+	var out []string
+	for _, c := range calls {
+		if strings.HasPrefix(c, "|pane|"+verb+"|") {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 func herdrCalls(t *testing.T, log string) []string {
 	t.Helper()
 	b, err := os.ReadFile(log)
@@ -39,6 +51,11 @@ func inHerdr(t *testing.T, bin string) {
 	t.Setenv("HERDR_ENV", "1")
 	t.Setenv("HERDR_PANE_ID", "p_7")
 	t.Setenv("HERDR_BIN_PATH", bin)
+}
+
+func herdrSeq(c string) string {
+	_, after, _ := strings.Cut(c, "|--seq|")
+	return strings.SplitN(after, "|", 2)[0]
 }
 
 func TestHerdrBridgeRunsNothingOutsideHerdr(t *testing.T) {
@@ -62,28 +79,34 @@ func TestHerdrBridgeRunsNothingOutsideHerdr(t *testing.T) {
 func TestHerdrBridgeMapsStatesAndSendsTheResumeCommand(t *testing.T) {
 	bin, log, _ := fakeHerdr(t)
 	inHerdr(t, bin)
-	for _, tc := range []struct{ state, kind, msg, want string }{
-		{"working", "", "Working.", "|--state|working|--message|Working.|"},
-		{"blocked", "permission", "Run: npm test", "|--state|blocked|--message|Needs you: permission. Run: npm test|"},
-		{"blocked", "question", "Held.", "|--state|blocked|--message|Needs you: a question. Held.|"},
-		{"blocked", "auth", "Choose a key.", "|--state|blocked|--message|Needs you: sign-in or key. Choose a key.|"},
-		{"blocked", "", "Paused: out of credit.", "|--state|blocked|--message|Needs you. Paused: out of credit.|"},
-		{"error", "", "The runner failed.", "|--state|blocked|--message|Error: The runner failed.|"},
-		{"done", "", "Finished.", "|--state|idle|--message|Finished.|"},
-		{"idle", "", "Ready.", "|--state|idle|--message|Ready.|"},
+	for _, tc := range []struct{ state, kind, msg, want, label string }{
+		{"working", "", "Working.", "|--state|working|--message|Working.|", "working=Working"},
+		{"blocked", "permission", "Run: npm test", "|--state|blocked|--message|Needs you: permission. Run: npm test|", "blocked=Needs you: permission"},
+		{"blocked", "question", "Held.", "|--state|blocked|--message|Needs you: a question. Held.|", "blocked=Needs you: a question"},
+		{"blocked", "auth", "Choose a key.", "|--state|blocked|--message|Needs you: sign-in or key. Choose a key.|", "blocked=Needs you: sign-in or key"},
+		{"blocked", "", "Paused: out of credit.", "|--state|blocked|--message|Needs you. Paused: out of credit.|", "blocked=Needs you"},
+		{"error", "", "The runner failed.", "|--state|blocked|--message|Error: The runner failed.|", "blocked=Error"},
+		{"done", "", "Finished.", "|--state|idle|--message|Finished.|", "idle=Done"},
+		{"idle", "", "Ready.", "|--state|idle|--message|Ready.|", "idle=Idle"},
 	} {
 		_ = os.Remove(log)
 		h := newHerdrReporter("main", agentResumeArgv("main", "agentsession00"))
 		h.report(tc.state, tc.kind, tc.msg)
-		waitUntil(t, "the report", func() bool { return len(herdrCalls(t, log)) == 1 })
+		waitUntil(t, "the report and its label", func() bool { return len(herdrCalls(t, log)) == 2 })
 		got := herdrCalls(t, log)[0]
 		if !strings.HasPrefix(got, "|pane|report-agent|p_7|--source|keepstate|--agent|main (KeepState)|--state|") ||
 			!strings.Contains(got, tc.want) || !strings.HasSuffix(got, "|--|ks|agent|open|main|--session|agentsession00") || !strings.Contains(got, "|--seq|") {
 			t.Errorf("%s/%s: %s", tc.state, tc.kind, got)
 		}
+		// herdr shows no --message; the sidebar's words go as the state's label
+		label := herdrCalls(t, log)[1]
+		if !strings.HasPrefix(label, "|pane|report-metadata|p_7|--source|keepstate|--agent|main (KeepState)|--state-label|"+tc.label+"|--seq|") {
+			t.Errorf("%s/%s label: %s", tc.state, tc.kind, label)
+		}
 		h.release()
 		calls := herdrCalls(t, log)
-		if len(calls) != 2 || !strings.HasPrefix(calls[1], "|pane|release-agent|p_7|--source|keepstate|--agent|main (KeepState)|--seq|") {
+		if len(calls) != 4 || !strings.HasPrefix(calls[2], "|pane|release-agent|p_7|--source|keepstate|--agent|main (KeepState)|--seq|") ||
+			!strings.HasPrefix(calls[3], "|pane|report-metadata|p_7|--source|keepstate|--agent|main (KeepState)|--clear-state-labels|--seq|") {
 			t.Errorf("release: %v", calls)
 		}
 	}
@@ -109,11 +132,18 @@ func TestHerdrBridgeSendsOnlyTheNewestReportAndNeverBlocks(t *testing.T) {
 	if d := time.Since(start); d > 350*time.Millisecond {
 		t.Errorf("reporting waited for herdr: %s", d)
 	}
-	waitUntil(t, "two reports", func() bool { return len(herdrCalls(t, log)) == 2 })
+	waitUntil(t, "two reports", func() bool { return len(herdrVerb(herdrCalls(t, log), "report-agent")) == 2 })
 	time.Sleep(800 * time.Millisecond)
-	calls := herdrCalls(t, log)
+	calls := herdrVerb(herdrCalls(t, log), "report-agent")
 	if len(calls) != 2 || !strings.Contains(calls[0], "|one|") || !strings.Contains(calls[1], "|five|") {
 		t.Errorf("calls %v, want the first and the newest", calls)
+	}
+	// every seq rises across both verbs: the label of a report never sorts before it
+	all := herdrCalls(t, log)
+	for i := 1; i < len(all); i++ {
+		if a, b := herdrSeq(all[i-1]), herdrSeq(all[i]); !(len(b) > len(a) || len(b) == len(a) && b > a) {
+			t.Errorf("seq did not rise: %s then %s", all[i-1], all[i])
+		}
 	}
 	// seq always rises
 	seq := func(c string) string {
@@ -154,11 +184,13 @@ func TestAgentOpenInsideHerdrReportsAndReleasesThePane(t *testing.T) {
 		t.Fatalf("exit %d\n%s%s", code, stdout, stderr)
 	}
 	calls := herdrCalls(t, log)
-	if len(calls) < 2 || !strings.HasPrefix(calls[len(calls)-1], "|pane|release-agent|p_7|") {
+	if len(calls) < 4 || !strings.HasPrefix(calls[len(calls)-2], "|pane|release-agent|p_7|") ||
+		!strings.HasPrefix(calls[len(calls)-1], "|pane|report-metadata|p_7|--source|keepstate|--agent|main (KeepState)|--clear-state-labels|") {
 		t.Fatalf("calls %v", calls)
 	}
-	for _, c := range calls[:len(calls)-1] {
-		if !strings.HasPrefix(c, "|pane|report-agent|p_7|--source|keepstate|--agent|main (KeepState)|") {
+	for _, c := range calls[:len(calls)-2] {
+		if !strings.HasPrefix(c, "|pane|report-agent|p_7|--source|keepstate|--agent|main (KeepState)|") &&
+			!strings.HasPrefix(c, "|pane|report-metadata|p_7|--source|keepstate|--agent|main (KeepState)|--state-label|") {
 			t.Errorf("call %s", c)
 		}
 		if strings.Contains(c, "\x1b") {

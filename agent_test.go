@@ -30,6 +30,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -922,7 +923,9 @@ func (l *lockedBuf) String() string {
 // agent keeps working, and not one request that could stop it.
 // QA-035-3 in the window: Ctrl-C interrupts the instruction in flight -- the
 // cancel route, shown, never text to the agent -- and the window stays; q
-// leaves it, and leaving sends nothing at all.
+// leaves it, and leaving sends one request only: the release of this
+// window's control (the service's Leave window), never a cancel, a stop or
+// a close.
 func TestAgentWindowCtrlCInterruptsAndQLeaves(t *testing.T) {
 	c, bin, cfg := agentFixture(t)
 	c.mu.Lock()
@@ -954,9 +957,89 @@ func TestAgentWindowCtrlCInterruptsAndQLeaves(t *testing.T) {
 	if !strings.Contains(w.se.String(), "[left the window; the agent keeps working]") {
 		t.Errorf("leave line missing:\n%s", w.se.String())
 	}
+	releases := 0
 	for _, r := range c.seen()[before:] {
+		if r == "DELETE /api/v2/control-leases/lse_1" {
+			releases++
+			continue
+		}
 		if strings.HasPrefix(r, "DELETE ") || strings.Contains(r, "cancel") || strings.Contains(r, "/close") || strings.HasPrefix(r, "POST ") {
 			t.Errorf("leaving sent %q", r)
+		}
+	}
+	if releases != 1 {
+		t.Errorf("leaving released the window's control %d times, want once: %v", releases, c.seen()[before:])
+	}
+}
+
+// A permission request is marked as waiting for the person; the events that
+// record its decision and what came of it are not, since nothing is left to
+// decide (the window told the person to approve a request already approved).
+func TestAgentWindowMarksOnlyAnOpenPermissionRequestAsWaiting(t *testing.T) {
+	ev := func(typ string) journalEvent {
+		return journalEvent{StreamSeq: 9, SubjectType: "approval", SubjectID: "apr_1", ObservedAt: "2026-11-03T11:12:53Z",
+			Payload: []byte(`{"type":"` + typ + `","human_scope":"Run: npm test"}`)}
+	}
+	const waits = "the agent waits until it is decided"
+	if l := agentEventLine(ev("approval.requested")); !strings.HasPrefix(l, "!! ") || !strings.Contains(l, waits) {
+		t.Errorf("an open request is not marked: %s", l)
+	}
+	for _, typ := range []string{"approval.decided", "approval.claimed", "approval.applied", "approval.expired"} {
+		if l := agentEventLine(ev(typ)); strings.HasPrefix(l, "!! ") || strings.Contains(l, waits) {
+			t.Errorf("%s still reads as waiting for the person: %s", typ, l)
+		}
+	}
+	// an approval event that names no type stays marked: nothing says it is settled
+	e := ev("")
+	e.Payload = []byte(`{"kind":"shell"}`)
+	if l := agentEventLine(e); !strings.HasPrefix(l, "!! ") {
+		t.Errorf("an untyped approval event lost its mark: %s", l)
+	}
+}
+
+// Leaving the window gives its control back, however it is left: q, or a
+// terminating signal (a closed terminal, herdr's server stopping, hc kill).
+// A window that kept its control refused the next window that opened the
+// agent ("another window holds control") until the lease ran out, which is
+// what herdr's resume command after a server restart ran into.
+func TestAgentWindowLeavingReleasesItsControl(t *testing.T) {
+	for _, how := range []string{"q", "SIGTERM", "SIGHUP"} {
+		c, bin, cfg := agentFixture(t)
+		c.mu.Lock()
+		c.endless = true
+		c.mu.Unlock()
+		w := openWindow(t, bin, cfg, "agent", "open", "main", "--session", agentSessionShort)
+		waitUntil(t, "an event", func() bool { return strings.Contains(w.so.String(), "42") })
+		before := len(c.seen())
+		switch how {
+		case "q":
+			w.detach(t)
+		default:
+			sig := map[string]os.Signal{"SIGTERM": syscall.SIGTERM, "SIGHUP": syscall.SIGHUP}[how]
+			if err := w.cmd.Process.Signal(sig); err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan error, 1)
+			go func() { done <- w.cmd.Wait() }()
+			select {
+			case <-done:
+			case <-time.After(20 * time.Second):
+				t.Fatalf("%s: the window did not leave", how)
+			}
+		}
+		n := 0
+		for _, r := range c.seen()[before:] {
+			if r == "DELETE /api/v2/control-leases/lse_1" {
+				n++
+			}
+		}
+		if n != 1 {
+			t.Errorf("%s: control released %d times, want once: %v", how, n, c.seen()[before:])
+		}
+		// the release is not a request the person made: no operation is
+		// journalled or waited for on the way out
+		if strings.Contains(w.se.String(), "accepted; waiting up to") {
+			t.Errorf("%s: leaving waited on an operation:\n%s", how, w.se.String())
 		}
 	}
 }
