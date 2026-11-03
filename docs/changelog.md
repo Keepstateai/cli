@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.35 (2026-11-03)
 
 - When `ks agent run` or `ks run --agent` cannot start a session because no
   machine could be made for it, the run says so in the service's words
