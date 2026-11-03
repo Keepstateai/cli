@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.33 (2026-11-03)
 
 - `ks cruise result <job> --wait` follows a Cruise job every 5 seconds until
   it ends, saying each change once, then prints the receipt: the badge
@@ -83,6 +83,12 @@
   change with `ks cruise apply` and the files with `--download`; no pull
   request yet) or what went wrong, and herdr notifies you. `ks cruise run`
   inside herdr points at the receipts pane.
+
+- Organizations: this client also carries the team and budget commands
+  (`ks team ...`, `ks member set --home-team`, `ks budget ...` and `ks
+  organization spend`), for a feature KeepState has not turned on yet.
+  Until it is turned on, each of them answers that organizations are not
+  available, and nothing else changes.
 
 ## v0.1.32 (2026-10-31)
 
