@@ -2832,14 +2832,14 @@
   {
    "verb": "organization spend",
    "aliases": [],
-   "usage": "ks organization spend <organization> [--by member|team] [--period YYYY-MM]",
+   "usage": "ks organization spend <organization> [--by member|team|day] [--period YYYY-MM]",
    "summary": "this month's spend by member and by team, with the organization's total and each budget; tokens on the organization's own keys are shown, not counted",
    "status": "available",
    "surface": "hosted",
    "flags": [
     {
-     "flag": "--by member|team",
-     "summary": "only members or only teams; both when absent"
+     "flag": "--by member|team|day",
+     "summary": "only members, only teams, or the organization's spend on each UTC day of the month (several joined by commas); members and teams when absent"
     },
     {
      "flag": "--period YYYY-MM",

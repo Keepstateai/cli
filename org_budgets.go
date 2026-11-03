@@ -57,7 +57,18 @@ type customerOrgSpendRow struct {
 type customerOrgSpend struct {
 	Period string                `json:"period"`
 	Items  []customerOrgSpendRow `json:"items"`
-	Note   string                `json:"note"`
+	// Days (--by day): the organization's spend on each UTC day of the
+	// month so far, adding up to its month figure; DaysUnavailable when the
+	// service could not read them (never a row of zeros)
+	Days            []customerOrgSpendDay `json:"days,omitempty"`
+	DaysUnavailable bool                  `json:"days_unavailable,omitempty"`
+	Note            string                `json:"note"`
+}
+
+type customerOrgSpendDay struct {
+	Date    string `json:"date"`
+	Charged int64  `json:"charged_microusd"`
+	Held    int64  `json:"held_microusd"`
 }
 
 type customerBudgetRaise struct {
@@ -363,12 +374,15 @@ func hostedOrgSpend(cr hostedCreds, inv *Invocation) {
 	period := budgetPeriodFlag(inv, "nothing was read")
 	q := url.Values{}
 	if inv.Set("by") {
-		switch by := strings.TrimSpace(inv.Str("by")); by {
-		case "member", "team", "member,team":
-			q.Set("by", by)
-		default:
-			fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--by is member or team; nothing was read"})
+		by := strings.TrimSpace(inv.Str("by"))
+		seen := map[string]bool{}
+		for _, b := range strings.Split(by, ",") {
+			if (b != "member" && b != "team" && b != "day") || seen[b] {
+				fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--by is member, team or day, or several joined by commas (member,team,day); nothing was read"})
+			}
+			seen[b] = true
 		}
+		q.Set("by", by)
 	}
 	if period != "" {
 		q.Set("period", period)
@@ -392,6 +406,14 @@ func hostedOrgSpend(cr hostedCreds, inv *Invocation) {
 				budget = "; budget " + dollars(*r.BudgetAmount)
 			}
 			fmt.Printf("  %-6s %s: %s spent, %s held%s; %d provider-billed tokens\n", r.ScopeKind, r.Name, moneyOrUnavailable(r.Charged), moneyOrUnavailable(r.Held), budget, r.ProviderTokens)
+		}
+		if d.DaysUnavailable {
+			fmt.Println("By UTC day: unavailable, not zero: the service could not read them just now; read it again.")
+		} else if len(d.Days) > 0 {
+			fmt.Println("The organization by UTC day (what was counted that day, and the holds of calls made that day still open):")
+			for _, x := range d.Days {
+				fmt.Printf("  %s  %s spent, %s held\n", x.Date, dollars(x.Charged), dollars(x.Held))
+			}
 		}
 		fmt.Println("Provider-billed tokens: " + providerTokensWords + ".")
 	})
