@@ -23,6 +23,7 @@ var helpSections = []struct {
 	{"Sessions", []string{"run", "session", "checkpoint", "wake", "kill", "fork", "exec", "attach", "meter"}},
 	{"Cruise", []string{"cruise"}},
 	{"Keys and setup", []string{"key", "preflight", "project"}},
+	{"Other tools", []string{"herdr"}},
 	{"Account and this client", []string{"login", "logout", "doctor", "update", "version", "operation", "completion", "reference", "uninstall"}},
 }
 

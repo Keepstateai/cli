@@ -1323,6 +1323,9 @@ func cruiseRun(inv *Invocation) error {
 		progress("job %s %s: spend ceiling %s, %d rungs, %s bytes packed (on %s)",
 			jstr(job, "id"), jstr(job, "state"), ceiling, len(ladder), commas(cw.n), c.CTL)
 		fmt.Println(jstr(job, "id"))
+		if _, _, inHerdr := herdrPane(); inHerdr {
+			progress("in herdr, the KeepState receipts pane follows it and shows its receipt: herdr plugin pane open --plugin keepstate --entrypoint receipts")
+		}
 	})
 	return nil
 }
