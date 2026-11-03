@@ -33,6 +33,18 @@
   `--notify` adds a notification (OSC 9 and a bell, and a herdr
   notification inside herdr) each time an agent comes to need you or
   fails. The `ks` app's list of agents uses the same words.
+- herdr: `ks herdr install` writes the KeepState plugin for herdr under this
+  client's config, shows it, asks, and links it with `herdr plugin link`;
+  nothing is downloaded. `ks herdr uninstall` unlinks it and removes those
+  files, and `ks herdr status` says which herdr was found, its version and
+  whether the plugin is current. In herdr, the KeepState pane lists your
+  sessions and agents with their status; Enter opens an agent's window in
+  a new herdr tab, c opens the console at it, s shows the session's saved
+  points and r the receipts. The receipts pane follows your Cruise jobs
+  and, when one finishes, shows its receipt (the result, how to get the
+  change with `ks cruise apply` and the files with `--download`; no pull
+  request yet) or what went wrong, and herdr notifies you. `ks cruise run`
+  inside herdr points at the receipts pane.
 
 ## v0.1.32 (2026-10-31)
 

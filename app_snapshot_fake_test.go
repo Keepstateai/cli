@@ -225,6 +225,13 @@ func (c *snapCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case p == "/api/v2/agent-status" && r.Method == "GET":
 		env(200, c.statusList())
 		return
+	case p == "/api/v2/sessions/"+agentSessionRecord+"/checkpoints" && r.Method == "GET":
+		env(200, map[string]any{"items": []map[string]any{
+			{"id": "ck_7f2a", "session_id": agentSessionRecord, "state": "valid", "boundary": "turn_end", "created_at": "2026-11-03T09:12:00Z", "scope": "session"},
+			{"id": "ck_9b01", "session_id": agentSessionRecord, "state": "valid", "boundary": "pause", "created_at": "2026-11-03T10:40:00Z", "scope": "session"},
+			{"id": "ck_1c3d", "session_id": agentSessionRecord, "state": "pruned", "boundary": "turn_end", "created_at": "2026-11-02T18:05:00Z", "scope": "session"},
+		}, "observed_at": "x"})
+		return
 	case p == "/api/v2/agents" && r.Method == "GET":
 		rec := r.URL.Query().Get("session_id")
 		if rec == snapPlainID {
