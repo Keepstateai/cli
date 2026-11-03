@@ -12,6 +12,13 @@
   denying only blocks. A request already decided or expired is refused.
   `ks_approval_list` and `ks approval list` take `--agent` for one agent's
   requests. `ks skill` says how.
+- `ks session runner <session> --token-budget N` gives a session a new token
+  budget, more than it has already used, in any state; with `--resume` a
+  session paused at its budget continues where it was saved. The service
+  checks the figure against what the session has used and writes it where
+  its model calls are measured. A figure at or below what is used, a meter
+  that cannot be read, and a free-tier session above the free tier's cap are
+  each refused with nothing changed and the next command.
 - An agent's error counts in "N need you" only until you have read it.
   `ks agent status <name>` now says the agent's error and its next step,
   and marks the error read on the service, as opening the agent's page in
