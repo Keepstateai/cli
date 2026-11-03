@@ -220,6 +220,14 @@ func printStatus(s jobLiveStatus) {
 	emitLine(map[string]any{"kind": "status", "status": s}, strings.Join(liveStatusLines(s), "\n"))
 }
 
+// jobResumeArgv is the command that follows a job again, for herdr.
+func jobResumeArgv(id string) []string {
+	if !agentNameSafe.MatchString(id) {
+		return nil
+	}
+	return []string{"ks", "cruise", "status", id, "--watch"}
+}
+
 // cruiseWatch follows one job until nothing further will happen or Ctrl-C.
 func cruiseWatch(c hostedCreds, id string) {
 	st, err := fetchJobStatus(c, id)
@@ -233,7 +241,16 @@ func cruiseWatch(c hostedCreds, id string) {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(stop)
+	// the job's state as terminal status, once per change; cleared on leaving
+	status := newStatusEmitter(nil, "Cruise job "+id, jobResumeArgv(id))
+	defer status.leave()
+	reportJob := func(s jobLiveStatus) {
+		if state, kind, msg := jobStatusWords(s); state != "" {
+			status.report(oscStatus{State: state, Kind: kind, App: statusApp, Title: "Cruise job " + id, Msg: msg})
+		}
+	}
 	printStatus(st)
+	reportJob(st)
 	cursor := st.Follow.Cursor
 	unit := watchSecond()
 	backoff := time.Duration(0)
@@ -269,6 +286,7 @@ func cruiseWatch(c hostedCreds, id string) {
 					cursor = st.Follow.Cursor
 				}
 				printStatus(st)
+				reportJob(st)
 			}
 		}
 		if err != nil {

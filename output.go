@@ -16,6 +16,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -273,7 +274,31 @@ func fail(err error) {
 			fmt.Fprintln(os.Stderr, "Next:", ce.NextAction)
 		}
 	}
+	runExitHooks()
 	os.Exit(ce.Code)
+}
+
+// exitHooks run once before a failure exits the process: what a stream
+// put on the terminal (its status) is taken back on that way out too.
+var exitHooks struct {
+	sync.Mutex
+	fns []func()
+}
+
+func onExit(f func()) {
+	exitHooks.Lock()
+	exitHooks.fns = append(exitHooks.fns, f)
+	exitHooks.Unlock()
+}
+
+func runExitHooks() {
+	exitHooks.Lock()
+	fns := exitHooks.fns
+	exitHooks.fns = nil
+	exitHooks.Unlock()
+	for _, f := range fns {
+		f()
+	}
 }
 
 // appChild: this process is a / command running inside the app (the app sets

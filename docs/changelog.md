@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+- `ks cruise result <job> --wait` follows a Cruise job every 5 seconds until
+  it ends, saying each change once, then prints the receipt: the badge
+  exactly as served, the checks and provenance, the limitations, the
+  changeset, the spend (a figure only where the service gives one, never
+  $0 for a missing one) and the pull-request line. Until KeepState opens
+  pull requests the receipt says there is none yet and offers `ks cruise
+  apply <job>`; a served pull request is shown only as a plain https link.
+  A job that fails, waits for review or is cancelled ends the wait with its
+  own card and one next command. Ctrl-C ends only the wait.
+- Terminal status: `ks agent open`, `ks agent status --watch`, an agent's
+  window in the `ks` app and `ks cruise status --watch` write the agent's
+  (or the job's) status as OSC 7501, the program status protocol, so a
+  terminal or multiplexer that reads it shows whether the agent works,
+  needs you (with permission, question or sign-in), is done or failed. The
+  status is the service's own record: a session paused for credit reads
+  as needing you even when its harness would say otherwise. It is written
+  once per change and cleared when the stream ends. `KS_STATUS_OSC=off`
+  turns it off and `on` writes it even when stdout is not a terminal; by
+  default it is written only to a terminal and never with `--json` or
+  `--plain`. `ks doctor` says which applies. Inside a herdr pane the same
+  status also goes to herdr through `herdr pane report-agent`, in the
+  background and never slowing the stream, with the command that reopens
+  the agent; the pane is released when the stream ends.
+- `ks agent list --all` lists every agent across your sessions in the
+  console's words (Needs you: permission, a question, or sign-in or key;
+  Working; Done; Error; Idle), what needs you first, under a "2 need you"
+  line, with each one's next step. `--watch` redraws it every 2 seconds and
+  writes terminal status for each agent and for all of them together;
+  `--notify` adds a notification (OSC 9 and a bell, and a herdr
+  notification inside herdr) each time an agent comes to need you or
+  fails. The `ks` app's list of agents uses the same words.
 - Agents can delegate to child agents. `ks agent run --name NAME
   [--template ROLE] "<task>"` starts a child in a session of its own with a
   first instruction, and says before anything exists that the session is

@@ -9,6 +9,13 @@
 //	ks cruise result JOB             the badge EXACTLY as served, the chain,
 //	                                 and every limitation line
 //	ks cruise result JOB --download  also downloads the artifact, verified
+//	ks cruise result JOB --wait      follows the job until nothing further
+//	                                 happens, then prints the receipt once
+//
+// The receipt adds the changeset, the spend (a figure only where the service
+// gives one, never $0 for a missing one) and the pull-request line: a served
+// pull_request is shown only as a plain https link; without one the receipt
+// says there is none yet and offers ks cruise apply.
 //
 // THE BADGE IS NEVER UPGRADED. "verified" is printed only when the service
 // says verified; accepted_without_provenance, or any word this client does
@@ -30,11 +37,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
+	"os/signal"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
+	"syscall"
+	"time"
 )
 
 type liveResult struct {
@@ -48,6 +60,15 @@ type liveResult struct {
 	Limitations     []string       `json:"limitations"`
 	// the per-file changeset against the approved workspace (QA-078-3)
 	Changeset *liveChangeset `json:"changeset"`
+	// the pull request the service opened for this result, once it opens
+	// them; absent until then
+	PullRequest *livePullRequest `json:"pull_request"`
+}
+
+type livePullRequest struct {
+	URL    string `json:"url"`
+	Number int64  `json:"number"`
+	State  string `json:"state"`
 }
 
 const badgeVerified = "verified"
@@ -294,11 +315,233 @@ func safeDownload(c hostedCreds, id, dest, wantSHA, candidate string) (int64, er
 	return int64(len(data)), nil
 }
 
-// cruiseResult is ks cruise result JOB [--download] [--out FILE].
+var prStateWord = regexp.MustCompile(`^[a-z_]{1,32}$`)
+
+// safePullRequestURL is the served link when it is a plain https address:
+// printable ASCII with no spaces, an https scheme, a host and no user part.
+// Anything else (javascript:, http:, an escape sequence) is not shown.
+func safePullRequestURL(raw string) (string, bool) {
+	if raw == "" || len(raw) > 2048 {
+		return "", false
+	}
+	for i := 0; i < len(raw); i++ {
+		if raw[i] < 0x21 || raw[i] > 0x7e {
+			return "", false
+		}
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Opaque != "" {
+		return "", false
+	}
+	return raw, true
+}
+
+// pullRequestLine is the receipt's pull-request line.
+func pullRequestLine(id string, pr *livePullRequest) string {
+	if pr == nil {
+		return "Pull request: none yet. KeepState opens pull requests once GitHub is connected. Get the change now: ks cruise apply " + id
+	}
+	head := "Pull request"
+	if pr.Number > 0 {
+		head = fmt.Sprintf("Pull request #%d", pr.Number)
+	}
+	link, ok := safePullRequestURL(pr.URL)
+	if !ok {
+		return head + ": the service named a link that is not a plain https address, so it is not shown"
+	}
+	state := "state not reported"
+	if prStateWord.MatchString(pr.State) {
+		state = pr.State
+	}
+	return fmt.Sprintf("%s: %s (%s)", head, link, state)
+}
+
+// pullRequestDoc is the pull request for --json: the served one when its
+// link is safe, otherwise null.
+func pullRequestDoc(pr *livePullRequest) any {
+	if pr == nil {
+		return nil
+	}
+	link, ok := safePullRequestURL(pr.URL)
+	if !ok {
+		return nil
+	}
+	state := ""
+	if prStateWord.MatchString(pr.State) {
+		state = pr.State
+	}
+	return map[string]any{"url": link, "number": pr.Number, "state": state}
+}
+
+// jobStatusWords is a job's terminal status (state, blocked kind, message)
+// in the words a status report carries. An unknown job state reports
+// nothing rather than a guess.
+func jobStatusWords(st jobLiveStatus) (state, kind, msg string) {
+	attempt := func(word string) string {
+		n := st.Attempts
+		if n < 1 {
+			n = 1
+		}
+		if a := st.CurrentAttempt; a != nil && a.Model != "" {
+			return fmt.Sprintf("Attempt %d (%s): %s.", n, sanitize(a.Model), word)
+		}
+		return fmt.Sprintf("Attempt %d: %s.", n, word)
+	}
+	switch st.State {
+	case "queued":
+		return "working", "", "Queued."
+	case "running", "verifying", "escalating":
+		return "working", "", attempt(st.State)
+	case "review":
+		return "blocked", "question", "Review the result."
+	case "accepted":
+		if st.Result != nil && st.Result.Badge == badgeVerified {
+			return "done", "", "Accepted: verified."
+		}
+		return "done", "", "Accepted without provenance."
+	case "failed":
+		v := "The job failed."
+		if st.Verdict != nil && strings.TrimSpace(*st.Verdict) != "" {
+			v = sanitize(*st.Verdict)
+		}
+		return "error", "", v
+	case "cancelled":
+		return "idle", "", "Cancelled."
+	}
+	return "", "", ""
+}
+
+// jobEnded: nothing further happens to the job until someone decides.
+func jobEnded(state string) bool {
+	switch state {
+	case "accepted", "review", "cancelled", "failed":
+		return true
+	}
+	return false
+}
+
+// spendLines is the job's spend, each figure only where the service gave one.
+func spendLines(st jobLiveStatus) []string {
+	m := func(w watchMoney) string { return strings.ReplaceAll(moneyText(w), " \u2014 ", "; ") }
+	return []string{
+		"  model spend    " + m(st.Spend.Model),
+		"  validation     " + m(st.Spend.Validation),
+		"  runtime        " + m(st.Spend.Runtime),
+		"  storage        " + m(st.Spend.Storage),
+	}
+}
+
+func jobLabel(st jobLiveStatus) string {
+	if st.StateLabel == "" {
+		return "Status unavailable"
+	}
+	return sanitize(st.StateLabel)
+}
+
+// jobReceiptLines is an accepted job's receipt: the result, the changeset,
+// the spend, the pull-request line and how to get the files.
+func jobReceiptLines(id string, st jobLiveStatus, downloaded bool) []string {
+	r := st.Result
+	out := []string{"receipt for job " + id + ": " + jobLabel(st)}
+	out = append(out, resultLines(id, r)[1:]...)
+	if cs := r.Changeset; cs != nil {
+		out = append(out, fmt.Sprintf("  changeset      %d file change(s), sha256 %s", cs.Changes, notRecorded(bareHex(cs.SHA256))))
+	} else {
+		out = append(out, "  changeset      not served for this result")
+	}
+	out = append(out, spendLines(st)...)
+	out = append(out, pullRequestLine(id, r.PullRequest))
+	if !downloaded {
+		out = append(out, "Download the files: ks cruise result "+id+" --download")
+	}
+	return out
+}
+
+// endedCard is the card of a job that ended without a result, and the one
+// refusal that goes with it.
+func endedCard(id string, st jobLiveStatus) ([]string, *cliError) {
+	_, _, words := jobStatusWords(st)
+	switch st.State {
+	case "failed":
+		lines := []string{"job " + id + " failed: " + words}
+		lines = append(lines, spendLines(st)...)
+		lines = append(lines, "Read why: ks cruise logs "+id)
+		return lines, &cliError{Code: exitFailed, Kind: "job_failed", Message: "job " + id + " failed, so it has no result: " + words, NextAction: "ks cruise logs " + id}
+	case "review":
+		lines := []string{"job " + id + " is waiting for your review: " + jobLabel(st)}
+		lines = append(lines, spendLines(st)...)
+		lines = append(lines, "Review it: ks cruise review "+id)
+		return lines, &cliError{Code: exitConflict, Kind: "in_review", Message: "job " + id + " waits for your review; it has no result until you decide", NextAction: "ks cruise review " + id}
+	case "cancelled":
+		lines := []string{"job " + id + " was cancelled; it has no result"}
+		lines = append(lines, spendLines(st)...)
+		return lines, &cliError{Code: exitConflict, Kind: "cancelled", Message: "job " + id + " was cancelled, so it has no result", NextAction: "ks cruise status " + id}
+	}
+	return []string{"job " + id + " is " + jobLabel(st) + "; it has no result"}, &cliError{Code: exitConflict, Kind: "no_result", Message: fmt.Sprintf("job %s is %s (%s) and has no result, so nothing was read or written", id, jobLabel(st), sanitize(st.State)), NextAction: "ks cruise status " + id}
+}
+
+// waitForJobEnd reads the job's status every five of the service's seconds
+// until nothing further will happen, saying each change once on stderr. A
+// read that fails for a passing reason is retried with a doubling backoff;
+// Ctrl-C ends only the wait, and nothing is sent.
+func waitForJobEnd(c hostedCreds, id string, st jobLiveStatus) (jobLiveStatus, error) {
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(stop)
+	unit := watchSecond()
+	every := 5 * unit
+	said := ""
+	backoff := time.Duration(0)
+	for {
+		if backoff == 0 {
+			if _, _, words := jobStatusWords(st); words != "" && words != said && !jobEnded(st.State) {
+				progress("job %s: %s", id, words)
+				said = words
+			}
+			if jobEnded(st.State) {
+				return st, nil
+			}
+		}
+		wait := every
+		if backoff > 0 {
+			wait = backoff
+		}
+		select {
+		case <-stop:
+			return st, &cliError{Code: exitInterrupt, Kind: "interrupted", Message: "stopped waiting; nothing was sent, and job " + id + " keeps going", NextAction: "ks cruise result " + id + " --wait"}
+		case <-time.After(wait):
+		}
+		fresh, err := fetchJobStatus(c, id)
+		if err != nil {
+			if statusUnsupported(err) || classify(err).Code != exitTemporary {
+				return st, err
+			}
+			if backoff == 0 {
+				backoff = every
+			}
+			backoff *= 2
+			if backoff > 60*unit {
+				backoff = 60 * unit
+			}
+			progress("job %s could not be read (%s); trying again in %s", id, sanitize(errText(err)), (backoff / unit * time.Second).String())
+			continue
+		}
+		backoff = 0
+		st = fresh
+	}
+}
+
+// cruiseResult is ks cruise result JOB [--wait] [--download] [--out FILE].
 func cruiseResult(inv *Invocation) {
 	c := mustCreds()
 	id := strings.TrimSpace(inv.Arg(0))
+	if inv.Set("out") && !inv.Bool("download") {
+		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--out names where --download writes; without --download nothing is written", NextAction: "ks cruise result " + id + " --download --out FILE"})
+	}
 	st, err := fetchJobStatus(c, id)
+	if err == nil && inv.Bool("wait") {
+		st, err = waitForJobEnd(c, id, st)
+	}
 	if err != nil {
 		if statusUnsupported(err) {
 			fail(&cliError{Code: exitFailed, Kind: "status_unsupported", Message: "this control plane does not serve a job's result with its provenance; nothing was read or written", NextAction: "ks cruise artifact " + id + " (sha256 checked; no provenance shown)"})
@@ -306,10 +549,28 @@ func cruiseResult(inv *Invocation) {
 		die(err)
 	}
 	if st.Result == nil {
-		fail(&cliError{Code: exitConflict, Kind: "no_result", Message: fmt.Sprintf("job %s is %s (%s); only an accepted job has a result, so nothing was read or written", id, sanitize(st.StateLabel), sanitize(st.State)), NextAction: "ks cruise status " + id})
+		if !inv.Bool("wait") {
+			next := "ks cruise result " + id + " --wait"
+			if jobEnded(st.State) {
+				next = "ks cruise status " + id
+			}
+			fail(&cliError{Code: exitConflict, Kind: "no_result", Message: fmt.Sprintf("job %s is %s (%s); only an accepted job has a result, so nothing was read or written", id, jobLabel(st), sanitize(st.State)), NextAction: next})
+		}
+		lines, ce := endedCard(id, st)
+		if !out.json {
+			for _, l := range lines {
+				fmt.Println(l)
+			}
+		}
+		fail(ce)
 	}
 	r := st.Result
-	doc := map[string]any{"job_id": id, "result": r, "verified": r.Badge == badgeVerified}
+	next := []string{"ks cruise apply " + id}
+	if !inv.Bool("download") {
+		next = append(next, "ks cruise result "+id+" --download")
+	}
+	doc := map[string]any{"job_id": id, "state": st.State, "result": r, "verified": r.Badge == badgeVerified,
+		"pull_request": pullRequestDoc(r.PullRequest), "next": next}
 	written, dest := int64(0), ""
 	if inv.Bool("download") {
 		dest = id + ".tar.gz"
@@ -329,11 +590,9 @@ func cruiseResult(inv *Invocation) {
 		}
 		written = n
 		doc["path"], doc["bytes_written"] = dest, n
-	} else if inv.Set("out") {
-		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--out names where --download writes; without --download nothing is written", NextAction: "ks cruise result " + id + " --download --out FILE"})
 	}
 	emit(doc, func() {
-		for _, l := range resultLines(id, r) {
+		for _, l := range jobReceiptLines(id, st, dest != "") {
 			fmt.Println(l)
 		}
 		if dest != "" {
