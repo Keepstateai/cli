@@ -140,7 +140,9 @@ func hostedAgentRun(cr hostedCreds, inv *Invocation) {
 	}
 	if !p.Ready && !p.Supervised {
 		if p.CleanedUp || !phaseDone(p.Phases, "start_agent") {
-			fail(&cliError{Code: exitFailed, Kind: "run_setup_failed", Message: p.Note, NextAction: "ks agent run again, or ks doctor"})
+			fail(failedStart(cr, p, rec.ID, "ks agent run again, or ks doctor", func(n string) string {
+				return "ks agent run --name " + n + " \"<task>\""
+			}))
 		}
 		fail(&cliError{Code: exitTemporary, Kind: "agent_not_ready", WorkStarted: workYes, Message: p.Note,
 			NextAction: fmt.Sprintf("ks agent status %s --session %s", name, rec.ID)})

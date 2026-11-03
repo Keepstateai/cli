@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- When `ks agent run` or `ks run --agent` cannot start a session because no
+  machine could be made for it, the run says so in the service's words
+  ("nothing ran and nothing is billed" where that is so) and gives one way
+  on: `ks session delete <id>`, then the same start again. It no longer says
+  to run it again, which the same name would have refused.
 - `ks file upload <local path>` puts one file or a folder, up to 1 GB, into
   a session's workspace: `--to` names where (default: its own name at the
   workspace root), `--agent` or `--session` names whose. A folder is packed

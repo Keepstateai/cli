@@ -25,6 +25,7 @@ type runCtl struct {
 	creations []map[string]any // the bodies the session creation route received
 	harnesses []any            // the catalog's harnesses (GET /api/v2/models)
 	preflight []map[string]any // the bodies the preflight route received
+	record    map[string]any   // what GET /api/v2/sessions/{id} answers; nil is 404
 }
 
 func (c *runCtl) keyList() []any {
@@ -93,6 +94,8 @@ func (c *runCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		env(201, map[string]any{"id": "session_abc123", "revision": 1, "primary_agent_id": "agent_main1", "runner_model": model, "harness": harness})
 	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/provision"):
 		env(200, c.prov)
+	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/v2/sessions/") && strings.Count(r.URL.Path, "/") == 4 && c.record != nil:
+		env(200, c.record)
 	case r.Method == "GET" && r.URL.Path == "/api/v2/tasks":
 		env(200, map[string]any{"items": []any{}, "next_cursor": ""})
 	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/tasks"):
