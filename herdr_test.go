@@ -6,6 +6,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -33,6 +34,7 @@ if [ -f ` + dir + `/fail ]; then cat ` + dir + `/fail; exit 1; fi
 case "$1" in
 --version) echo "herdr 0.9.5" ;;
 tab) printf '{"id":"cli","result":{"tab":{"tab_id":"w1:t9"},\n "root_pane":{"pane_id":"w1:p9"}}}\n' ;;
+plugin) if [ "$2" = unlink ] && [ -f ` + dir + `/unlink.out ]; then cat ` + dir + `/unlink.out; fi ;;
 esac
 `
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
@@ -167,6 +169,28 @@ func TestHerdrInstallShowsAsksThenLinksOnly(t *testing.T) {
 	if _, err := os.Stat(pluginDir); !os.IsNotExist(err) || !strings.Contains(out, "Unlinked") {
 		t.Errorf("plugin folder left (%v):\n%s", err, out)
 	}
+
+	// herdr says what it removed: a plugin that was not linked is not
+	// reported as unlinked (herdr 0.9.5's own answers, exit 0 both times)
+	for _, tc := range []struct {
+		said, words string
+		unlinked    bool
+	}{
+		{`{"id":"cli:plugin","result":{"plugin_id":"keepstate","removed":false,"type":"plugin_unlinked"}}`, "The KeepState plugin was not linked in herdr, so nothing was unlinked.", false},
+		{`{"id":"cli:plugin","result":{"plugin_id":"keepstate","removed":true,"type":"plugin_unlinked"}}`, "Unlinked the KeepState plugin from herdr.", true},
+	} {
+		if err := os.WriteFile(filepath.Join(dir, "unlink.out"), []byte(tc.said+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		out = runOKEnv(t, bin, cfg, env, "herdr", "uninstall")
+		if !strings.Contains(out, tc.words) || (!tc.unlinked && strings.Contains(out, "Unlinked")) {
+			t.Errorf("herdr said %s:\n%s", tc.said, out)
+		}
+		js := runOKEnv(t, bin, cfg, env, "herdr", "uninstall", "--json")
+		if !strings.Contains(js, fmt.Sprintf(`"unlinked":%v`, tc.unlinked)) && !strings.Contains(js, fmt.Sprintf(`"unlinked": %v`, tc.unlinked)) {
+			t.Errorf("--json after %s:\n%s", tc.said, js)
+		}
+	}
 }
 
 func runOKEnv(t *testing.T, bin, cfg string, env []string, args ...string) string {
@@ -196,11 +220,15 @@ func TestHerdrInstallWithoutHerdrLinksNothing(t *testing.T) {
 
 func TestOpeningAnAgentInAHerdrTabIsTabCreateThenPaneRun(t *testing.T) {
 	dir, bin, log := fakeHerdrCLI(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	pane, err := openAgentInHerdrTab(bin, "main", "3f2a1c")
 	if err != nil || pane != "w1:p9" {
 		t.Fatalf("pane %q, %v", pane, err)
 	}
-	want := []string{"|tab|create|--label|main|--focus", "|pane|run|w1:p9|ks agent open main --session 3f2a1c"}
+	// the tab starts in the home folder, never in the plugin's folder (the
+	// pane's own, which uninstall removes and herdr then cannot restore)
+	want := []string{"|tab|create|--label|main|--cwd|" + home + "|--focus", "|pane|run|w1:p9|ks agent open main --session 3f2a1c"}
 	if calls := herdrCalls(t, log); strings.Join(calls, "\n") != strings.Join(want, "\n") {
 		t.Errorf("calls\n%v\nwant\n%v", calls, want)
 	}
@@ -286,8 +314,9 @@ func TestTheAgentsPaneOpensAnAgentInANewTabTheConsoleAndSavedPoints(t *testing.T
 	bin, cfg := buildAndAuth(t, srv)
 	dir, hbin, log := fakeHerdrCLI(t)
 	opened := fakeOpener(t, dir)
+	home := t.TempDir()
 	env := map[string]string{"XDG_CONFIG_HOME": cfg, "KS_HTTP_TIMEOUT_MS": "4000", "HERDR_ENV": "1", "HERDR_PANE_ID": "w1:p1", "HERDR_BIN_PATH": hbin,
-		"PATH": dir + ":" + os.Getenv("PATH")}
+		"PATH": dir + ":" + os.Getenv("PATH"), "HOME": home}
 	screen := drivePane(t, bin, env, [][]string{
 		{"Needs you", "", "wait:0.6", "snap:herdr-01-agents"},
 		{"", "\r", "wait:0.8"},
@@ -305,7 +334,7 @@ func TestTheAgentsPaneOpensAnAgentInANewTabTheConsoleAndSavedPoints(t *testing.T
 		}
 	}
 	calls := herdrCalls(t, log)
-	want := []string{"|tab|create|--label|main|--focus", "|pane|run|w1:p9|ks agent open main --session 3f2a1c"}
+	want := []string{"|tab|create|--label|main|--cwd|" + home + "|--focus", "|pane|run|w1:p9|ks agent open main --session 3f2a1c"}
 	if strings.Join(calls, "\n") != strings.Join(want, "\n") {
 		t.Errorf("herdr calls\n%v\nwant\n%v", calls, want)
 	}

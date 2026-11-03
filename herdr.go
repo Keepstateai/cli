@@ -155,6 +155,7 @@ func herdrInstall(inv *Invocation) {
 	emit(map[string]any{"linked": true, "dir": dir, "manifest": path, "herdr": bin, "herdr_said": said}, func() {
 		fmt.Println("Linked. In herdr, open it with: herdr plugin pane open --plugin keepstate --entrypoint agents")
 		fmt.Println("Cruise receipts: herdr plugin pane open --plugin keepstate --entrypoint receipts")
+		fmt.Println("The sidebar shows KeepState's words (Needs you: permission, Done) in rows that have state_text under [ui.sidebar.agents]; herdr's default rows show only the state's colour.")
 	})
 }
 
@@ -185,11 +186,13 @@ func writeFileAtomic(path string, b []byte) error {
 func herdrUninstall(inv *Invocation) {
 	dir := herdrPluginDir()
 	said, unlinkErr := "", error(nil)
+	wasLinked := true
 	bin, ok := herdrBinary()
 	if ok {
 		var raw string
 		raw, unlinkErr = runHerdr(bin, herdrCmdTimeout, "plugin", "unlink", herdrPluginID)
 		said = herdrWords(raw)
+		wasLinked = herdrUnlinkRemoved(raw)
 	}
 	_, statErr := os.Stat(dir)
 	removed := false
@@ -199,12 +202,14 @@ func herdrUninstall(inv *Invocation) {
 		}
 		removed = true
 	}
-	emit(map[string]any{"unlinked": ok && unlinkErr == nil, "removed": removed, "dir": dir, "herdr_said": said}, func() {
+	emit(map[string]any{"unlinked": ok && unlinkErr == nil && wasLinked, "removed": removed, "dir": dir, "herdr_said": said}, func() {
 		switch {
 		case !ok:
 			fmt.Println("herdr is not installed on this machine, so there was nothing to unlink.")
 		case unlinkErr != nil:
 			fmt.Println("herdr did not unlink the plugin (it may not have been linked): " + notRecorded(said))
+		case !wasLinked:
+			fmt.Println("The KeepState plugin was not linked in herdr, so nothing was unlinked.")
 		default:
 			fmt.Println("Unlinked the KeepState plugin from herdr.")
 		}
@@ -214,6 +219,22 @@ func herdrUninstall(inv *Invocation) {
 			fmt.Println("There were no plugin files to remove.")
 		}
 	})
+}
+
+// herdrUnlinkRemoved reads herdr's answer to plugin unlink: herdr 0.9.5
+// answers {"result":{"removed":false,...}} with exit 0 when the plugin was
+// not linked. An answer this client cannot read counts as removed, the
+// words herdr printed are shown either way.
+func herdrUnlinkRemoved(raw string) bool {
+	var ans struct {
+		Result struct {
+			Removed *bool `json:"removed"`
+		} `json:"result"`
+	}
+	if json.Unmarshal([]byte(strings.TrimSpace(raw)), &ans) != nil || ans.Result.Removed == nil {
+		return true
+	}
+	return *ans.Result.Removed
 }
 
 func herdrStatus(inv *Invocation) {
@@ -314,7 +335,17 @@ func openAgentInHerdrTab(bin, name, session string) (string, error) {
 	if !agentNameSafe.MatchString(name) || !agentNameSafe.MatchString(session) {
 		return "", fmt.Errorf("the name %q cannot be typed into a terminal as it is; open it with ks agent open in a terminal", sanitize(name))
 	}
-	said, err := runHerdr(bin, 10*time.Second, "tab", "create", "--label", name, "--focus")
+	// the new tab starts in the home folder: without --cwd herdr starts it
+	// where the plugin's pane runs, the plugin's own folder, which
+	// ks herdr uninstall removes, and herdr then cannot restore the tab
+	// after its server restarts ("Saved directory is unavailable")
+	args := []string{"tab", "create", "--label", name}
+	if home, err := os.UserHomeDir(); err == nil && filepath.IsAbs(home) && oscText(home, len(home)+1) == home {
+		if fi, err := os.Stat(home); err == nil && fi.IsDir() {
+			args = append(args, "--cwd", home)
+		}
+	}
+	said, err := runHerdr(bin, 10*time.Second, append(args, "--focus")...)
 	if err != nil {
 		return "", fmt.Errorf("herdr did not open a tab: %s", notRecorded(herdrWords(said)))
 	}

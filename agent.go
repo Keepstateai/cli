@@ -1093,6 +1093,11 @@ func followAgent(cr hostedCreds, win *liveWindow, w *agentWindow) {
 	// status (and to herdr inside a herdr pane); cleared on every way out
 	status := newStatusEmitter(nil, win.agent.Name, agentResumeArgv(win.agent.Name, sess.ShortID))
 	restore := func() {
+		// leaving gives this window's control back, as the service's Leave
+		// window does, so the next window (herdr's resume command after its
+		// server restarts, an hc run, a new tab) opens at once instead of
+		// being refused until the lease runs out
+		win.releaseControl(cr)
 		status.leave()
 		stopSizes()
 		if paste {
@@ -1338,10 +1343,18 @@ func agentEventLine(e journalEvent) string {
 	if d := compactPayload(e.Payload); d != "" {
 		line += " " + d
 	}
-	if isApprovalEvent(e) {
+	if isApprovalEvent(e) && !approvalSettled(e) {
 		line = "!! " + line + " — the agent waits until it is decided: type \"a <id>\" to approve or \"d <id>\" to deny"
 	}
 	return sanitize(line)
+}
+
+// approvalSettled: an approval event that records a decision or what came
+// of one (decided, claimed, applied, expired). Nothing is left to decide, so
+// it is not marked as waiting for the person.
+func approvalSettled(e journalEvent) bool {
+	k := e.kind()
+	return strings.HasPrefix(k, "approval.") && k != "approval.requested"
 }
 
 func isApprovalEvent(e journalEvent) bool {
@@ -1881,6 +1894,34 @@ func (win *liveWindow) lose(reason string) bool {
 	win.lost = reason
 	win.lease = nil
 	return true
+}
+
+// leaveReleaseLimit is the longest leaving waits for the service to take
+// the control back; past it the lease simply runs out on its own.
+const leaveReleaseLimit = 2 * time.Second
+
+// releaseControl ends this window's control when it leaves: the lease is
+// released (DELETE /api/v2/control-leases/{id}, which releases control only;
+// the agent keeps working and nothing is cancelled). A window that holds no
+// control, a view or a displaced window, sends nothing, and a second call
+// sends nothing more.
+func (win *liveWindow) releaseControl(cr hostedCreds) {
+	l, held := win.hold()
+	if !win.lose("left the window") || !held || l.ID == "" {
+		return
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		// a direct call, as a renewal is: the release is not a request the
+		// person made, so it neither enters the operations journal nor
+		// prints that one is being waited for
+		_ = hostedCall(cr, "DELETE", "/api/v2/control-leases/"+url.PathEscape(l.ID), nil, nil)
+	}()
+	select {
+	case <-done:
+	case <-time.After(leaveReleaseLimit):
+	}
 }
 
 func (win *liveWindow) lostReason() string {
