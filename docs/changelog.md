@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+
+
 ## v0.1.36 (2026-11-04)
 
 - `ks organization spend <organization> --by day` shows the organization's
