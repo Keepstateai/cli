@@ -2,14 +2,6 @@
 
 ## Unreleased
 
-- Cruise drafts work in an organization's context too. `ks cruise draft
-  create` makes the organization's draft: its files are kept for the
-  organization, it binds the organization's own keys, and approving it
-  (`ks cruise draft approve`) starts the organization's job, paid from its
-  credit within its budgets. `ks cruise draft list` says its context and
-  lists the organization's drafts you may see; every draft and `ks cruise
-  tests` command carries the context. In your personal context nothing
-  changes.
 - Cruise works in an organization's context (`ks context use ORGANIZATION`).
   A job you start there is the organization's: it runs on the
   organization's own keys, never yours, and is paid from the organization's
@@ -24,6 +16,23 @@
   buy`), a budget (`ks budget ask`), no organization key (`ks key add`, by
   an owner or admin), a role that reads spend rather than jobs (`ks
   organization spend`). In your personal context nothing changes.
+
+- Cruise drafts work in an organization's context too. `ks cruise draft
+  create` makes the organization's draft: its files are kept for the
+  organization, it binds the organization's own keys, and approving it
+  (`ks cruise draft approve`) starts the organization's job, paid from its
+  credit within its budgets. `ks cruise draft list` says its context and
+  lists the organization's drafts you may see; every draft and `ks cruise
+  tests` command carries the context. In your personal context nothing
+  changes.
+
+## v0.1.36 (2026-11-04)
+
+- `ks organization spend <organization> --by day` shows the organization's
+  spend for each UTC day of the month (`--period YYYY-MM` for an earlier
+  one) and the month's total; a day that could not be read says so instead
+  of showing $0.
+
 - `ks mcp` can now decide permission requests, only with a person's answer.
   `ks_agent_approve` asks the person in the host app (the agent, the exact
   command or tool, and what approving lets it do; Approve or Deny), and
