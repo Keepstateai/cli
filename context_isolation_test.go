@@ -2,6 +2,7 @@
 // client asks for that organization's rows, so your personal agents, jobs
 // and agents to consult never appear there, and a list with no organization
 // view is refused in the service's words with the step back to personal.
+// Cruise jobs have an organization view: the organization's jobs.
 // The fake answers as a control plane that ignored the context would: the
 // personal rows whenever no context is sent.
 package main
@@ -44,7 +45,13 @@ func (c *ctxListCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		env(200, map[string]any{"items": []any{srec("agt_org", "ses_org", "acmebuild", "acmework", "working", "", "Working.")}, "counts": map[string]any{}, "truncated": false})
 	case r.URL.Path == "/api/v2/agent-status":
 		env(200, map[string]any{"items": []any{srec("agt_mine", "ses_mine", "mybuild", "PERSONALVOGON", "blocked", "permission", "shell: rm")}, "counts": map[string]any{}, "truncated": false})
-	case (r.URL.Path == "/api/jobs" || r.URL.Path == "/api/v2/agent-registry") && ctx != "":
+	case r.URL.Path == "/api/jobs" && ctx == "org_a":
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `[{"id":"job_org1","state":"running","goal":"ACMEJOB","org_id":"org_a","created_at":"2026-11-04T10:00:00Z"}]`)
+	case r.URL.Path == "/api/jobs/job_org1" && ctx == "org_a":
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"id":"job_org1","state":"running","goal":"ACMEJOB","org_id":"org_a","attempts":[],"created_at":"2026-11-04T10:00:00Z"}`)
+	case r.URL.Path == "/api/v2/agent-registry" && ctx != "":
 		refuse()
 	case r.URL.Path == "/api/jobs":
 		w.Header().Set("Content-Type", "application/json")
@@ -88,9 +95,15 @@ func TestEveryListAgreesWithTheChosenContext(t *testing.T) {
 	if err := json.Unmarshal([]byte(js), &doc); err != nil || code != 0 || doc.Data.Context != "org_a" || len(doc.Data.Items) != 1 || doc.Data.Items[0].AgentID != "agt_org" {
 		t.Errorf("agent list --all --json in the organization's context: %d %v %s", code, err, js)
 	}
-	// lists with no organization view: refused in words, the step back named,
-	// nothing personal shown
-	for _, verb := range [][]string{{"cruise", "status"}, {"adviser", "discover"}} {
+	// Cruise answers in the organization's context: its jobs, said so,
+	// never the personal ones
+	out, errs, code = run("cruise", "status")
+	if code != 0 || !strings.HasPrefix(out, "Context: organization org_a") || !strings.Contains(out, "ACMEJOB") || strings.Contains(out+errs, "PERSONALJOB") {
+		t.Errorf("ks cruise status in the organization context: %d\n%s%s", code, out, errs)
+	}
+	// lists with no organization view yet: refused in words, the step back
+	// named, nothing personal shown
+	for _, verb := range [][]string{{"adviser", "discover"}} {
 		out, errs, code := run(verb...)
 		if code == 0 || !strings.Contains(errs, "no organization view") || !strings.Contains(errs, "ks context use personal") ||
 			strings.Contains(out+errs, "PERSONALJOB") || strings.Contains(out+errs, "PERSONALADVISER") {

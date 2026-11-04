@@ -285,7 +285,7 @@ func cruiseResume(inv *Invocation) {
 		}
 	}
 	var job map[string]any
-	if err := hostedMutate(c, "POST", "/api/jobs/"+id+"/resume", req, &job); err != nil {
+	if err := hostedMutate(c, "POST", inContext(c, "/api/jobs/"+id+"/resume"), req, &job); err != nil {
 		die(err)
 	}
 	rec, recorded := decisionRecord(c, id, since, "job.queued")
@@ -321,7 +321,7 @@ func cruiseCancel(inv *Invocation) {
 		progress("cancelling job %s (%s): %s", id, sanitize(st.State), sanitize(effect))
 	}
 	var job map[string]any
-	if err := hostedMutate(c, "POST", "/api/jobs/"+id+"/cancel", map[string]any{}, &job); err != nil {
+	if err := hostedMutate(c, "POST", inContext(c, "/api/jobs/"+id+"/cancel"), map[string]any{}, &job); err != nil {
 		die(err)
 	}
 	rec, recorded := decisionRecord(c, id, since, "job.cancelled")

@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- Cruise works in an organization's context (`ks context use ORGANIZATION`).
+  A job you start there is the organization's: it runs on the
+  organization's own keys, never yours, and is paid from the organization's
+  credit within its budgets. `ks cruise approve` binds the organization's
+  keys, which it reads through the preflight, so a member who is not an
+  owner or admin can approve; `ks cruise run` checks them again and sends
+  the job in the context; both say so on their first line. `ks cruise
+  status` lists the organization's jobs you may see (yours; an owner or
+  admin sees every one), and every read and action on a job by id carries
+  the context. The organization's refusals come back in the service's
+  words with the command that fixes them: no credit (`ks organization
+  buy`), a budget (`ks budget ask`), no organization key (`ks key add`, by
+  an owner or admin), a role that reads spend rather than jobs (`ks
+  organization spend`). In your personal context nothing changes.
+
 ## v0.1.36 (2026-11-04)
 
 - `ks organization spend <organization> --by day` shows the organization's
