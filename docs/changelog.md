@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Cruise drafts work in an organization's context too. `ks cruise draft
+  create` makes the organization's draft: its files are kept for the
+  organization, it binds the organization's own keys, and approving it
+  (`ks cruise draft approve`) starts the organization's job, paid from its
+  credit within its budgets. `ks cruise draft list` says its context and
+  lists the organization's drafts you may see; every draft and `ks cruise
+  tests` command carries the context. In your personal context nothing
+  changes.
 - Cruise works in an organization's context (`ks context use ORGANIZATION`).
   A job you start there is the organization's: it runs on the
   organization's own keys, never yours, and is paid from the organization's
