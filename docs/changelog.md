@@ -38,6 +38,10 @@
 - `ks agent open NAME` finds an organization's agent in its context (yours,
   and every one for an owner or admin), never a personal one there, and
   `--session SESSION` narrows the name to one session, by its id or name.
+- `ks member remove` says what happened to the member's organization Cruise
+  jobs: with `--content transfer` how many moved to you, tagged transferred;
+  with `--content remove` how many live jobs were cancelled, their records
+  kept. The plan it shows first lists them too.
 
 ## v0.1.36 (2026-11-04)
 

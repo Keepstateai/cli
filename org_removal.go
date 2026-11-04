@@ -170,6 +170,8 @@ func hostedMemberRemove(cr hostedCreds, inv *Invocation) {
 		Data struct {
 			Removed             bool   `json:"removed"`
 			SessionsTransferred int64  `json:"sessions_transferred"`
+			JobsSettled         int64  `json:"jobs_settled"`
+			JobsNote            string `json:"jobs_note"`
 			LeasesEnded         int64  `json:"leases_ended"`
 			ProfileEraseAfter   string `json:"profile_erase_after"`
 		} `json:"data"`
@@ -182,6 +184,14 @@ func hostedMemberRemove(cr hostedCreds, inv *Invocation) {
 		fmt.Printf("%s removed from %s. ", account, org)
 		if content == "transfer" {
 			fmt.Printf("%d organization sessions moved to you, tagged transferred. ", r.SessionsTransferred)
+			if r.JobsSettled > 0 {
+				fmt.Printf("%d organization Cruise jobs moved to you, tagged transferred. ", r.JobsSettled)
+			}
+		} else if r.JobsSettled > 0 {
+			fmt.Printf("%d live organization Cruise jobs cancelled, their records kept. ", r.JobsSettled)
+		}
+		if r.JobsNote != "" {
+			fmt.Printf("%s. ", r.JobsNote)
 		}
 		fmt.Printf("Their profile details are erased on %s; their personal account is not touched.\n", r.ProfileEraseAfter)
 	})
