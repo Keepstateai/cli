@@ -266,7 +266,7 @@ func safeDownload(c hostedCreds, id, dest, wantSHA, candidate string) (int64, er
 	if _, err := os.Lstat(dest); err == nil {
 		return 0, &cliError{Code: exitConflict, Kind: "file_exists", Message: dest + " exists and is never written over; nothing was downloaded", NextAction: "choose another name with --out"}
 	}
-	resp, err := hostedDo(c, "GET", "/api/jobs/"+id+"/artifact", "", nil)
+	resp, err := hostedDo(c, "GET", inContext(c, "/api/jobs/"+id+"/artifact"), "", nil)
 	if err != nil {
 		return 0, err
 	}

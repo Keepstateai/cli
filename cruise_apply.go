@@ -37,7 +37,7 @@ func bareHex(s string) string {
 // fetchJobChangeset downloads the changeset and checks it against the digest
 // the status names, before anything reads it.
 func fetchJobChangeset(c hostedCreds, id, want string) ([]byte, error) {
-	resp, err := hostedDo(c, "GET", "/api/jobs/"+id+"/changeset", "", nil)
+	resp, err := hostedDo(c, "GET", inContext(c, "/api/jobs/"+id+"/changeset"), "", nil)
 	if err != nil {
 		return nil, err
 	}

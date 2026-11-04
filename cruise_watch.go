@@ -106,13 +106,13 @@ type jobEventRow struct {
 
 func fetchJobStatus(c hostedCreds, id string) (jobLiveStatus, error) {
 	var st jobLiveStatus
-	err := hostedCall(c, "GET", "/api/jobs/"+id+"/status", nil, &st)
+	err := hostedCall(c, "GET", inContext(c, "/api/jobs/"+id+"/status"), nil, &st)
 	return st, err
 }
 
 func fetchJobEventsSince(c hostedCreds, id string, since int64) ([]jobEventRow, error) {
 	var evs []jobEventRow
-	err := hostedCall(c, "GET", "/api/jobs/"+id+"/events?since="+strconv.FormatInt(since, 10), nil, &evs)
+	err := hostedCall(c, "GET", inContext(c, "/api/jobs/"+id+"/events?since="+strconv.FormatInt(since, 10)), nil, &evs)
 	return evs, err
 }
 
