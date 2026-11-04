@@ -66,3 +66,12 @@ func cruiseContextNote(c hostedCreds) string {
 	}
 	return fmt.Sprintf("Context: organization %s. The job runs on the organization's own keys and is paid from its credit, within its budgets; never from yours.", org)
 }
+
+// contextWord is the chosen context as the JSON output names it: personal,
+// or an organization's id.
+func contextWord(c hostedCreds) string {
+	if org := currentContext(c); org != "" {
+		return org
+	}
+	return "personal"
+}

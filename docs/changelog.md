@@ -17,6 +17,15 @@
   an owner or admin), a role that reads spend rather than jobs (`ks
   organization spend`). In your personal context nothing changes.
 
+- Cruise drafts work in an organization's context too. `ks cruise draft
+  create` makes the organization's draft: its files are kept for the
+  organization, it binds the organization's own keys, and approving it
+  (`ks cruise draft approve`) starts the organization's job, paid from its
+  credit within its budgets. `ks cruise draft list` says its context and
+  lists the organization's drafts you may see; every draft and `ks cruise
+  tests` command carries the context. In your personal context nothing
+  changes.
+
 ## v0.1.36 (2026-11-04)
 
 - `ks organization spend <organization> --by day` shows the organization's
