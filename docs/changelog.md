@@ -2,7 +2,11 @@
 
 ## Unreleased
 
-
+- `ks key default` works in an organization's context: it shows which key
+  the organization's new sessions use for each provider (its own key or
+  KeepState's), and its owners and admins change them; another member is
+  told who sets them. It says which context it read, and your personal
+  defaults are unchanged.
 
 ## v0.1.36 (2026-11-04)
 
