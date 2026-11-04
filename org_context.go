@@ -61,6 +61,13 @@ func writeContext(cr hostedCreds, org string) error {
 	return os.Rename(tmp, contextPath())
 }
 
+// inContext is a list or creation route in the chosen context: with
+// context=<organization id> when one is chosen, unchanged in the personal
+// context. The service answers the organization's rows, or refuses in words
+// when the route has no organization view; it never answers the personal
+// account's rows in an organization's context, so no verb shows them there.
+func inContext(cr hostedCreds, path string) string { return keyPath(currentContext(cr), path) }
+
 func hostedContextUse(cr hostedCreds, inv *Invocation) {
 	target := strings.TrimSpace(inv.Arg(0))
 	if target == "personal" {

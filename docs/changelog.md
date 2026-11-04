@@ -39,6 +39,14 @@
   Higher effort thinks longer: more output tokens per instruction at the same
   per-token price, so it spends more and reaches the session's token budget
   and spend limit sooner; the words say so next to the choice.
+- In an organization's context (`ks context use <organization>`), `ks agent
+  list --all` lists that organization's agents that are yours and says the
+  context on its first line; it no longer lists your personal agents there.
+  The lists and creations that have no organization view yet (`ks cruise`
+  and `ks cruise status`, `ks cruise draft create` and `list`, `ks adviser
+  discover`, `ks agent open` by name alone, `ks key default`, a plain `ks
+  run`) are refused in the service's words with `ks context use personal` as
+  the next step, instead of showing or making your personal account's.
 
 ## v0.1.35 (2026-11-03)
 

@@ -197,7 +197,7 @@ func hostedRun(cr hostedCreds, inv *Invocation) {
 		req["Budget"] = inv.Int("budget-tokens")
 	}
 	var sess map[string]any
-	if err := hostedMutate(cr, "POST", "/api/sessions", req, &sess); err != nil {
+	if err := hostedMutate(cr, "POST", inContext(cr, "/api/sessions"), req, &sess); err != nil {
 		die(err)
 	}
 	emit(map[string]any{"session_id": sess["id"], "image": sess["image"], "state": sess["state"], "control_plane": cr.CTL}, func() {

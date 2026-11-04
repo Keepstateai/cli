@@ -100,7 +100,7 @@ func resolveOpenTarget(cr hostedCreds, name, project string) (inventoryRow, agen
 			Create     string           `json:"create"`
 		} `json:"data"`
 	}
-	if err := hostedCall(cr, "GET", "/api/v2/agent-targets?"+q.Encode(), nil, &env); err != nil {
+	if err := hostedCall(cr, "GET", inContext(cr, "/api/v2/agent-targets?"+q.Encode()), nil, &env); err != nil {
 		die(err)
 	}
 	d := env.Data

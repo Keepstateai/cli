@@ -40,16 +40,20 @@ type agentStatusList struct {
 	Items     []statusRecord    `json:"items"`
 	Counts    agentStatusCounts `json:"counts"`
 	Truncated bool              `json:"truncated"`
+	// Context is the organization the list was read in ("" for personal):
+	// its agents that are yours, never your personal ones
+	Context string `json:"-"`
 }
 
 func fetchAgentStatusList(cr hostedCreds) (agentStatusList, error) {
 	var env struct {
 		Data agentStatusList `json:"data"`
 	}
-	err := hostedCall(cr, "GET", "/api/v2/agent-status", nil, &env)
+	err := hostedCall(cr, "GET", inContext(cr, "/api/v2/agent-status"), nil, &env)
 	if env.Data.Items == nil {
 		env.Data.Items = []statusRecord{}
 	}
+	env.Data.Context = currentContext(cr)
 	sortStatusRecords(env.Data.Items)
 	return env.Data, err
 }
@@ -165,7 +169,13 @@ func recordSession(rec statusRecord) string {
 // allAgentsLines is the list as printed.
 func allAgentsLines(l agentStatusList) []string {
 	out := []string{needYouLine(countRecords(l.Items))}
+	if l.Context != "" {
+		out = append([]string{"Context: organization " + sanitize(l.Context) + " (its agents that are yours; ks context use personal for your own)"}, out...)
+	}
 	if len(l.Items) == 0 {
+		if l.Context != "" {
+			return append(out, "None of your agents in this organization.")
+		}
 		return append(out, "No agents in your sessions.")
 	}
 	out = append(out, fmt.Sprintf("%-26s %-16s %-20s %s", "STATE", "AGENT", "SESSION", "WHAT"))
@@ -280,7 +290,11 @@ func hostedAgentListAll(cr hostedCreds, inv *Invocation) {
 		die(err)
 	}
 	if !inv.Bool("watch") {
-		emit(map[string]any{"items": l.Items, "counts": countRecords(l.Items), "truncated": l.Truncated}, func() {
+		doc := map[string]any{"items": l.Items, "counts": countRecords(l.Items), "truncated": l.Truncated}
+		if l.Context != "" {
+			doc["context"] = l.Context
+		}
+		emit(doc, func() {
 			for _, line := range allAgentsLines(l) {
 				fmt.Println(line)
 			}
@@ -306,7 +320,11 @@ func watchAllAgents(cr hostedCreds, l agentStatusList, notify bool) {
 		lines := strings.Join(allAgentsLines(l), "\n")
 		if out.json {
 			if lines != shown {
-				emitLine(map[string]any{"kind": "agent_status", "items": l.Items, "counts": countRecords(l.Items), "truncated": l.Truncated}, "")
+				doc := map[string]any{"kind": "agent_status", "items": l.Items, "counts": countRecords(l.Items), "truncated": l.Truncated}
+				if l.Context != "" {
+					doc["context"] = l.Context
+				}
+				emitLine(doc, "")
 			}
 		} else if redraw {
 			fmt.Print("\x1b[H\x1b[2J" + lines + "\n")

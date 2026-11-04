@@ -415,7 +415,7 @@ func hostedAdviserDiscover(cr hostedCreds, inv *Invocation) {
 			Items []registryEntryRow `json:"items"`
 		} `json:"data"`
 	}
-	if err := hostedCall(cr, "GET", path, nil, &env); err != nil {
+	if err := hostedCall(cr, "GET", inContext(cr, path), nil, &env); err != nil {
 		var he *hostedErr
 		if errors.As(err, &he) && he.Type == "ks_name_ambiguous" {
 			var e struct {
