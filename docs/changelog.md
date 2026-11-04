@@ -2,7 +2,11 @@
 
 ## Unreleased
 
-
+- A plain `ks run` (a machine with no agent) is refused in an organization's
+  context before anything starts, and names the way on: `ks run --agent`,
+  which runs as the organization, on its keys and credit. When the service
+  refuses something in a context and names a better step than leaving the
+  context, that step is the one shown.
 
 ## v0.1.36 (2026-11-04)
 
