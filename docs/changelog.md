@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-
+- `ks agent open NAME` finds an organization's agent in its context (yours,
+  and every one for an owner or admin), never a personal one there, and
+  `--session SESSION` narrows the name to one session, by its id or name.
 
 ## v0.1.36 (2026-11-04)
 
