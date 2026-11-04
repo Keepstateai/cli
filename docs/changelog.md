@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.37 (2026-11-04)
 
 - Cruise works in an organization's context (`ks context use ORGANIZATION`).
   A job you start there is the organization's: it runs on the
