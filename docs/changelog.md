@@ -16,6 +16,14 @@
   buy`), a budget (`ks budget ask`), no organization key (`ks key add`, by
   an owner or admin), a role that reads spend rather than jobs (`ks
   organization spend`). In your personal context nothing changes.
+
+## v0.1.36 (2026-11-04)
+
+- `ks organization spend <organization> --by day` shows the organization's
+  spend for each UTC day of the month (`--period YYYY-MM` for an earlier
+  one) and the month's total; a day that could not be read says so instead
+  of showing $0.
+
 - `ks mcp` can now decide permission requests, only with a person's answer.
   `ks_agent_approve` asks the person in the host app (the agent, the exact
   command or tool, and what approving lets it do; Approve or Deny), and
