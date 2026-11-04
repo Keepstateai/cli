@@ -87,9 +87,18 @@ func firstNonEmpty(a ...string) string {
 // resolveOpenTarget asks the service which agent a name means, and returns
 // the session and agent to open. It chooses nothing on its own.
 func resolveOpenTarget(cr hostedCreds, name, project string) (inventoryRow, agentRow) {
+	return resolveOpenTargetIn(cr, name, project, "")
+}
+
+// resolveOpenTargetIn is resolveOpenTarget narrowed to one session, by its
+// id or name, as the service matches it.
+func resolveOpenTargetIn(cr hostedCreds, name, project, session string) (inventoryRow, agentRow) {
 	q := url.Values{"name": {name}}
 	if project != "" {
 		q.Set("project", project)
+	}
+	if session != "" {
+		q.Set("session", session)
 	}
 	var env struct {
 		Data struct {
