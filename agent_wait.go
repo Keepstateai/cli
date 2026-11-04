@@ -137,22 +137,33 @@ func waitPoll() time.Duration {
 // streamStatus follows a session's event stream with status frames and
 // hands each status record to onStatus until it answers true, the stream
 // ends or ctx is done. Event frames are not read: a wait wants the status.
+// A restart of the service is waited out (stream_restart.go).
 func streamStatus(ctx context.Context, cr hostedCreds, sessionID string, onStatus func(statusRecord) bool) error {
+	var cursor int64
+	return followRestarts(ctx, &cursor, func(bool) (*restartSignal, bool, error) {
+		return statusStreamOnce(ctx, cr, sessionID, onStatus)
+	}, func(string, []byte) bool { return false })
+}
+
+func statusStreamOnce(ctx context.Context, cr hostedCreds, sessionID string, onStatus func(statusRecord) bool) (*restartSignal, bool, error) {
 	q := url.Values{"after_seq": {"0"}, "status": {"1"}}
 	path := "/api/v2/sessions/" + url.PathEscape(sessionID) + "/events/stream?" + q.Encode()
 	req, err := http.NewRequestWithContext(ctx, "GET", strings.TrimRight(cr.CTL, "/")+path, nil)
 	if err != nil {
-		return err
+		return nil, true, err
 	}
 	req.Header.Set("Authorization", "Bearer "+cr.Token)
 	req.Header.Set(protocolHeader, clientProtocolText)
 	resp, err := streamClient().Do(req)
 	if err != nil {
-		return err
+		if ctx.Err() != nil {
+			return nil, true, ctx.Err()
+		}
+		return nil, false, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("the event stream answered %s", resp.Status)
+		return nil, false, &streamStatusError{status: resp.StatusCode, err: fmt.Errorf("the event stream answered %s", resp.Status)}
 	}
 	sc := bufio.NewScanner(resp.Body)
 	sc.Buffer(make([]byte, 0, 64<<10), 4<<20)
@@ -164,11 +175,14 @@ func streamStatus(ctx context.Context, cr hostedCreds, sessionID string, onStatu
 			if kind == "status" && data != "" {
 				var d statusRecord
 				if json.Unmarshal([]byte(data), &d) == nil && onStatus(d) {
-					return nil
+					return nil, true, nil
 				}
 			}
 			if kind == "end" {
-				return nil
+				if sig := restartOf([]byte(data)); sig != nil {
+					return sig, false, nil
+				}
+				return nil, true, nil
 			}
 			kind, data = "message", ""
 		case strings.HasPrefix(line, "event:"):
@@ -177,7 +191,10 @@ func streamStatus(ctx context.Context, cr hostedCreds, sessionID string, onStatu
 			data += strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " ")
 		}
 	}
-	return sc.Err()
+	if ctx.Err() != nil {
+		return nil, true, ctx.Err()
+	}
+	return nil, true, sc.Err()
 }
 
 // waitForAgent waits until the agent's status leaves working, or until the

@@ -24,12 +24,12 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/url"
 	"os"
 	"os/signal"
@@ -1183,6 +1183,12 @@ func followAgent(cr hostedCreds, win *liveWindow, w *agentWindow) {
 			for _, l := range recoveryScreenFor(e, win.agent.Name, sess.ShortID) {
 				progress("%s", l)
 			}
+		case "reconnecting":
+			// the service is being replaced (a deploy): the window waits
+			// and carries on from where it was; nothing is lost
+			progress("the service is restarting; reconnecting from event %d, nothing is missed", cursorOf(data))
+		case "reconnected":
+			progress("reconnected; following from event %d", cursorOf(data))
 		case "end":
 			progress("the stream ended; the agent keeps working")
 			return true
@@ -1419,6 +1425,15 @@ func compactPayload(raw json.RawMessage) string {
 	return s
 }
 
+// cursorOf reads the cursor of a reconnecting or reconnected frame.
+func cursorOf(data []byte) int64 {
+	var c struct {
+		AfterSeq int64 `json:"after_seq"`
+	}
+	_ = json.Unmarshal(data, &c)
+	return c.AfterSeq
+}
+
 // streamEvents reads the session's event stream and hands each frame to
 // the caller, which reports whether the stream is finished. The body is
 // not time-bounded: a live window is as long as the person leaves it open.
@@ -1429,50 +1444,15 @@ func streamEvents(cr hostedCreds, sessionID string, afterSeq int64, onFrame func
 // streamEventsWith is streamEvents, also asking for the service's status
 // frames (kind "status", data the agent's status record) when withStatus
 // is set. A control plane that does not send them sends the same stream as
-// before, and nothing is written for them.
+// before, and nothing is written for them. A restart of the service is
+// waited out and the stream continues from the last event shown
+// (stream_restart.go): the caller is handed "reconnecting" and
+// "reconnected" around it, and never the restart's end frame.
 func streamEventsWith(cr hostedCreds, sessionID string, afterSeq int64, withStatus bool, onFrame func(kind string, data []byte) bool) error {
-	q := url.Values{"after_seq": {strconv.FormatInt(afterSeq, 10)}}
-	if withStatus {
-		q.Set("status", "1")
-	}
-	path := "/api/v2/sessions/" + url.PathEscape(sessionID) + "/events/stream?" + q.Encode()
-	resp, err := hostedDo(cr, "GET", path, "", nil)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		return hostedError("GET", path, resp, raw)
-	}
-	sc := bufio.NewScanner(resp.Body)
-	sc.Buffer(make([]byte, 0, 64<<10), 4<<20)
-	kind := "message"
-	var data []string
-	for sc.Scan() {
-		line := strings.TrimRight(sc.Text(), "\r")
-		switch {
-		case line == "":
-			if len(data) > 0 && onFrame(kind, []byte(strings.Join(data, "\n"))) {
-				return nil
-			}
-			kind, data = "message", nil
-		case strings.HasPrefix(line, ":"): // a comment, which keep-alives are
-		case strings.HasPrefix(line, "event:"):
-			kind = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
-		case strings.HasPrefix(line, "data:"):
-			data = append(data, strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " "))
-		}
-	}
-	if err := sc.Err(); err != nil {
-		return err
-	}
-	// a stream that ended on a frame the blank line never followed: the
-	// frame was still sent, so it is still rendered
-	if len(data) > 0 {
-		onFrame(kind, []byte(strings.Join(data, "\n")))
-	}
-	return nil
+	cursor := afterSeq
+	return followRestarts(context.Background(), &cursor, func(reconnecting bool) (*restartSignal, bool, error) {
+		return eventStreamOnce(cr, sessionID, &cursor, withStatus, reconnecting, onFrame)
+	}, onFrame)
 }
 
 // ---------------------------------------------------------------------

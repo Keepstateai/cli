@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- `ks agent open`, the `ks` app and `ks agent wait` wait out a restart of
+  the service (a deploy) instead of ending: they reconnect by themselves from
+  the last event shown, so nothing is shown twice or missed, and say
+  "reconnecting" and "reconnected" in one quiet line each. Only a restart
+  that lasts longer than 60 s ends the window, with the command that
+  reconnects.
+- An instruction a money limit paused (the token budget, the spend limit,
+  credit) reads as paused, not failed: the app says "Paused at the token
+  budget. It carries on when the session resumes." and, when it does, one
+  line ("Budget raised, carrying on."), and shows no needs-attention card for
+  it. `ks agent queue show` calls it a paused instruction; `ks agent queue
+  retry` carries one on that was stopped while a step was still running.
+
 ## v0.1.36 (2026-11-04)
 
 - `ks organization spend <organization> --by day` shows the organization's

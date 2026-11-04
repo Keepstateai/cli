@@ -151,6 +151,10 @@ const (
 	decisionRetryBlocking = "retry_blocking"
 	holdIsActive          = "active"
 	causeFailed           = "task_failed"
+	// causePausedAtLimit: the instruction before was paused at a money limit
+	// (the token budget, the spend limit, credit); nothing about it is
+	// unknown, and it carries on by itself when the session resumes
+	causePausedAtLimit = "paused_at_limit"
 )
 
 func fetchQueueHolds(cr hostedCreds, agentID string) ([]queueHold, error) {
@@ -325,6 +329,9 @@ func sameRecovery(s shownRecovery, h queueHold) bool {
 func blockedWord(h queueHold) string {
 	if h.Cause == causeFailed {
 		return "failed instruction"
+	}
+	if h.Cause == causePausedAtLimit {
+		return "paused instruction"
 	}
 	return "unresolved instruction"
 }
@@ -1013,7 +1020,7 @@ func statementFor(sess inventoryRow, agentName string, t taskRow, h *queueHold) 
 			if strings.TrimSpace(h.BlockingSummary) == "" {
 				b.NotEstablished = append(b.NotEstablished, "what this instruction did: nothing was recorded")
 			}
-			if h.Cause != causeFailed {
+			if h.Cause != causeFailed && h.Cause != causePausedAtLimit {
 				// C05's ambiguity contract: an unknown is not a failure, and
 				// the difference decides what may safely be done next
 				b.NotEstablished = append(b.NotEstablished,

@@ -305,6 +305,14 @@ func appWindow(cr hostedCreds, scr *screen, keys <-chan keyEvent, sess inventory
 					}
 				}
 			}
+			// a restart of the service: one dim line each way, and the
+			// window carries on from where it was
+			switch kind {
+			case "reconnecting":
+				scr.Print(dimNotice(iconState, toneDim, "The service is restarting. Reconnecting; nothing is missed.", appTerminalWidth()))
+			case "reconnected":
+				scr.Print(dimNotice(iconState, toneDim, "Reconnected.", appTerminalWidth()))
+			}
 			return kind == "end"
 		})
 	}()
@@ -686,17 +694,34 @@ func appEventLine(e journalEvent, agentName, account string) (string, bool) {
 		}
 	}
 	var p struct {
-		Type    string `json:"type"`
-		State   string `json:"state"`
-		Summary string `json:"summary"`
-		Name    string `json:"name"`
-		Reason  string `json:"reason"`
-		Runtime string `json:"runtime_state"`
+		Type      string `json:"type"`
+		State     string `json:"state"`
+		Summary   string `json:"summary"`
+		Name      string `json:"name"`
+		Reason    string `json:"reason"`
+		Runtime   string `json:"runtime_state"`
+		StoppedAt string `json:"stopped_at"`
+		StepOpen  bool   `json:"stopped_with_step_open"`
+		CarryOnOf string `json:"carry_on_of"`
+		Line      string `json:"line"`
 	}
 	_ = json.Unmarshal(e.Payload, &p)
 	switch p.Type {
+	case "task.accepted":
+		// the instruction a money limit paused, sent again as itself once
+		// the limit was raised: one calm line, not the same words again
+		if p.CarryOnOf != "" {
+			return dimNotice(iconState, toneNeutral, sanitize(firstNonEmpty(p.Line, "Carrying on where it stopped.")), width), true
+		}
+		return "", false
 	case "task.finished": // the instruction's id is in /tasks, not in the conversation
 		switch {
+		case p.StoppedAt != "":
+			// a money limit paused it: a pause, never a failure
+			if p.StepOpen {
+				return notice(iconPaused, toneWarn, th.warn(limitPausedWords(p.StoppedAt)+" while a step was still running.")+th.dim(" /queue says what to do."), width), true
+			}
+			return dimNotice(iconPaused, toneNeutral, limitPausedWords(p.StoppedAt)+". It carries on when the session resumes.", width), true
 		case p.State == "succeeded":
 			return dimNotice(iconDone, toneOK, "Finished.", width), true
 		case p.State == "failed":
@@ -760,8 +785,8 @@ func appRecoveryCard(e journalEvent, agentName, sessShort string) []string {
 			f.TaskID = e.TaskID
 		}
 		finishedFact(&f, e)
-		if !runnerStopped(f.State) {
-			return nil
+		if !runnerStopped(f.State) || stoppedAtLimit(e) {
+			return nil // a money limit's pause carries on by itself
 		}
 		c.head = name + " stopped in the middle of an instruction. It is not ready, and the instruction did not finish."
 		c.lines = []string{"What it did is not known. The instructions after it are held until you decide; nothing is retried by itself."}
@@ -894,4 +919,33 @@ func shortDuration(d time.Duration) string {
 		return fmt.Sprintf("%dd", h/24)
 	}
 	return fmt.Sprintf("%dd %dh", h/24, h%24)
+}
+
+// limitPausedWords is the limit a paused instruction stopped at, as the
+// service names it (stopped_at on its close).
+func limitPausedWords(kind string) string {
+	switch kind {
+	case "token_budget":
+		return "Paused at the token budget"
+	case "spend_limit":
+		return "Paused at the spend limit"
+	case "credit":
+		return "Paused: out of credit"
+	case "managed_cap":
+		return "Paused at the daily or monthly limit on KeepState's key"
+	case "org_budget":
+		return "Paused at a budget"
+	}
+	return "Paused at a limit"
+}
+
+// stoppedAtLimit: the close says a money limit paused the instruction and no
+// step was left open, so it carries on by itself and nothing needs deciding.
+func stoppedAtLimit(e journalEvent) bool {
+	var p struct {
+		StoppedAt string `json:"stopped_at"`
+		StepOpen  bool   `json:"stopped_with_step_open"`
+	}
+	_ = json.Unmarshal(e.Payload, &p)
+	return p.StoppedAt != "" && !p.StepOpen
 }
