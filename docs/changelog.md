@@ -35,6 +35,9 @@
   KeepState's), and its owners and admins change them; another member is
   told who sets them. It says which context it read, and your personal
   defaults are unchanged.
+- `ks agent open NAME` finds an organization's agent in its context (yours,
+  and every one for an owner or admin), never a personal one there, and
+  `--session SESSION` narrows the name to one session, by its id or name.
 
 ## v0.1.36 (2026-11-04)
 
