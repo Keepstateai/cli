@@ -91,7 +91,7 @@ func putWorkspace(c hostedCreds, jobID, path string) (map[string]any, error) {
 		return nil, err
 	}
 	defer f.Close()
-	resp, err := hostedDo(c, "PUT", "/api/jobs/"+jobID+"/workspace", "application/octet-stream", f)
+	resp, err := hostedDo(c, "PUT", inContext(c, "/api/jobs/"+jobID+"/workspace"), "application/octet-stream", f)
 	if err != nil {
 		return nil, &cliError{Code: exitTemporary, Kind: "upload_uncertain",
 			Message:    fmt.Sprintf("the workspace upload for job %s got no answer (%s); whether it was stored is not known. Sending the same bytes again is safe while the job is queued", jobID, sanitize(err.Error())),

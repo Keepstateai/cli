@@ -1039,9 +1039,12 @@ func cruiseApprove(inv *Invocation) {
 	if err := checkLadderLive(c, m); err != nil {
 		die(err)
 	}
-	keys, err := fetchKeys(c)
+	keys, err := cruiseKeys(c)
 	if err != nil {
 		die(err)
+	}
+	if note := cruiseContextNote(c); note != "" {
+		progress("%s", note)
 	}
 	routes, rerr := chooseRoutes(keys, bindingProviders(m), named)
 	if rerr != nil {
@@ -1197,7 +1200,7 @@ func cruiseRun(inv *Invocation) error {
 		if want, _ := ver["inputs_digest"].(string); want != inputs {
 			return fmt.Errorf("the check's inputs changed since approve (inputs digest %s, approved %s): a changed conftest, lockfile, fixture or test is a new check; nothing was sent (ks cruise init, then approve)", short(inputs), short(want))
 		}
-		keys, kerr := fetchKeys(c)
+		keys, kerr := cruiseKeys(c)
 		if kerr != nil {
 			return fmt.Errorf("the provider keys could not be read to check the approved routes (%v); nothing was sent", kerr)
 		}
@@ -1274,8 +1277,11 @@ func cruiseRun(inv *Invocation) error {
 	}
 
 	var job map[string]any
+	if note := cruiseContextNote(c); note != "" {
+		progress("%s", note)
+	}
 	if err := hostedMutate(c, "POST", inContext(c, "/api/jobs"), body.Bytes(), &job); err != nil {
-		return err
+		return cruiseCtxErr(c, err)
 	}
 	if separate {
 		id := jstr(job, "id")
@@ -1406,8 +1412,8 @@ func parseUSD(s string) (int64, error) {
 
 func fetchJob(c hostedCreds, id string) map[string]any {
 	var job map[string]any
-	if err := hostedCall(c, "GET", "/api/jobs/"+id, nil, &job); err != nil {
-		die(err)
+	if err := hostedCall(c, "GET", inContext(c, "/api/jobs/"+id), nil, &job); err != nil {
+		die(cruiseCtxErr(c, err))
 	}
 	return job
 }
@@ -1419,9 +1425,15 @@ func cruiseStatus(inv *Invocation) {
 	if id == "" {
 		var jobs []map[string]any
 		if err := hostedCall(c, "GET", inContext(c, "/api/jobs"), nil, &jobs); err != nil {
-			die(err)
+			die(cruiseCtxErr(c, err))
 		}
 		if len(jobs) == 0 {
+			if org := currentContext(c); org != "" {
+				emit(map[string]any{"job": nil, "context": org, "note": "no jobs of this organization that you can see"}, func() {
+					fmt.Printf("Context: organization %s\nno Cruise jobs of this organization that you can see; start one with ks cruise init\n", org)
+				})
+				return
+			}
 			emit(map[string]any{"job": nil, "note": "no jobs on this account"}, func() { fmt.Println("no jobs on this account; start one with ks cruise init") })
 			return
 		}
@@ -1441,7 +1453,12 @@ func cruiseStatus(inv *Invocation) {
 		cruiseWatch(c, jstr(job, "id"))
 		return
 	}
-	emit(job, func() { printJob(job) })
+	emit(job, func() {
+		if org := currentContext(c); org != "" {
+			fmt.Printf("Context: organization %s\n", org)
+		}
+		printJob(job)
+	})
 }
 
 // printJob renders the contract's words as the control plane sent them:
@@ -1522,7 +1539,7 @@ func cruiseLogs(inv *Invocation) {
 	c := mustCreds()
 	id := inv.Arg(0)
 	var events []map[string]any
-	if err := hostedCall(c, "GET", "/api/jobs/"+id+"/events", nil, &events); err != nil {
+	if err := hostedCall(c, "GET", inContext(c, "/api/jobs/"+id+"/events"), nil, &events); err != nil {
 		die(err)
 	}
 	if len(events) == 0 {
@@ -1623,6 +1640,9 @@ func cruisePreflight(c hostedCreds, bytes, files int64, check string, m map[stri
 	}
 	var env struct {
 		Data map[string]any `json:"data"`
+	}
+	if org := currentContext(c); org != "" {
+		body["org_id"] = org // the organization's keys and credit are checked, never yours
 	}
 	if err := hostedCall(c, "POST", "/api/v2/preflight", body, &env); err != nil {
 		var he *hostedErr
