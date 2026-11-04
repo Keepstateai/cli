@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+- Cruise works in an organization's context (`ks context use ORGANIZATION`).
+  A job you start there is the organization's: it runs on the
+  organization's own keys, never yours, and is paid from the organization's
+  credit within its budgets. `ks cruise approve` binds the organization's
+  keys, which it reads through the preflight, so a member who is not an
+  owner or admin can approve; `ks cruise run` checks them again and sends
+  the job in the context; both say so on their first line. `ks cruise
+  status` lists the organization's jobs you may see (yours; an owner or
+  admin sees every one), and every read and action on a job by id carries
+  the context. The organization's refusals come back in the service's
+  words with the command that fixes them: no credit (`ks organization
+  buy`), a budget (`ks budget ask`), no organization key (`ks key add`, by
+  an owner or admin), a role that reads spend rather than jobs (`ks
+  organization spend`). In your personal context nothing changes.
+
+- Cruise drafts work in an organization's context too. `ks cruise draft
+  create` makes the organization's draft: its files are kept for the
+  organization, it binds the organization's own keys, and approving it
+  (`ks cruise draft approve`) starts the organization's job, paid from its
+  credit within its budgets. `ks cruise draft list` says its context and
+  lists the organization's drafts you may see; every draft and `ks cruise
+  tests` command carries the context. In your personal context nothing
+  changes.
+- A plain `ks run` (a machine with no agent) is refused in an organization's
+  context before anything starts, and names the way on: `ks run --agent`,
+  which runs as the organization, on its keys and credit. When the service
+  refuses something in a context and names a better step than leaving the
+  context, that step is the one shown.
 - `ks key default` works in an organization's context: it shows which key
   the organization's new sessions use for each provider (its own key or
   KeepState's), and its owners and admins change them; another member is

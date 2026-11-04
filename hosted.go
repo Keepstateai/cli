@@ -184,6 +184,14 @@ func hostedRun(cr hostedCreds, inv *Invocation) {
 		hostedRunAgent(cr, inv)
 		return
 	}
+	// in an organization's context a plain machine (no agent) is not
+	// offered: it runs only on your personal account, and the organization's
+	// work runs as an agent session, on its keys and credit
+	if org := currentContext(cr); org != "" {
+		fail(&cliError{Code: exitUsage, Kind: "ks_context_unsupported", WorkStarted: workNo,
+			Message:    "a plain session (a machine with no agent) runs only on your personal account, so nothing was started in organization " + org + "; the organization's work runs as an agent session, on its own keys and credit",
+			NextAction: "ks run --agent"})
+	}
 	for _, f := range []string{"name", "agent-name", "task", "open", "model", "effort", "harness"} {
 		if inv.Set(f) {
 			fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--" + f + " belongs to an agent session", NextAction: "ks run --agent --" + f + " ..."})
