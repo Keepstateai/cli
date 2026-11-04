@@ -41,7 +41,7 @@ func (c *orgRemovalCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		env(200, map[string]any{"plan_id": "orp_1", "account_id": "acct_bob", "role": "member", "content": "transfer", "transfer_to": "acct_me",
 			"plan_digest": "abcdef0123456789abcdef", "steps": []string{"their 1 organization sessions and 1 agents move to acct_me, tagged transferred", "their personal account is not touched"}})
 	case r.URL.Path == "/api/v2/orgs/org_a/members/acct_bob/remove":
-		env(200, map[string]any{"removed": true, "sessions_transferred": 1, "profile_erase_after": "2026-11-29"})
+		env(200, map[string]any{"removed": true, "sessions_transferred": 1, "jobs_settled": 2, "profile_erase_after": "2026-11-29"})
 	case r.URL.Path == "/api/v2/orgs/org_a/leave":
 		env(200, map[string]any{"left": true, "profile_erase_after": "2026-11-29"})
 	default:
@@ -109,7 +109,7 @@ func TestOrganizationRemovalVerbs(t *testing.T) {
 	}
 	c.mu.Unlock()
 	out, errs, code = run("member", "remove", "acct_bob", "--organization", "org_a", "--content", "transfer", "--confirm", "abcdef012345")
-	if code != 0 || !strings.Contains(c.last("POST /api/v2/orgs/org_a/members/acct_bob/remove"), `"plan_id":"orp_1"`) || !strings.Contains(out, "1 organization sessions moved to you") || !strings.Contains(out, "2026-11-29") {
+	if code != 0 || !strings.Contains(c.last("POST /api/v2/orgs/org_a/members/acct_bob/remove"), `"plan_id":"orp_1"`) || !strings.Contains(out, "1 organization sessions moved to you") || !strings.Contains(out, "2 organization Cruise jobs moved to you") || !strings.Contains(out, "2026-11-29") {
 		t.Fatalf("confirmed removal: %d\n%s%s", code, out, errs)
 	}
 

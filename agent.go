@@ -874,6 +874,12 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 		// across what you may see, and chooses nothing (KS-032)
 		sess, a = resolveOpenTarget(cr, inv.Arg(0), inv.Str("project"))
 		showTarget(sess, "the name "+inv.Arg(0))
+	} else if currentContext(cr) != "" && inv.Str("session") != "" {
+		// in an organization's context the session is the organization's:
+		// the service resolves the name in that session, by its id or name,
+		// among the organization's agents you may open
+		sess, a = resolveOpenTargetIn(cr, inv.Arg(0), inv.Str("project"), inv.Str("session"))
+		showTarget(sess, "the name "+inv.Arg(0)+" in session "+inv.Str("session"))
 	} else {
 		if inv.Str("project") != "" {
 			fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--project narrows a search by name; with --session (or a project binding) the session is already named"})

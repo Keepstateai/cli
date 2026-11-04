@@ -349,8 +349,12 @@ func hostedKeyDefault(cr hostedCreds, inv *Invocation) {
 		die(err)
 	}
 	p, v := inv.Arg(0), inv.Arg(1)
+	org := currentContext(cr)
 	if p == "" {
-		emit(map[string]any{"defaults": doc.Defaults, "revision": doc.Revision, "managed": doc.Managed}, func() { printKeyDefaults(doc) })
+		emit(map[string]any{"defaults": doc.Defaults, "revision": doc.Revision, "managed": doc.Managed, "context": orgOrPersonal(org)}, func() {
+			keyDefaultsContextLine(org)
+			printKeyDefaults(doc, org)
+		})
 		return
 	}
 	want := "own"
@@ -365,20 +369,49 @@ func hostedKeyDefault(cr hostedCreds, inv *Invocation) {
 		if errors.As(err, &he) && he.Type == "ks_revision_conflict" {
 			fail(&cliError{Code: exitConflict, Kind: he.Type, HTTPStatus: he.Status, Message: "the defaults changed since they were read, so nothing changed; read them again and retry: " + sanitize(he.Message), NextAction: "ks key default"})
 		}
+		if errors.As(err, &he) && org != "" && he.Status == http.StatusForbidden {
+			// the organization's defaults are its owners' and admins' to set
+			fail(&cliError{Code: exitFailed, Kind: he.Type, HTTPStatus: he.Status, WorkStarted: workNo, Message: sanitize(he.Message) + "; nothing was changed", NextAction: "ks key default"})
+		}
 		die(err)
 	}
 	nd := &env.Data
-	emit(map[string]any{"defaults": nd.Defaults, "revision": nd.Revision, "managed": nd.Managed}, func() {
-		on := "your own key"
+	emit(map[string]any{"defaults": nd.Defaults, "revision": nd.Revision, "managed": nd.Managed, "context": orgOrPersonal(org)}, func() {
+		keyDefaultsContextLine(org)
+		on := ownKeyWords(org)
 		if nd.defaultFor(p) == "managed" {
 			on = "KeepState's key"
 		}
 		fmt.Printf("new sessions start their %s calls on %s; existing sessions are unchanged (ks session key set changes one)\n", providerName(p), on)
-		printKeyDefaults(nd)
+		printKeyDefaults(nd, org)
 	})
 }
 
-func printKeyDefaults(d *modelKeysDoc) {
+// ownKeyWords names the own key in the context: yours, or the organization's.
+func ownKeyWords(org string) string {
+	if org != "" {
+		return "the organization's own key"
+	}
+	return "your own key"
+}
+
+// keyDefaultsContextLine says, in an organization's context, whose defaults
+// these are; nothing in the personal context.
+func keyDefaultsContextLine(org string) {
+	if org != "" {
+		fmt.Printf("Context: organization %s: the default key for the organization's new sessions (its owners and admins change it)\n", org)
+	}
+}
+
+func orgOrPersonal(org string) string {
+	if org == "" {
+		return "personal"
+	}
+	return org
+}
+
+func printKeyDefaults(d *modelKeysDoc, org string) {
+	own := ownKeyWords(org)
 	for _, p := range managedProviders {
 		mp, offered := d.offered(p)
 		var line string
@@ -388,14 +421,14 @@ func printKeyDefaults(d *modelKeysDoc) {
 		case d.defaultFor(p) == "managed":
 			line = fmt.Sprintf("%-11s %-16s not offered now: %s", p, "KeepState's key", d.notOfferedWhy(p))
 		case offered:
-			line = fmt.Sprintf("%-11s %-16s KeepState's key is offered too, at %s", p, "your own key", spreadText(p, mp))
+			line = fmt.Sprintf("%-11s %-16s KeepState's key is offered too, at %s", p, own, spreadText(p, mp))
 		default:
-			line = fmt.Sprintf("%-11s %s", p, "your own key")
+			line = fmt.Sprintf("%-11s %s", p, own)
 		}
 		fmt.Println(line)
 	}
 	if !d.Managed.Available {
-		fmt.Println("KeepState's key is not offered now: " + firstNonEmptyStr(sanitize(d.Managed.Note), "the service does not offer it") + ". Your own key works as before.")
+		fmt.Println("KeepState's key is not offered now: " + firstNonEmptyStr(sanitize(d.Managed.Note), "the service does not offer it") + ". " + strings.ToUpper(own[:1]) + own[1:] + " works as before.")
 	}
 }
 
