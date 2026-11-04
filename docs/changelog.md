@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- `ks member remove` says what happened to the member's organization Cruise
+  jobs: with `--content transfer` how many moved to you, tagged transferred;
+  with `--content remove` how many live jobs were cancelled, their records
+  kept. The plan it shows first lists them too.
+
 ## v0.1.36 (2026-11-04)
 
 - `ks organization spend <organization> --by day` shows the organization's
