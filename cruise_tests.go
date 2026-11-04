@@ -115,7 +115,7 @@ func testsRoute(id string) string { return draftsRoute + "/" + url.PathEscape(id
 
 func fetchTests(cr hostedCreds, id string) (*testsView, json.RawMessage) {
 	var env draftEnvelope
-	if err := hostedCall(cr, "GET", testsRoute(id), nil, &env); err != nil {
+	if err := hostedCall(cr, "GET", inContext(cr, testsRoute(id)), nil, &env); err != nil {
 		die(err)
 	}
 	var v testsView
@@ -240,7 +240,7 @@ func printTests(w io.Writer, v *testsView, withFiles bool) {
 
 func hostedCruiseTestsEstimate(cr hostedCreds, inv *Invocation) {
 	var env draftEnvelope
-	if err := hostedMutate(cr, "POST", testsRoute(inv.Arg(0))+"/estimate", map[string]any{}, &env); err != nil {
+	if err := hostedMutate(cr, "POST", inContext(cr, testsRoute(inv.Arg(0))+"/estimate"), map[string]any{}, &env); err != nil {
 		die(err)
 	}
 	emit(env.Data, func() { printEstimate(os.Stdout, env.Data) })
@@ -280,7 +280,7 @@ func printEstimate(w io.Writer, raw json.RawMessage) {
 func hostedCruiseTestsGenerate(cr hostedCreds, inv *Invocation) {
 	id := inv.Arg(0)
 	var est draftEnvelope
-	if err := hostedMutate(cr, "POST", testsRoute(id)+"/estimate", map[string]any{}, &est); err != nil {
+	if err := hostedMutate(cr, "POST", inContext(cr, testsRoute(id)+"/estimate"), map[string]any{}, &est); err != nil {
 		die(err)
 	}
 	printEstimate(os.Stderr, est.Data)
@@ -297,7 +297,7 @@ func hostedCruiseTestsGenerate(cr hostedCreds, inv *Invocation) {
 	}
 	v, _ := fetchDraft(cr, id)
 	var env draftEnvelope
-	if err := hostedMutate(cr, "POST", testsRoute(id)+"/generate", map[string]any{"expected_revision": v.Revision}, &env); err != nil {
+	if err := hostedMutate(cr, "POST", inContext(cr, testsRoute(id)+"/generate"), map[string]any{"expected_revision": v.Revision}, &env); err != nil {
 		die(err)
 	}
 	var tv testsView
@@ -362,7 +362,7 @@ func hostedCruiseTestsReview(cr hostedCreds, inv *Invocation) {
 		}
 	}
 	var env draftEnvelope
-	if err := hostedMutate(cr, "POST", testsRoute(v.DraftID)+"/review", map[string]any{"set_digest": computed}, &env); err != nil {
+	if err := hostedMutate(cr, "POST", inContext(cr, testsRoute(v.DraftID)+"/review"), map[string]any{"set_digest": computed}, &env); err != nil {
 		die(err)
 	}
 	emit(env.Data, func() {
@@ -373,7 +373,7 @@ func hostedCruiseTestsReview(cr hostedCreds, inv *Invocation) {
 
 func hostedCruiseTestsDiscard(cr hostedCreds, inv *Invocation) {
 	var env draftEnvelope
-	if err := hostedMutate(cr, "DELETE", testsRoute(inv.Arg(0)), nil, &env); err != nil {
+	if err := hostedMutate(cr, "DELETE", inContext(cr, testsRoute(inv.Arg(0))), nil, &env); err != nil {
 		die(err)
 	}
 	emit(env.Data, func() {

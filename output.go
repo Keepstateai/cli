@@ -204,9 +204,21 @@ func classify(err error) *cliError {
 		case "ks_context_unsupported":
 			// the chosen organization's context, on a list or a creation
 			// that has no organization view: nothing personal is shown there
+			// the service may name a better step than leaving the context (a
+			// plain machine names the agent session that runs as the
+			// organization); a step that is not a ks command is not shown
+			next := "ks context use personal"
+			var doc struct {
+				Error struct {
+					NextAction string `json:"next_action"`
+				} `json:"error"`
+			}
+			if json.Unmarshal(he.Raw, &doc) == nil && strings.HasPrefix(doc.Error.NextAction, "ks ") {
+				next = sanitize(doc.Error.NextAction)
+			}
 			return &cliError{Code: exitUsage, Kind: he.Type, HTTPStatus: he.Status, WorkStarted: workNo,
 				Message:    sanitize(he.Message) + " [ks_context_unsupported]",
-				NextAction: "ks context use personal"}
+				NextAction: next}
 		}
 		if m := managedRefusal(he); m != nil {
 			// a call or a choice on KeepState's key refused before anything

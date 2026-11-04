@@ -202,7 +202,7 @@ func decodeDraft(raw json.RawMessage) (*draftView, error) {
 
 func fetchDraft(cr hostedCreds, id string) (*draftView, json.RawMessage) {
 	var env draftEnvelope
-	if err := hostedCall(cr, "GET", draftsRoute+"/"+url.PathEscape(id), nil, &env); err != nil {
+	if err := hostedCall(cr, "GET", inContext(cr, draftsRoute+"/"+url.PathEscape(id)), nil, &env); err != nil {
 		die(err)
 	}
 	v, err := decodeDraft(env.Data)
@@ -536,8 +536,11 @@ func hostedCruiseDraftCreate(cr hostedCreds, inv *Invocation) {
 	progress("KeepState keeps these files for this draft only, does not bill for them, and deletes them when the draft is approved, discarded or expires")
 
 	var env draftEnvelope
+	if note := cruiseContextNote(cr); note != "" {
+		progress("%s", note)
+	}
 	if err := hostedMutate(cr, "POST", inContext(cr, draftsRoute), body, &env); err != nil {
-		die(err)
+		die(cruiseCtxErr(cr, err))
 	}
 	v, err := decodeDraft(env.Data)
 	if err != nil {
@@ -593,8 +596,11 @@ func createSessionDraft(cr hostedCreds, inv *Invocation, body map[string]any, pr
 	}
 	progress("KeepState copies the session's files into this draft only, does not bill for the copy, and deletes it when the draft is approved, discarded or expires")
 	var env draftEnvelope
+	if note := cruiseContextNote(cr); note != "" {
+		progress("%s", note)
+	}
 	if err := hostedMutate(cr, "POST", inContext(cr, draftsRoute), body, &env); err != nil {
-		die(err)
+		die(cruiseCtxErr(cr, err))
 	}
 	v, err := decodeDraft(env.Data)
 	if err != nil {
@@ -626,7 +632,7 @@ func putDraftUpload(cr hostedCreds, v *draftView, file string, size int64) (json
 		return nil, err
 	}
 	defer f.Close()
-	resp, err := hostedDo(cr, "PUT", v.Upload.Path, "application/octet-stream", io.LimitReader(f, size))
+	resp, err := hostedDo(cr, "PUT", inContext(cr, v.Upload.Path), "application/octet-stream", io.LimitReader(f, size))
 	if err != nil {
 		return nil, &cliError{Code: exitTemporary, Kind: "upload_uncertain", WorkStarted: workUnknown,
 			Message:    fmt.Sprintf("the upload for draft %s got no answer (%s); whether it was read is not known", v.ID, sanitize(err.Error())),
@@ -686,7 +692,7 @@ func hostedCruiseDraftList(cr hostedCreds, inv *Invocation) {
 		} `json:"data"`
 	}
 	if err := hostedCall(cr, "GET", inContext(cr, draftsRoute), nil, &env); err != nil {
-		die(err)
+		die(cruiseCtxErr(cr, err))
 	}
 	var vs []*draftView
 	for _, it := range env.Data.Items {
@@ -696,7 +702,10 @@ func hostedCruiseDraftList(cr hostedCreds, inv *Invocation) {
 		}
 		vs = append(vs, v)
 	}
-	emit(map[string]any{"drafts": env.Data.Items, "count": len(env.Data.Items)}, func() {
+	emit(map[string]any{"drafts": env.Data.Items, "count": len(env.Data.Items), "context": contextWord(cr)}, func() {
+		if org := currentContext(cr); org != "" {
+			fmt.Printf("Context: organization %s\n", org)
+		}
 		if len(vs) == 0 {
 			fmt.Println("no open drafts; start one with ks cruise draft create --dir FOLDER")
 			return
@@ -761,7 +770,7 @@ func hostedCruiseDraftSet(cr hostedCreds, inv *Invocation) {
 	v, _ := fetchDraft(cr, inv.Arg(0))
 	body["expected_revision"] = v.Revision
 	var env draftEnvelope
-	if err := hostedMutate(cr, "PATCH", draftsRoute+"/"+url.PathEscape(v.ID), body, &env); err != nil {
+	if err := hostedMutate(cr, "PATCH", inContext(cr, draftsRoute+"/"+url.PathEscape(v.ID)), body, &env); err != nil {
 		die(err)
 	}
 	after, err := decodeDraft(env.Data)
@@ -773,7 +782,7 @@ func hostedCruiseDraftSet(cr hostedCreds, inv *Invocation) {
 
 func hostedCruiseDraftDiscard(cr hostedCreds, inv *Invocation) {
 	var env draftEnvelope
-	if err := hostedMutate(cr, "DELETE", draftsRoute+"/"+url.PathEscape(inv.Arg(0)), nil, &env); err != nil {
+	if err := hostedMutate(cr, "DELETE", inContext(cr, draftsRoute+"/"+url.PathEscape(inv.Arg(0))), nil, &env); err != nil {
 		die(err)
 	}
 	v, err := decodeDraft(env.Data)
@@ -830,8 +839,8 @@ func hostedCruiseDraftApprove(cr hostedCreds, inv *Invocation) {
 			Job   map[string]any  `json:"job"`
 		} `json:"data"`
 	}
-	if err := hostedMutate(cr, "POST", draftsRoute+"/"+url.PathEscape(v.ID)+"/approve", map[string]any{"manifest_sha": computed}, &env); err != nil {
-		die(err)
+	if err := hostedMutate(cr, "POST", inContext(cr, draftsRoute+"/"+url.PathEscape(v.ID)+"/approve"), map[string]any{"manifest_sha": computed}, &env); err != nil {
+		die(cruiseCtxErr(cr, err))
 	}
 	job := env.Data.Job
 	// a job of another digest than the one approved here is refused before
@@ -928,7 +937,7 @@ func verifyDraft(cr hostedCreds, v *draftView, raw json.RawMessage) {
 	if v.Archive != nil && v.Archive.Path != "" {
 		route = v.Archive.Path
 	}
-	resp, err := hostedDo(cr, "GET", route, "", nil)
+	resp, err := hostedDo(cr, "GET", inContext(cr, route), "", nil)
 	if err != nil {
 		die(err)
 	}
@@ -1091,7 +1100,7 @@ const draftCheckWait = 3 * time.Minute
 func hostedCruiseDraftCheck(cr hostedCreds, inv *Invocation) {
 	v, _ := fetchDraft(cr, inv.Arg(0))
 	var env draftEnvelope
-	if err := hostedMutate(cr, "POST", draftsRoute+"/"+url.PathEscape(v.ID)+"/check", map[string]any{"expected_revision": v.Revision}, &env); err != nil {
+	if err := hostedMutate(cr, "POST", inContext(cr, draftsRoute+"/"+url.PathEscape(v.ID)+"/check"), map[string]any{"expected_revision": v.Revision}, &env); err != nil {
 		die(err)
 	}
 	progress("Cruise is running your tests once on the draft's files, as the job's check will (no machine, no model)")
