@@ -34,7 +34,10 @@ if [ -f ` + dir + `/fail ]; then cat ` + dir + `/fail; exit 1; fi
 case "$1" in
 --version) echo "herdr 0.9.5" ;;
 tab) printf '{"id":"cli","result":{"tab":{"tab_id":"w1:t9"},\n "root_pane":{"pane_id":"w1:p9"}}}\n' ;;
-plugin) if [ "$2" = unlink ] && [ -f ` + dir + `/unlink.out ]; then cat ` + dir + `/unlink.out; fi ;;
+plugin) case "$2" in
+  unlink|uninstall) if [ -f ` + dir + `/$2.out ]; then cat ` + dir + `/$2.out; fi ;;
+  list) if [ -f ` + dir + `/list.out ]; then cat ` + dir + `/list.out; else echo '{"id":"cli:plugin","result":{"type":"plugin_list","plugins":[]}}'; fi ;;
+  esac ;;
 esac
 `
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
@@ -59,7 +62,7 @@ func fakeOpener(t *testing.T, dir string) string {
 func noHerdrEnv() []string { return []string{"HERDR_ENV=", "HERDR_PANE_ID=", "HERDR_BIN_PATH="} }
 
 func TestHerdrManifestIsTheGoldenFileAndFollowsHerdrsIDRules(t *testing.T) {
-	golden, err := os.ReadFile(filepath.Join("testdata", "herdr", "herdr-plugin.toml"))
+	golden, err := os.ReadFile(filepath.Join("testdata", "herdr", "herdr-plugin.toml.golden"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,15 +125,19 @@ func TestHerdrInstallShowsAsksThenLinksOnly(t *testing.T) {
 	if _, err := os.Stat(manifest); !os.IsNotExist(err) {
 		t.Fatal("a refused install wrote the manifest")
 	}
-	if calls := herdrCalls(t, log); len(calls) != 0 {
-		t.Fatalf("a refused install ran herdr: %v", calls)
+	// a refused install only read herdr's plugin list
+	for _, c := range herdrCalls(t, log) {
+		if c != herdrListCall {
+			t.Fatalf("a refused install ran herdr: %v", c)
+		}
 	}
+	_ = os.Remove(log)
 
 	stdout, errs, code := auditExec(t, bin, cfg, t.TempDir(), env, "herdr", "install", "--yes")
 	if code != 0 {
 		t.Fatalf("install: exit %d\n%s%s", code, stdout, errs)
 	}
-	if calls := herdrCalls(t, log); len(calls) != 1 || calls[0] != "|plugin|link|"+pluginDir {
+	if calls := herdrCalls(t, log); len(calls) != 2 || calls[0] != herdrListCall || calls[1] != "|plugin|link|"+pluginDir {
 		t.Errorf("herdr calls %v", calls)
 	}
 	b, err := os.ReadFile(manifest)
@@ -163,7 +170,7 @@ func TestHerdrInstallShowsAsksThenLinksOnly(t *testing.T) {
 	// uninstall: unlink, and the files install wrote are gone
 	_ = os.Remove(log)
 	out = runOKEnv(t, bin, cfg, env, "herdr", "uninstall")
-	if calls := herdrCalls(t, log); len(calls) != 1 || calls[0] != "|plugin|unlink|keepstate" {
+	if calls := herdrCalls(t, log); len(calls) != 2 || calls[0] != herdrListCall || calls[1] != "|plugin|unlink|keepstate" {
 		t.Errorf("uninstall calls %v", calls)
 	}
 	if _, err := os.Stat(pluginDir); !os.IsNotExist(err) || !strings.Contains(out, "Unlinked") {

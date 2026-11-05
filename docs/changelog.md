@@ -143,6 +143,17 @@
   much of the size it is.
 - The `ks herdr` commands' notes say they have run against a real herdr
   0.9.5 and hc 0.1.16, not only a stand-in.
+- The herdr plugin is published from this repository: `herdr plugin install
+  Keepstateai/cli/herdr` installs the static manifest in `herdr/`, whose
+  panes, action and one install step run only `ks` (the install step stops
+  the install when `ks` is not on PATH). `herdr/README.md` says what it needs
+  and the two herdr settings for toasts and the sidebar's words. A release
+  fails when that manifest states another version than its tag. `ks herdr
+  install` leaves a plugin herdr installed from GitHub as it is, writing and
+  linking nothing; `ks herdr status` says where the plugin came from and its
+  version; `ks herdr uninstall` removes the GitHub one with `herdr plugin
+  uninstall`. The test copy of the manifest is renamed so herdr's
+  marketplace lists only the published one.
 
 ## v0.1.34 (2026-11-03)
 

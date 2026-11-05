@@ -1,0 +1,27 @@
+id = "keepstate"
+name = "KeepState"
+version = "0.1.37"
+min_herdr_version = "0.9.2"
+description = "Your KeepState sessions, agents, saved points and receipts"
+platforms = ["linux", "macos"]
+
+[[panes]]
+id = "agents"
+title = "KeepState"
+placement = "overlay"
+command = ["ks", "herdr", "pane", "agents"]
+
+[[panes]]
+id = "receipts"
+title = "KeepState receipts"
+placement = "split"
+command = ["ks", "herdr", "pane", "receipts"]
+
+[[actions]]
+id = "console"
+title = "Open the KeepState console"
+contexts = ["workspace"]
+command = ["ks", "herdr", "action", "console"]
+
+[[build]]
+command = ["ks", "herdr", "pane", "agents", "--help"]
