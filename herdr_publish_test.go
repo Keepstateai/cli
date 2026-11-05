@@ -184,3 +184,18 @@ func TestHerdrStatusWithNoPluginNamesBothWaysToInstall(t *testing.T) {
 		t.Errorf("status:\n%s", out)
 	}
 }
+
+func TestHerdrStatusSaysWhichSideToUpdate(t *testing.T) {
+	for _, tc := range []struct{ plugin, client, want string }{
+		{"0.1.37", "0.1.38", "; herdr plugin update keepstate"},
+		{"0.1.38", "0.1.37", "; ks update"},
+		{"0.2.0", "0.10.0", "; herdr plugin update keepstate"},
+		{"0.1.37", "0.1.37", ""},
+		{"0.1.37", "0.1.38-rc.1", ""},
+		{"0.1.37", "0.0.0-dev", ""},
+	} {
+		if got := herdrVersionAdvice(tc.plugin, tc.client); got != tc.want {
+			t.Errorf("plugin %s, client %s: %q, want %q", tc.plugin, tc.client, got, tc.want)
+		}
+	}
+}

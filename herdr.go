@@ -163,6 +163,39 @@ func herdrListed(bin string) *herdrInstalled {
 	return nil
 }
 
+// herdrVersionAdvice is the step that brings a GitHub-installed plugin at
+// version plugin and this client at version client together: the plugin
+// updates when it is the older, ks when it is; nothing is said when either
+// is not a release version.
+func herdrVersionAdvice(plugin, client string) string {
+	num := func(v string) (n [3]int, ok bool) {
+		parts := strings.Split(v, ".")
+		if len(parts) != 3 {
+			return n, false
+		}
+		for i, p := range parts {
+			if _, err := fmt.Sscanf(p, "%d", &n[i]); err != nil || fmt.Sprint(n[i]) != p {
+				return n, false
+			}
+		}
+		return n, true
+	}
+	a, okA := num(plugin)
+	b, okB := num(client)
+	if !okA || !okB || a == b {
+		return ""
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			if a[i] < b[i] {
+				return "; herdr plugin update keepstate"
+			}
+			return "; ks update"
+		}
+	}
+	return ""
+}
+
 // herdrBinary is the herdr to run: the pane's own when this runs inside
 // herdr, else the one on PATH.
 func herdrBinary() (string, bool) {
@@ -365,8 +398,8 @@ func herdrStatus(inv *Invocation) {
 		v := oscText(listed.Version, 80)
 		doc["installed"] = map[string]any{"source": "github", "repo": repo, "ref": oscText(listed.Source.Ref, 80), "commit": oscText(listed.Source.Commit, 80), "version": v, "root": oscText(listed.Root, 500)}
 		line := "plugin         installed from GitHub: " + repo + " at " + at + ", version " + v
-		if v != herdrPluginVersion(version) {
-			line += " (this client is " + herdrPluginVersion(version) + "; herdr plugin update keepstate)"
+		if mine := herdrPluginVersion(version); v != mine {
+			line += " (this client is " + mine + herdrVersionAdvice(v, mine) + ")"
 		}
 		lines = append(lines, line)
 	} else if listed != nil {

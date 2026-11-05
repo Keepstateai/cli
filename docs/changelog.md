@@ -152,8 +152,10 @@
   install` leaves a plugin herdr installed from GitHub as it is, writing and
   linking nothing; `ks herdr status` says where the plugin came from and its
   version; `ks herdr uninstall` removes the GitHub one with `herdr plugin
-  uninstall`. The test copy of the manifest is renamed so herdr's
-  marketplace lists only the published one.
+  uninstall`, and says which side to update when the two versions differ.
+  The test copy of the manifest is renamed so herdr's marketplace lists only
+  the published one. The notes of the `ks herdr` commands say they have run
+  against herdr 0.9.5 both ways and hc 0.1.18.
 
 ## v0.1.34 (2026-11-03)
 
