@@ -1,0 +1,15 @@
+{
+  "name": "keepstate",
+  "owner": {
+    "name": "KeepState",
+    "url": "https://keepstate.ai"
+  },
+  "description": "KeepState's plugins for Claude Code.",
+  "plugins": [
+    {
+      "name": "keepstate",
+      "source": "./plugins/keepstate",
+      "description": "Start, watch, message and pause KeepState agents from Claude Code through ks mcp; approving a permission request always asks you."
+    }
+  ]
+}

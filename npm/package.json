@@ -1,6 +1,7 @@
 {
   "name": "@keepstateai/cli",
   "version": "0.1.1",
+  "mcpName": "ai.keepstate/ks",
   "description": "KeepState CLI (ks) \u2014 durable agent sessions. Thin shim that downloads the checksum-verified release binary.",
   "license": "MIT",
   "repository": {

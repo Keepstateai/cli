@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "keepstate": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@keepstateai/cli@0.1.37",
+        "mcp"
+      ]
+    }
+  }
+}

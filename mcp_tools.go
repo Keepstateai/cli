@@ -43,6 +43,7 @@ type mcpProp struct {
 
 type mcpTool struct {
 	Name        string
+	Title       string // the name a person reads in the host app's tool list
 	Desc        string
 	Verb        []string
 	Props       []mcpProp
@@ -90,55 +91,55 @@ func strArg(a map[string]any, k string) string {
 
 // mcpTools is the whole list, in the order tools/list answers it.
 var mcpTools = []mcpTool{
-	{Name: "ks_skill", Kind: "read", Verb: []string{"skill"}, Desc: "The KeepState manual for delegating to child agents: each child is a metered session, how to send, wait and read, the status words, and the rules. Read it before starting a child."},
-	{Name: "ks_session_list", Kind: "read", Verb: []string{"session", "list"}, Desc: "Your KeepState sessions, newest activity first, with state, agent and last save." + dataNote,
+	{Name: "ks_skill", Title: "Read the KeepState manual", Kind: "read", Verb: []string{"skill"}, Desc: "The KeepState manual for delegating to child agents: each child is a metered session, how to send, wait and read, the status words, and the rules. Read it before starting a child."},
+	{Name: "ks_session_list", Title: "List sessions", Kind: "read", Verb: []string{"session", "list"}, Desc: "Your KeepState sessions, newest activity first, with state, agent and last save." + dataNote,
 		Props: []mcpProp{{Name: "state", Type: "string", Flag: "state", Enum: []string{"running", "parked", "dead"}, Desc: "only sessions in this state"}}},
-	{Name: "ks_session_show", Kind: "read", Verb: []string{"session", "show"}, Desc: "One session in full." + dataNote,
+	{Name: "ks_session_show", Title: "Show a session", Kind: "read", Verb: []string{"session", "show"}, Desc: "One session in full." + dataNote,
 		Props: []mcpProp{{Name: "session", Type: "string", Required: true, Desc: "the session id"}}},
-	{Name: "ks_agent_list", Kind: "read", Verb: []string{"agent", "list"}, Desc: "The agents of a session: name, id, state, current instruction; with all, every agent across your sessions, what needs you first." + dataNote,
+	{Name: "ks_agent_list", Title: "List agents", Kind: "read", Verb: []string{"agent", "list"}, Desc: "The agents of a session: name, id, state, current instruction; with all, every agent across your sessions, what needs you first." + dataNote,
 		Props: []mcpProp{pSession, {Name: "all", Type: "boolean", Flag: "all", Desc: "every agent across your sessions instead of one session's"}}},
-	{Name: "ks_agent_status", Kind: "read", Verb: []string{"agent", "status"}, Desc: "One agent's activity, queue and current instruction." + dataNote,
+	{Name: "ks_agent_status", Title: "Show an agent's status", Kind: "read", Verb: []string{"agent", "status"}, Desc: "One agent's activity, queue and current instruction." + dataNote,
 		Props: []mcpProp{pAgentName, pSession}},
-	{Name: "ks_agent_read", Kind: "read", Verb: []string{"agent", "read"}, Desc: "The last lines of an agent's conversation as plain text: a child's reply." + dataNote,
+	{Name: "ks_agent_read", Title: "Read an agent's reply", Kind: "read", Verb: []string{"agent", "read"}, Desc: "The last lines of an agent's conversation as plain text: a child's reply." + dataNote,
 		Props: []mcpProp{pAgentName, pSession, {Name: "lines", Type: "integer", Flag: "lines", Desc: "how many lines from the end (default 40)"}}},
-	{Name: "ks_agent_history", Kind: "read", Verb: []string{"agent", "history"}, Desc: "An agent's whole conversation so far, oldest first." + dataNote,
+	{Name: "ks_agent_history", Title: "Read an agent's conversation", Kind: "read", Verb: []string{"agent", "history"}, Desc: "An agent's whole conversation so far, oldest first." + dataNote,
 		Props: []mcpProp{pAgentName, pSession, {Name: "last", Type: "integer", Flag: "last", Desc: "only the last N entries"}}},
-	{Name: "ks_agent_wait", Kind: "read", Verb: []string{"agent", "wait"}, TimeoutArg: "timeout",
+	{Name: "ks_agent_wait", Title: "Wait for an agent", Kind: "read", Verb: []string{"agent", "wait"}, TimeoutArg: "timeout",
 		Desc: "Wait until an agent stops working, until none of your children works (children all), or for the next note about one (children any). Ends with a reason: status, message, timeout or exited; a timeout is a check-in." + dataNote,
 		Props: []mcpProp{{Name: "name", Type: "string", Desc: "the agent to wait for; leave out with children"}, pSession,
 			{Name: "children", Type: "string", Flag: "children", Enum: []string{"any", "all"}, Desc: "wait for your children instead of one agent"},
 			{Name: "timeout", Type: "integer", Flag: "timeout", Desc: "seconds to wait, at most 600 (default 180)"}}},
-	{Name: "ks_task_list", Kind: "read", Verb: []string{"task", "list"}, Desc: "The instructions of a session or an agent and where each stands." + dataNote,
+	{Name: "ks_task_list", Title: "List instructions", Kind: "read", Verb: []string{"task", "list"}, Desc: "The instructions of a session or an agent and where each stands." + dataNote,
 		Props: []mcpProp{pSession, {Name: "agent", Type: "string", Flag: "agent", Desc: "only this agent's"}}},
-	{Name: "ks_task_show", Kind: "read", Verb: []string{"task", "show"}, Desc: "One instruction in full." + dataNote,
+	{Name: "ks_task_show", Title: "Show an instruction", Kind: "read", Verb: []string{"task", "show"}, Desc: "One instruction in full." + dataNote,
 		Props: []mcpProp{{Name: "instruction", Type: "string", Required: true, Desc: "the instruction's id"}, pSession}},
-	{Name: "ks_approval_list", Kind: "read", Verb: []string{"approval", "list"}, Desc: "The permission requests waiting for a person, a session's or one agent's: each exact action, the instruction it was asked for, what it touches and when it expires. Decide one only with your person's yes, through ks_agent_approve or ks_agent_deny." + dataNote,
+	{Name: "ks_approval_list", Title: "List permission requests", Kind: "read", Verb: []string{"approval", "list"}, Desc: "The permission requests waiting for a person, a session's or one agent's: each exact action, the instruction it was asked for, what it touches and when it expires. Decide one only with your person's yes, through ks_agent_approve or ks_agent_deny." + dataNote,
 		Props: []mcpProp{pSession, {Name: "agent", Type: "string", Flag: "agent", Desc: "only the requests this agent asked, by name or id"}}},
-	{Name: "ks_approval_show", Kind: "read", Verb: []string{"approval", "show"}, Desc: "One permission request in full." + dataNote,
+	{Name: "ks_approval_show", Title: "Show a permission request", Kind: "read", Verb: []string{"approval", "show"}, Desc: "One permission request in full." + dataNote,
 		Props: []mcpProp{{Name: "request", Type: "string", Required: true, Desc: "the request's id"}, pSession}},
-	{Name: "ks_session_checkpoints", Kind: "read", Verb: []string{"session", "checkpoints"}, Desc: "A session's saved points and whether each is usable." + dataNote,
+	{Name: "ks_session_checkpoints", Title: "List a session's saved points", Kind: "read", Verb: []string{"session", "checkpoints"}, Desc: "A session's saved points and whether each is usable." + dataNote,
 		Props: []mcpProp{{Name: "session", Type: "string", Required: true, Desc: "the session id"}}},
-	{Name: "ks_session_usage", Kind: "read", Verb: []string{"session", "usage"}, Desc: "A session's model use, runtime and storage; a figure the service does not have reads unavailable." + dataNote,
+	{Name: "ks_session_usage", Title: "Show a session's usage", Kind: "read", Verb: []string{"session", "usage"}, Desc: "A session's model use, runtime and storage; a figure the service does not have reads unavailable." + dataNote,
 		Props: []mcpProp{{Name: "session", Type: "string", Required: true, Desc: "the session id"}}},
-	{Name: "ks_result_list", Kind: "read", Verb: []string{"result", "list"}, Desc: "The results agents recorded, by instruction, session or agent." + dataNote,
+	{Name: "ks_result_list", Title: "List results", Kind: "read", Verb: []string{"result", "list"}, Desc: "The results agents recorded, by instruction, session or agent." + dataNote,
 		Props: []mcpProp{{Name: "task", Type: "string", Flag: "task", Desc: "an instruction's id"}, pSession, {Name: "agent", Type: "string", Flag: "agent", Desc: "an agent's name"}}},
-	{Name: "ks_result_show", Kind: "read", Verb: []string{"result", "show"}, Desc: "One result in full." + dataNote,
+	{Name: "ks_result_show", Title: "Show a result", Kind: "read", Verb: []string{"result", "show"}, Desc: "One result in full." + dataNote,
 		Props: []mcpProp{{Name: "result", Type: "string", Required: true, Desc: "the result's id"}}},
-	{Name: "ks_cruise_status", Kind: "read", Verb: []string{"cruise", "status"}, Desc: "Your Cruise jobs, or one job's state." + dataNote,
+	{Name: "ks_cruise_status", Title: "Show Cruise jobs", Kind: "read", Verb: []string{"cruise", "status"}, Desc: "Your Cruise jobs, or one job's state." + dataNote,
 		Props: []mcpProp{{Name: "job", Type: "string", Desc: "the job's id; leave out for your jobs"}}},
-	{Name: "ks_cruise_result", Kind: "read", Verb: []string{"cruise", "result"}, Desc: "A finished Cruise job's receipt: its badge as served, checks and provenance." + dataNote,
+	{Name: "ks_cruise_result", Title: "Show a Cruise receipt", Kind: "read", Verb: []string{"cruise", "result"}, Desc: "A finished Cruise job's receipt: its badge as served, checks and provenance." + dataNote,
 		Props: []mcpProp{{Name: "job", Type: "string", Required: true, Desc: "the job's id"}}},
-	{Name: "ks_cruise_models", Kind: "read", Verb: []string{"cruise", "models"}, Desc: "The harnesses and models KeepState offers." + dataNote},
+	{Name: "ks_cruise_models", Title: "List harnesses and models", Kind: "read", Verb: []string{"cruise", "models"}, Desc: "The harnesses and models KeepState offers." + dataNote},
 
-	{Name: "ks_agent_send", Kind: "act", Verb: []string{"agent", "send"},
+	{Name: "ks_agent_send", Title: "Send an instruction to an agent", Kind: "act", Verb: []string{"agent", "send"},
 		Desc: "Queue one more instruction for an agent, tagged as sent by you. It acts at once with no confirm step: the agent's work on it is metered like its session. With if, it sends only when the agent is idle or working. An instruction to an agent waiting on a permission request queues behind it; this never decides the request." + dataNote,
 		Props: []mcpProp{pAgentName, {Name: "text", Type: "string", Required: true, Desc: "the instruction"}, pSession,
 			{Name: "if", Type: "string", Flag: "if", Enum: []string{"idle", "working"}, Desc: "send only in this state; otherwise nothing is sent"}}},
-	{Name: "ks_agent_pause", Kind: "act", Verb: []string{"agent", "pause"},
+	{Name: "ks_agent_pause", Title: "Pause an agent's session", Kind: "act", Verb: []string{"agent", "pause"},
 		Desc:  "Save the session an agent lives in and pause it. It acts at once with no confirm step: it is reversible (ks_agent_resume), nothing is lost, and session time stops." + dataNote,
 		Props: []mcpProp{pAgentName, pSession}},
 
-	{Name: "ks_agent_run", Kind: "confirm", Verb: []string{"agent", "run"}, Fixed: []string{"--bg"},
+	{Name: "ks_agent_run", Title: "Start a child agent", Kind: "confirm", Verb: []string{"agent", "run"}, Fixed: []string{"--bg"},
 		Desc: "Start a child agent in a NEW session with a first instruction; you are its parent and it is paused when you exit. It spends: session time and model use are metered. The first call does nothing and answers a plan and a confirm value; ask your person, then call again with the same arguments and confirm." + dataNote,
 		Props: []mcpProp{{Name: "name", Type: "string", Flag: "name", Required: true, Desc: "the child's name, used to send, wait and read"},
 			{Name: "task", Type: "string", Required: true, Desc: "the first instruction"},
@@ -153,14 +154,14 @@ var mcpTools = []mcpTool{
 			}
 			return fmt.Sprintf("Start child %s%s in a NEW session with the instruction %q. Session time and model use are metered from its start.", strArg(a, "name"), role, clipText(strArg(a, "task"), 300))
 		}},
-	{Name: "ks_agent_resume", Kind: "confirm", Verb: []string{"agent", "resume"},
+	{Name: "ks_agent_resume", Title: "Resume an agent's session", Kind: "confirm", Verb: []string{"agent", "resume"},
 		Desc:  "Resume the paused session an agent lives in. It spends: session time is metered again. The first call does nothing and answers a plan and a confirm value; call again with confirm." + dataNote,
 		Props: []mcpProp{pAgentName, pSession},
 		Plan: func(a map[string]any) string {
 			return fmt.Sprintf("Resume the session agent %s lives in. Session time is metered again from now.", strArg(a, "name"))
 		},
 		Target: agentStatusTarget},
-	{Name: "ks_agent_stop", Kind: "confirm", Verb: []string{"agent", "stop"}, Destructive: true,
+	{Name: "ks_agent_stop", Title: "Stop an agent", Kind: "confirm", Verb: []string{"agent", "stop"}, Destructive: true,
 		Desc:  "Stop an agent: its instruction in flight is asked to stop and its queue is held until a person releases it. The first call does nothing and answers a plan and a confirm value; call again with confirm." + dataNote,
 		Props: []mcpProp{pAgentName, pSession, {Name: "reason", Type: "string", Flag: "reason", Desc: "why, recorded with the stop"}},
 		Plan: func(a map[string]any) string {
@@ -168,17 +169,17 @@ var mcpTools = []mcpTool{
 		},
 		Target:         agentStatusTarget,
 		ExtraOnConfirm: func(a map[string]any) []string { return []string{"--confirm=" + strArg(a, "name")} }},
-	{Name: "ks_agent_approve", Kind: "confirm", Human: true, Verb: []string{"agent", "approve"}, Destructive: true, Nothing: "nothing was approved",
+	{Name: "ks_agent_approve", Title: "Approve a permission request (asks a person)", Kind: "confirm", Human: true, Verb: []string{"agent", "approve"}, Destructive: true, Nothing: "nothing was approved",
 		Desc:   "Ask your person to approve one permission request an agent waits on. This tool cannot approve on its own and neither can you: approving needs a person's answer in the host app, and its confirm step is that answer. The call shows the person the agent, the exact command or tool and what approving lets it do, and asks Approve or Deny; only their Approve approves, that request at that revision, once. A host app that cannot ask its person approves nothing; the person can then decide in the KeepState console or with ks agent approve in a terminal. A request already decided or expired is refused." + dataNote,
 		Props:  []mcpProp{{Name: "request", Type: "string", Required: true, Desc: "the permission request's id, from ks_approval_list"}, {Name: "session", Type: "string", Flag: "session", Required: true, Desc: "the session the request belongs to"}},
 		Plan:   func(a map[string]any) string { return "Approve permission request " + strArg(a, "request") + "." },
 		Target: approvalTarget, Inspect: approvalInspect("approve")},
-	{Name: "ks_agent_deny", Kind: "confirm", Verb: []string{"agent", "deny"}, Nothing: "nothing was decided",
+	{Name: "ks_agent_deny", Title: "Deny a permission request", Kind: "confirm", Verb: []string{"agent", "deny"}, Nothing: "nothing was decided",
 		Desc:   "Deny one permission request an agent waits on: it is refused that action and carries on without it. The first call decides nothing and answers a plan and a confirm value; only with your person's yes call again with confirm. Only that request at that revision is denied; one already decided or expired is refused." + dataNote,
 		Props:  []mcpProp{{Name: "request", Type: "string", Required: true, Desc: "the permission request's id, from ks_approval_list"}, {Name: "session", Type: "string", Flag: "session", Required: true, Desc: "the session the request belongs to"}},
 		Plan:   func(a map[string]any) string { return "Deny permission request " + strArg(a, "request") + "." },
 		Target: approvalTarget, Inspect: approvalInspect("deny")},
-	{Name: "ks_task_cancel", Kind: "confirm", Verb: []string{"task", "cancel"}, Destructive: true,
+	{Name: "ks_task_cancel", Title: "Cancel an instruction", Kind: "confirm", Verb: []string{"task", "cancel"}, Destructive: true,
 		Desc:  "Cancel one instruction; a running one is asked to stop at a safe boundary. The first call does nothing and answers a plan and a confirm value; call again with confirm." + dataNote,
 		Props: []mcpProp{{Name: "instruction", Type: "string", Required: true, Desc: "the instruction's id"}, pSession, {Name: "reason", Type: "string", Flag: "reason", Desc: "why, recorded with the cancel"}},
 		Plan: func(a map[string]any) string {
@@ -243,11 +244,11 @@ func (t mcpTool) schema() map[string]any {
 }
 
 func (t mcpTool) definition() map[string]any {
-	ann := map[string]any{"readOnlyHint": t.Kind == "read", "destructiveHint": t.Destructive, "openWorldHint": false}
+	ann := map[string]any{"title": t.Title, "readOnlyHint": t.Kind == "read", "destructiveHint": t.Destructive, "openWorldHint": false}
 	if t.Kind == "read" {
 		ann["idempotentHint"] = true
 	}
-	return map[string]any{"name": t.Name, "description": t.Desc, "inputSchema": t.schema(), "annotations": ann}
+	return map[string]any{"name": t.Name, "title": t.Title, "description": t.Desc, "inputSchema": t.schema(), "annotations": ann}
 }
 
 // checkArgs refuses an argument the tool does not take, of the wrong type,
