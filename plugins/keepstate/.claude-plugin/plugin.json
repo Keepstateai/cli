@@ -1,0 +1,24 @@
+{
+  "name": "keepstate",
+  "displayName": "KeepState",
+  "version": "0.1.37",
+  "description": "Start, watch, message and pause KeepState agents from Claude Code through ks mcp; approving a permission request always asks you.",
+  "author": {
+    "name": "KeepState",
+    "url": "https://keepstate.ai"
+  },
+  "homepage": "https://keepstate.ai/docs/herdr-and-mcp",
+  "repository": "https://github.com/Keepstateai/cli",
+  "license": "MIT",
+  "keywords": [
+    "agents",
+    "sessions",
+    "mcp",
+    "keepstate"
+  ],
+  "icon": "./icon.png",
+  "documentationUrl": "https://keepstate.ai/docs/herdr-and-mcp",
+  "supportUrl": "https://keepstate.ai/support",
+  "privacyPolicyUrl": "https://keepstate.ai/legal/privacy",
+  "termsOfServiceUrl": "https://keepstate.ai/legal/terms"
+}

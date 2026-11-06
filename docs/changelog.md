@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- `ks mcp` can be listed and installed as a package. Every tool has a
+  title a person reads in the host app (`List agents`, `Approve a permission
+  request (asks a person)`), beside the annotations it already had. The npm
+  package names its MCP Registry entry (`mcpName`), `server.json` describes
+  the server for the MCP Registry (the npm package, stdio, the argument
+  `mcp`), and `plugins/keepstate` is a Claude Code plugin that runs it, with
+  a marketplace at the repository root: `/plugin marketplace add
+  Keepstateai/cli`, then `/plugin install keepstate@keepstate`. Approving a
+  permission request still needs a person's answer in the host app.
 - `ks agent open`, the `ks` app and `ks agent wait` wait out a restart of
   the service (a deploy) instead of ending: they reconnect by themselves from
   the last event shown, so nothing is shown twice or missed, and say

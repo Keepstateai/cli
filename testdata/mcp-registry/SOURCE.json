@@ -1,0 +1,11 @@
+{
+ "what": "the MCP Registry's server.json schema, as published",
+ "url": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+ "fetched": "2026-11-05",
+ "files": {
+  "testdata/mcp-registry/server.schema.json": {
+   "from": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+   "sha256": "3fba09590c99f61735d234822279f4223fab9e300c0a81e81c91ab62a4114de0"
+  }
+ }
+}

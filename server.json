@@ -1,0 +1,47 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "ai.keepstate/ks",
+  "title": "KeepState",
+  "description": "Durable agent sessions: start, watch, message and pause KeepState agents; approvals ask a person.",
+  "websiteUrl": "https://keepstate.ai/docs/herdr-and-mcp",
+  "repository": {
+    "url": "https://github.com/Keepstateai/cli",
+    "source": "github",
+    "id": "1353916909"
+  },
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/Keepstateai/cli/main/plugins/keepstate/icon.png",
+      "mimeType": "image/png",
+      "sizes": [
+        "512x512"
+      ]
+    },
+    {
+      "src": "https://keepstate.ai/favicon.svg",
+      "mimeType": "image/svg+xml",
+      "sizes": [
+        "any"
+      ]
+    }
+  ],
+  "version": "0.1.38",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@keepstateai/cli",
+      "version": "0.1.38",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp"
+        }
+      ]
+    }
+  ]
+}

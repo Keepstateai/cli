@@ -95,3 +95,24 @@ Set repo secret `HOMEBREW_TAP_TOKEN` (a fine-grained PAT with
 `contents: write` on `keepstateai/homebrew-tap`) to have the release bump
 the tap formula automatically. Absent the secret, the tap step is skipped
 with a warning and the formula is bumped by hand.
+
+## The MCP Registry entry and the Claude Code plugin
+
+`server.json` (the MCP Registry's description of `ks mcp`) and the plugin in
+`plugins/keepstate` name versions, and the tests hold them to the release:
+
+- **With every release**, set `version` and `packages[0].version` in
+  `server.json` to the release's version (`TestMCPListingServerJSON` refuses
+  one older than the newest `## vX.Y.Z` in docs/changelog.md). The registry
+  checks that the npm package at that version carries `mcpName`
+  (`ai.keepstate/ks`), so publish to the registry only after npm has it.
+- **After the release is on npm**, raise the plugin's pin in
+  `plugins/keepstate/.mcp.json` and the README to that exact version, and
+  `version` in its `plugin.json` with it (`TestMCPListingClaudePlugin` holds
+  the three together and refuses a version the changelog does not name as
+  released). The Claude plugin directory refuses a launcher without an exact
+  version.
+- Publishing to the registry: `mcp-publisher login dns --domain keepstate.ai
+  --private-key <hex>` with the key whose public half is the `v=MCPv1` TXT
+  record on keepstate.ai, then `mcp-publisher publish` from a checkout of
+  the release tag. Nothing in CI publishes to the registry.
