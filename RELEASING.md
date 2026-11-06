@@ -9,6 +9,17 @@ git tag -s vX.Y.Z -m "ks-publication-gate: status=PASS tree=$(git rev-parse 'HEA
 git push origin vX.Y.Z
 ```
 
+Before tagging, the release commit sets the herdr plugin's manifest to the
+release's version, because herdr's plugin marketplace serves
+`herdr/herdr-plugin.toml` from this repository as it stands:
+
+```
+KS_HERDR_MANIFEST_WRITE=vX.Y.Z go test -count=1 -run TestThePublishedHerdrManifest .
+```
+
+On a tag push the release's tests fail when that file states another
+version than the tag's.
+
 `sums` is mandatory on a publishing run. Obtain it by building the release
 locally with the pinned toolchain and hashing the manifest the build
 produces (`sha256sum dist/SHA256SUMS`), so the tag is bound to the exact

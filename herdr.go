@@ -1,13 +1,18 @@
 // herdr.go: the KeepState plugin for herdr, a terminal workspace for coding
-// agents. It is linked locally; nothing is downloaded:
+// agents. It comes into herdr one of two ways: herdr plugin install
+// Keepstateai/cli/herdr fetches the static manifest in this repository's
+// herdr/ folder, or ks herdr install links one this client writes, with
+// nothing downloaded:
 //
 //	ks herdr install     writes the plugin's manifest under this client's
 //	                     config, shows it, asks, then runs
-//	                     herdr plugin link <dir>
-//	ks herdr uninstall   herdr plugin unlink keepstate, then removes the
+//	                     herdr plugin link <dir>; when herdr already has
+//	                     the plugin from GitHub it writes and links nothing
+//	ks herdr uninstall   herdr plugin unlink keepstate (herdr plugin
+//	                     uninstall for the GitHub one), then removes the
 //	                     files install wrote
-//	ks herdr status      the herdr found, its version, and whether the
-//	                     manifest is written and current
+//	ks herdr status      the herdr found, its version, where the plugin
+//	                     came from, and whether the manifest is current
 //
 // The plugin's panes and its action run ks itself (herdr_pane.go): a list
 // of your agents with their status, saved points and receipts, and the
@@ -82,6 +87,115 @@ command = ["ks", "herdr", "action", "console"]
 `
 }
 
+// herdrPluginRepo is where herdr plugin install fetches the published
+// manifest from: this public repository's herdr/ folder.
+const herdrPluginRepo = "Keepstateai/cli/herdr"
+
+// herdrPublishedManifest is herdr/herdr-plugin.toml as published at version
+// v: the local manifest plus one build step. herdr runs it when it installs
+// the plugin from GitHub, so the install stops at once, with herdr's words,
+// when ks is not on PATH or is a client without the plugin's panes. Like
+// every command in the manifest it runs ks itself, and it changes nothing.
+func herdrPublishedManifest(v string) string {
+	return herdrManifest(v) + `
+[[build]]
+command = ["ks", "herdr", "pane", "agents", "--help"]
+`
+}
+
+// herdrInstalled is what herdr's plugin list says of the KeepState plugin.
+type herdrInstalled struct {
+	Version string `json:"version"`
+	Root    string `json:"plugin_root"`
+	Source  struct {
+		Kind   string `json:"kind"`
+		Owner  string `json:"owner"`
+		Repo   string `json:"repo"`
+		Subdir string `json:"subdir"`
+		Ref    string `json:"requested_ref"`
+		Commit string `json:"resolved_commit"`
+	} `json:"source"`
+}
+
+func (p *herdrInstalled) fromGitHub() bool { return p != nil && p.Source.Kind == "github" }
+
+// where names the GitHub source: owner/repo[/subdir] at its ref or commit.
+func (p *herdrInstalled) where() (repo, at string) {
+	repo = oscText(p.Source.Owner+"/"+p.Source.Repo, 200)
+	if p.Source.Subdir != "" {
+		repo += "/" + oscText(p.Source.Subdir, 200)
+	}
+	at = p.Source.Ref
+	if at == "" {
+		at = p.Source.Commit
+		if len(at) > 12 {
+			at = at[:12]
+		}
+	}
+	return repo, oscText(at, 80)
+}
+
+// herdrListed asks herdr which KeepState plugin it has: nil when it has
+// none, or when herdr's answer cannot be read (an older herdr), so the
+// caller goes on as before.
+func herdrListed(bin string) *herdrInstalled {
+	raw, err := runHerdr(bin, herdrCmdTimeout, "plugin", "list", "--json", "--plugin", herdrPluginID)
+	if err != nil {
+		return nil
+	}
+	var ans struct {
+		Result struct {
+			Plugins []struct {
+				ID string `json:"plugin_id"`
+				herdrInstalled
+			} `json:"plugins"`
+		} `json:"result"`
+	}
+	if json.Unmarshal([]byte(strings.TrimSpace(raw)), &ans) != nil {
+		return nil
+	}
+	for _, p := range ans.Result.Plugins {
+		if p.ID == herdrPluginID {
+			found := p.herdrInstalled
+			return &found
+		}
+	}
+	return nil
+}
+
+// herdrVersionAdvice is the step that brings a GitHub-installed plugin at
+// version plugin and this client at version client together: the plugin
+// updates when it is the older, ks when it is; nothing is said when either
+// is not a release version.
+func herdrVersionAdvice(plugin, client string) string {
+	num := func(v string) (n [3]int, ok bool) {
+		parts := strings.Split(v, ".")
+		if len(parts) != 3 {
+			return n, false
+		}
+		for i, p := range parts {
+			if _, err := fmt.Sscanf(p, "%d", &n[i]); err != nil || fmt.Sprint(n[i]) != p {
+				return n, false
+			}
+		}
+		return n, true
+	}
+	a, okA := num(plugin)
+	b, okB := num(client)
+	if !okA || !okB || a == b {
+		return ""
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			if a[i] < b[i] {
+				return "; herdr plugin update keepstate"
+			}
+			return "; ks update"
+		}
+	}
+	return ""
+}
+
 // herdrBinary is the herdr to run: the pane's own when this runs inside
 // herdr, else the one on PATH.
 func herdrBinary() (string, bool) {
@@ -119,6 +233,16 @@ func herdrInstall(inv *Invocation) {
 	bin, ok := herdrBinary()
 	if !ok {
 		fail(errNoHerdr)
+	}
+	// herdr plugin link would replace a plugin herdr installed from
+	// GitHub without a word, so that one is left as it is
+	if p := herdrListed(bin); p.fromGitHub() {
+		repo, at := p.where()
+		emit(map[string]any{"linked": false, "source": "github", "repo": repo, "at": at, "version": oscText(p.Version, 80), "herdr": bin}, func() {
+			fmt.Printf("The KeepState plugin is already installed from GitHub (%s at %s), version %s; nothing was written or linked.\n", repo, at, oscText(p.Version, 80))
+			fmt.Println("herdr plugin update keepstate updates it; ks herdr uninstall removes it.")
+		})
+		return
 	}
 	dir := herdrPluginDir()
 	path := filepath.Join(dir, "herdr-plugin.toml")
@@ -188,11 +312,17 @@ func herdrUninstall(inv *Invocation) {
 	said, unlinkErr := "", error(nil)
 	wasLinked := true
 	bin, ok := herdrBinary()
+	github := false
 	if ok {
 		var raw string
-		raw, unlinkErr = runHerdr(bin, herdrCmdTimeout, "plugin", "unlink", herdrPluginID)
+		if github = herdrListed(bin).fromGitHub(); github {
+			// herdr's own uninstall: it holds the lock on the copy it fetched
+			raw, unlinkErr = runHerdr(bin, herdrCmdTimeout, "plugin", "uninstall", herdrPluginID)
+		} else {
+			raw, unlinkErr = runHerdr(bin, herdrCmdTimeout, "plugin", "unlink", herdrPluginID)
+			wasLinked = herdrUnlinkRemoved(raw)
+		}
 		said = herdrWords(raw)
-		wasLinked = herdrUnlinkRemoved(raw)
 	}
 	_, statErr := os.Stat(dir)
 	removed := false
@@ -202,10 +332,18 @@ func herdrUninstall(inv *Invocation) {
 		}
 		removed = true
 	}
-	emit(map[string]any{"unlinked": ok && unlinkErr == nil && wasLinked, "removed": removed, "dir": dir, "herdr_said": said}, func() {
+	source := "local"
+	if github {
+		source = "github"
+	}
+	emit(map[string]any{"unlinked": ok && unlinkErr == nil && wasLinked, "source": source, "removed": removed, "dir": dir, "herdr_said": said}, func() {
 		switch {
 		case !ok:
 			fmt.Println("herdr is not installed on this machine, so there was nothing to unlink.")
+		case github && unlinkErr != nil:
+			fmt.Println("herdr did not uninstall the plugin it installed from GitHub: " + notRecorded(said))
+		case github:
+			fmt.Println("Uninstalled the KeepState plugin that herdr installed from GitHub.")
 		case unlinkErr != nil:
 			fmt.Println("herdr did not unlink the plugin (it may not have been linked): " + notRecorded(said))
 		case !wasLinked:
@@ -241,7 +379,9 @@ func herdrStatus(inv *Invocation) {
 	doc := map[string]any{"plugin_dir": herdrPluginDir()}
 	var lines []string
 	bin, ok := herdrBinary()
+	var listed *herdrInstalled
 	if ok {
+		listed = herdrListed(bin)
 		raw, err := runHerdr(bin, 10*time.Second, "--version")
 		v := herdrWords(raw)
 		if err != nil || v == "" {
@@ -253,12 +393,30 @@ func herdrStatus(inv *Invocation) {
 		doc["herdr"] = nil
 		lines = append(lines, "herdr          not installed on this machine")
 	}
+	if listed.fromGitHub() {
+		repo, at := listed.where()
+		v := oscText(listed.Version, 80)
+		doc["installed"] = map[string]any{"source": "github", "repo": repo, "ref": oscText(listed.Source.Ref, 80), "commit": oscText(listed.Source.Commit, 80), "version": v, "root": oscText(listed.Root, 500)}
+		line := "plugin         installed from GitHub: " + repo + " at " + at + ", version " + v
+		if mine := herdrPluginVersion(version); v != mine {
+			line += " (this client is " + mine + herdrVersionAdvice(v, mine) + ")"
+		}
+		lines = append(lines, line)
+	} else if listed != nil {
+		doc["installed"] = map[string]any{"source": "local", "version": oscText(listed.Version, 80), "root": oscText(listed.Root, 500)}
+	}
 	path := filepath.Join(herdrPluginDir(), "herdr-plugin.toml")
 	b, err := os.ReadFile(path)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
 		doc["manifest"] = "absent"
-		lines = append(lines, "plugin         not installed: ks herdr install")
+		switch {
+		case listed.fromGitHub():
+		case ok:
+			lines = append(lines, "plugin         not installed: herdr plugin install "+herdrPluginRepo+", or ks herdr install")
+		default:
+			lines = append(lines, "plugin         not installed: ks herdr install")
+		}
 	case err != nil:
 		doc["manifest"] = "unreadable"
 		lines = append(lines, "plugin         "+path+" could not be read: "+sanitize(err.Error()))
