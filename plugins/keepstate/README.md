@@ -22,7 +22,7 @@ billing or organizations.
 
 ## What it runs and where it connects
 
-- Claude Code starts the server with `npx -y @keepstateai/cli@0.1.37 mcp`.
+- Claude Code starts the server with `npx -y @keepstateai/cli@0.1.38 mcp`.
   npm installs that exact version of the package from the public npm
   registry. Its install step downloads the latest `ks` release binary for
   your platform from the GitHub releases of Keepstateai/cli and checks its
@@ -39,7 +39,7 @@ billing or organizations.
 Sign in once:
 
 ```
-npx -y @keepstateai/cli@0.1.37 login
+npx -y @keepstateai/cli@0.1.38 login
 ```
 
 If `ks` is already installed (Homebrew, the install script or npm), `ks
