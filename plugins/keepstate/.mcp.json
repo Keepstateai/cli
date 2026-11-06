@@ -4,7 +4,7 @@
       "command": "npx",
       "args": [
         "-y",
-        "@keepstateai/cli@0.1.37",
+        "@keepstateai/cli@0.1.38",
         "mcp"
       ]
     }

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The Claude Code plugin now runs `@keepstateai/cli@0.1.38`.
+
 ## v0.1.38 (2026-11-06)
 
 - `ks mcp` can be listed and installed as a package. Every tool has a
