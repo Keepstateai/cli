@@ -27,6 +27,8 @@ type sessionModelRecord struct {
 	Revision     int64  `json:"revision"`
 	RuntimeState string `json:"runtime_state"`
 	RunnerModel  string `json:"runner_model"`
+	// Harness is the runner its agents work inside ("" reads Claude Code)
+	Harness string `json:"harness,omitempty"`
 	// KeyBindings is what the session calls each provider with; absent
 	// from a service that predates it
 	KeyBindings *sessionKeyBindings `json:"key_bindings,omitempty"`
@@ -94,6 +96,10 @@ func hostedSessionModel(cr hostedCreds, inv *Invocation) {
 	pauseHint := fmt.Sprintf("ks agent pause %s --session %s", primaryAgentName(cr, sess.RecordID), sess.ShortID)
 	can, standing := modelChangeStanding(rec.RuntimeState, pauseHint)
 	model := strings.TrimSpace(inv.Arg(1))
+	if model == "" && inv.Set("key") {
+		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--key goes with a model: the key that model calls. Nothing changed",
+			NextAction: "ks session model " + sess.ShortID + " <model> --key <key-id|keepstate>, or ks session key set " + sess.ShortID + " --key <key-id|keepstate>"})
+	}
 	if model == "" {
 		emit(map[string]any{"session": sess.ID, "record": rec.ID, "runner_model": rec.RunnerModel, "runtime_state": rec.RuntimeState,
 			"revision": rec.Revision, "can_change_now": can, "standing": standing}, func() {
@@ -107,12 +113,27 @@ func hostedSessionModel(cr hostedCreds, inv *Invocation) {
 	if model == rec.RunnerModel {
 		fail(&cliError{Code: exitUsage, Kind: "usage", Message: fmt.Sprintf("session %s already runs %s; nothing changed", sess.ShortID, sanitize(model))})
 	}
+	// the model, read from the catalog for the session's harness: one it
+	// withholds there is refused with its note before anything is sent
+	h := catalogHarness{ID: firstNonEmptyStr(rec.Harness, defaultHarness)}
+	chosen, listed, err := chooseModel(cr, h, model, "Nothing changed.")
+	if err != nil {
+		die(err)
+	}
 	progress("change the model of session %s from %s to %s, against revision %d; it takes effect when the session resumes",
 		sess.ShortID, sanitize(notRecorded(rec.RunnerModel)), sanitize(model), rec.Revision)
+	if listed && chosen.openModel(h) {
+		progress("%s", openModelChangeWords(chosen, h))
+	}
 	var env struct {
 		Data sessionModelRecord `json:"data"`
 	}
 	body := map[string]any{"runner_model": model, "expected_revision": rec.Revision}
+	if inv.Set("key") {
+		// the key the model calls: for an open model an OpenRouter key by
+		// id, or keepstate; the service plans it with the change
+		body["key"] = strings.TrimSpace(inv.Str("key"))
+	}
 	if err := hostedMutate(cr, "PATCH", "/api/v2/sessions/"+url.PathEscape(sess.RecordID), body, &env); err != nil {
 		die(modelChangeRefusal(err, sess, pauseHint))
 	}
@@ -120,6 +141,13 @@ func hostedSessionModel(cr hostedCreds, inv *Invocation) {
 		fmt.Printf("session %s will run %s from its next resume (was %s; revision %d)\n",
 			sess.ShortID, sanitize(notRecorded(env.Data.RunnerModel)), sanitize(notRecorded(rec.RunnerModel)), env.Data.Revision)
 	})
+}
+
+// openModelChangeWords says, before a change to an open model, which key it
+// calls: an OpenRouter key, not the harness's provider's.
+func openModelChangeWords(m harnessModel, h catalogHarness) string {
+	p := providerName(m.keyProvider(h))
+	return m.label() + " is an " + firstNonEmptyStr(sanitize(m.Route), "open model via "+p) + ": it calls an " + p + " key (--key <" + m.keyProvider(h) + "-key-id|keepstate>; default the account's), and moving to or from it needs the session paused"
 }
 
 // modelChangeRefusal words the service's refusals of a model change: the
@@ -136,9 +164,14 @@ func modelChangeRefusal(err error, sess inventoryRow, pauseHint string) error {
 	case "ks_session_not_paused":
 		ce.Message = sanitize(he.Message) + "; nothing changed"
 		ce.NextAction = pauseHint + ", then ks session model " + sess.ShortID + " <model>"
-	case "ks_model_invalid":
+	case "ks_model_invalid", "ks_model_harness_mismatch":
 		ce.Message = sanitize(he.Message) + "; nothing changed"
 		ce.NextAction = "ks cruise models (the models offered to sessions)"
+	case "ks_no_inference_key", "ks_key_invalid", "ks_key_unroutable", "ks_key_ambiguous":
+		// a model of another provider (an open model via OpenRouter, or
+		// back) calls that provider's key
+		ce.Message = sanitize(he.Message) + "; nothing changed"
+		ce.NextAction = "ks key list, then ks session model " + sess.ShortID + " <model> --key <key-id|keepstate>"
 	case "ks_session_killed":
 		ce.Message = sanitize(he.Message) + "; nothing changed"
 		ce.NextAction = "ks session list"

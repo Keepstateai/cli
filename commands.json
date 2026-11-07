@@ -84,7 +84,7 @@
     },
     {
      "flag": "--key KEY",
-     "summary": "the key the agent calls with (with --agent): a key's id or alias, own for your own key, or keepstate for KeepState's key (charged from your purchased credit at the provider's list price plus the spread); default your account's default for the agent's provider, else your one enabled key for it"
+     "summary": "the key the agent calls with (with --agent): a key's id or alias, own for your own key, or keepstate for KeepState's key (charged from your purchased credit at the provider's list price plus the spread); default your account's default for the agent's provider, else your one enabled key for it. The provider is the model's: the harness's, or OpenRouter for an open model, which calls an OpenRouter key"
     },
     {
      "flag": "--spend-limit DOLLARS",
@@ -100,7 +100,7 @@
     },
     {
      "flag": "--model MODEL",
-     "summary": "the model the agent calls, by its exact id: one ks cruise models lists as offered (with --agent); default the service's first rung, or the harness's default model"
+     "summary": "the model the agent calls, by its exact id: one ks cruise models lists as offered for the harness, its own or an open model via OpenRouter (with --agent); a withheld one is refused with the catalog's reason; default the service's first rung, or the harness's default model"
     },
     {
      "flag": "--harness HARNESS",
@@ -494,7 +494,7 @@
     },
     {
      "flag": "--provider PROVIDER",
-     "summary": "with --key keepstate: the provider whose calls go on KeepState's key, anthropic or openai; default the provider of the session's harness"
+     "summary": "with --key keepstate: the provider whose calls go on KeepState's key, anthropic, openai or openrouter; default the provider the session's model calls (its harness's, or openrouter for an open model)"
     },
     {
      "flag": "--spend-limit DOLLARS",
@@ -2003,11 +2003,17 @@
   {
    "verb": "session model",
    "aliases": [],
-   "usage": "ks session model <session> [model]",
+   "usage": "ks session model <session> [model] [--key KEY]",
    "summary": "the model a session's agents call; with a model, change it while the session is paused, in effect from its next resume",
    "status": "available",
    "surface": "hosted",
-   "note": "Reads GET /api/v2/sessions/{id} and sends PATCH /api/v2/sessions/{id} with runner_model and expected_revision; gated on agent.workspace. The service accepts the change while the session is parked or has no machine yet (ks_session_not_paused otherwise, ks_session_killed once it has ended) and only a model GET /api/v2/models offers (ks_model_invalid names the offered ones)."
+   "note": "Reads GET /api/v2/sessions/{id} and sends PATCH /api/v2/sessions/{id} with runner_model and expected_revision; gated on agent.workspace. The service accepts the change while the session is parked or has no machine yet (ks_session_not_paused otherwise, ks_session_killed once it has ended) and only a model GET /api/v2/models offers (ks_model_invalid names the offered ones). With a model, it reads GET /api/v2/models first and refuses a model the catalog withholds for the session's harness with the catalog's note, sending nothing; --key sends key (an OpenRouter key id or keepstate for an open model), and a model of another provider needs the session paused even where the adapter takes the model per instruction.",
+   "flags": [
+    {
+     "flag": "--key KEY",
+     "summary": "with a model of another provider (an open model via OpenRouter, or back): the key it calls, one of your keys of that provider by id (an OpenRouter key for an open model), or keepstate for KeepState's key; default the session's or the account's key for that provider"
+    }
+   ]
   },
   {
    "verb": "agent ask",
@@ -2159,7 +2165,7 @@
     },
     {
      "flag": "--model MODEL",
-     "summary": "the model, one of the harness's models"
+     "summary": "the model, one the catalog offers for the harness (its own, or an open model via OpenRouter, which calls an OpenRouter key)"
     },
     {
      "flag": "--effort LEVEL",
@@ -2167,7 +2173,7 @@
     },
     {
      "flag": "--key KEY",
-     "summary": "the key the runner calls: one of your keys by id, or keepstate for KeepState's key"
+     "summary": "the key the runner calls: one of your keys by id (an OpenRouter key for an open model), or keepstate for KeepState's key"
     },
     {
      "flag": "--spend-limit DOLLARS",
@@ -2987,7 +2993,7 @@
     },
     {
      "flag": "--model MODEL",
-     "summary": "the model the child calls, one ks cruise models lists as offered; default the role's, else the service's"
+     "summary": "the model the child calls, one ks cruise models lists as offered for its harness (an open model via OpenRouter calls an OpenRouter key); default the role's, else the service's"
     },
     {
      "flag": "--effort LEVEL",

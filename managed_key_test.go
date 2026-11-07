@@ -36,6 +36,7 @@ type mkCtl struct {
 	bind      *mkBinding          // per-provider bindings the bindings route keeps, when set
 	usage     map[string]any      // the usage document
 	meter     map[string]any      // the legacy meter
+	harnesses []any               // GET /api/v2/models harnesses, when set; unset is 404
 }
 
 func newMKCtl() *mkCtl {
@@ -115,6 +116,8 @@ func (c *mkCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		env(200, map[string]any{"registry_version": "t", "build": "b", "fetched_at": "x", "price_book": "v1.4", "capabilities": rows, "limits": map[string]any{},
 			"protocol": map[string]any{"current": 3, "minimum_client": 1, "header": "X-KS-Protocol"}})
+	case r.Method == "GET" && r.URL.Path == "/api/v2/models" && c.harnesses != nil:
+		env(200, map[string]any{"catalog_version": "t", "harnesses": c.harnesses})
 	case r.URL.Path == "/api/v2/account/model-keys" && c.served && r.Method == "GET":
 		env(200, c.doc)
 	case r.URL.Path == "/api/v2/account/model-keys" && c.served && r.Method == "PUT":
@@ -553,7 +556,7 @@ func TestManagedSessionKeySet(t *testing.T) {
 	for _, args := range [][]string{
 		{"session", "key", "set", "fleetmanaged", "--key", "vlt_one1", "--spend-limit", "5"},
 		{"session", "key", "set", "fleetmanaged"},
-		{"session", "key", "set", "fleetmanaged", "--key", "keepstate", "--provider", "openrouter"},
+		{"session", "key", "set", "fleetmanaged", "--key", "keepstate", "--provider", "mistral"},
 	} {
 		c.mu.Lock()
 		c.requests = nil
@@ -648,7 +651,7 @@ func TestManagedKeyDefault(t *testing.T) {
 		t.Fatalf("PUT own body: %s", raw)
 	}
 	// refused before any request
-	for _, args := range [][]string{{"key", "default", "openrouter", "own"}, {"key", "default", "openai", "managed-ish"}, {"key", "default", "openai"}} {
+	for _, args := range [][]string{{"key", "default", "mistral", "own"}, {"key", "default", "openai", "managed-ish"}, {"key", "default", "openai"}} {
 		c.mu.Lock()
 		c.requests = nil
 		c.mu.Unlock()

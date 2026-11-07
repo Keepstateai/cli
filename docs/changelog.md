@@ -3,6 +3,19 @@
 ## Unreleased
 
 - The Claude Code plugin now runs `@keepstateai/cli@0.1.38`.
+- Open models via OpenRouter. `ks cruise models` lists each open model
+  under every harness that runs it, beside the words "open model via
+  OpenRouter", with its price per million tokens on your OpenRouter key
+  (`$2.00 in / $10.00 out per million tokens`) and, where KeepState's key
+  offers it, its price there; a model not offered yet shows the catalog's
+  reason. `ks run --agent --model`, `ks agent run --model`, `ks session
+  model` and `ks session runner --model` take any model the catalog offers
+  for the harness and refuse a withheld one with the catalog's reason,
+  sending nothing. An open model calls an OpenRouter key: one of yours by
+  id, or `keepstate` for KeepState's key; `ks session model` takes `--key`
+  for it. `ks key default openrouter own|keepstate` and `ks session key set
+  --key keepstate --provider openrouter` work, and `--key keepstate` on a
+  session running an open model defaults to OpenRouter.
 
 ## v0.1.38 (2026-11-06)
 
