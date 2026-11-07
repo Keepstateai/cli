@@ -217,6 +217,8 @@ func providerName(p string) string {
 		return "Anthropic"
 	case "openai":
 		return "OpenAI"
+	case "openrouter":
+		return "OpenRouter"
 	}
 	return p
 }

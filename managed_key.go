@@ -29,8 +29,12 @@ const (
 	modelKeysPath     = "/api/v2/account/model-keys"
 )
 
-// managedProviders are the providers whose calls can go on KeepState's key.
-var managedProviders = []string{"anthropic", "openai"}
+// managedProviders are the providers whose calls can go on KeepState's key,
+// and whose default key an account keeps: openrouter for the open models.
+var managedProviders = []string{"anthropic", "openai", "openrouter"}
+
+// managedProvidersWords names them, for the words that list them.
+const managedProvidersWords = "anthropic, openai or openrouter"
 
 type managedRates struct {
 	Input      int64 `json:"input"`
@@ -90,6 +94,19 @@ func (d *modelKeysDoc) defaultFor(p string) string {
 		return "managed"
 	}
 	return "own"
+}
+
+// names says whether the document names a provider at all: a default for
+// it, or an offer on KeepState's key.
+func (d *modelKeysDoc) names(p string) bool {
+	if d == nil {
+		return false
+	}
+	if _, ok := d.Defaults[p]; ok {
+		return true
+	}
+	_, ok := d.Managed.Providers[p]
+	return ok
 }
 
 // offered is a provider's offer, and whether a call can go on KeepState's key
@@ -244,7 +261,7 @@ func checkManagedFlags(inv *Invocation) {
 				usage("--provider goes with --key keepstate; an own key's provider is the key's. Nothing was changed", "ks session key set <session> --key keepstate --provider openai")
 			}
 			if !isManagedProvider(inv.Str("provider")) {
-				usage("--provider is anthropic or openai, the providers KeepState's key serves; got "+sanitize(inv.Str("provider"))+". Nothing was changed", "")
+				usage("--provider is "+managedProvidersWords+", the providers KeepState's key serves; got "+sanitize(inv.Str("provider"))+". Nothing was changed", "")
 			}
 		}
 		if inv.Set("spend-limit") {
@@ -266,7 +283,7 @@ func checkManagedFlags(inv *Invocation) {
 		case v == "":
 			usage("name the provider and the key: ks key default "+sanitize(p)+" own, or ks key default "+sanitize(p)+" keepstate. Nothing was changed", "ks key default")
 		case !isManagedProvider(p):
-			usage("the provider is anthropic or openai; got "+sanitize(p)+". Nothing was changed", "ks key default")
+			usage("the provider is "+managedProvidersWords+"; got "+sanitize(p)+". Nothing was changed", "ks key default")
 		case v != ownKeyArg && v != keepstateKeyArg:
 			usage("the default is own (your own key) or keepstate (KeepState's key); got "+sanitize(v)+". Nothing was changed", "ks key default "+sanitize(p)+" keepstate")
 		}
@@ -413,6 +430,9 @@ func orgOrPersonal(org string) string {
 func printKeyDefaults(d *modelKeysDoc, org string) {
 	own := ownKeyWords(org)
 	for _, p := range managedProviders {
+		if p == "openrouter" && !d.names(p) {
+			continue // a service that predates the open models names no OpenRouter default
+		}
 		mp, offered := d.offered(p)
 		var line string
 		switch {
@@ -458,6 +478,10 @@ func hostedSessionKeySet(cr hostedCreds, inv *Invocation) {
 			Harness     string              `json:"harness"`
 			Managed     *[]string           `json:"managed"`
 			KeyBindings *sessionKeyBindings `json:"key_bindings"`
+			// RunnerKey names the provider the session's model calls
+			// (openrouter for an open model); absent from an
+			// older service
+			RunnerKey *runnerKeyRead `json:"runner_key"`
 		} `json:"data"`
 	}
 	if err := hostedCall(cr, "GET", "/api/v2/sessions/"+url.PathEscape(sess.RecordID), nil, &rec); err != nil {
@@ -479,6 +503,9 @@ func hostedSessionKeySet(cr hostedCreds, inv *Invocation) {
 		var offer managedProvider
 		if managed {
 			provider = inv.Str("provider")
+			if provider == "" && rec.Data.RunnerKey != nil {
+				provider = rec.Data.RunnerKey.Provider // the provider the session's model calls
+			}
 			if provider == "" {
 				provider = harnessProvider(rec.Data.Harness)
 			}
