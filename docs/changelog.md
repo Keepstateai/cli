@@ -3,6 +3,21 @@
 ## Unreleased
 
 - The Claude Code plugin now runs `@keepstateai/cli@0.1.38`.
+- The organization's Agent library, from the terminal. `ks agent share AGENT
+  --handle HANDLE --title TITLE --save-now` (or `--checkpoint ID`; one is
+  always named, none is chosen for you) adds an agent of the organization and
+  publishes its first version. `ks library list` and `show` find and read
+  entries (a count that cannot be read says `unavailable`, never 0), `ks
+  library connect @handle` lets one of your agents ask it (confirmed by
+  naming the handle; the library agent sees the question only, and the
+  organization's credit and your budget pay), and `ks agent ask` takes
+  `@handle` like any adviser. `ks agent fork @handle` plans a fork and shows
+  what it copies and what it does not, then forks exactly that plan by its
+  digest. The owner's and admins' verbs are `ks library publish`, `edit`,
+  `withdraw`, `review`, `deprecate`, `retire`, `transfer`, `feature`,
+  `verify`, `forks on|off`, `usage` and `settings`; `ks library report` and
+  `ks advice rate` are everyone's. All of it needs the library switched on
+  for your organization.
 - Open models via OpenRouter. `ks cruise models` lists each open model
   under every harness that runs it, beside the words "open model via
   OpenRouter", with its price per million tokens on your OpenRouter key

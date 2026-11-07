@@ -34,6 +34,7 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -48,6 +49,9 @@ type adviserDrawerEntry struct {
 	Readiness     string      `json:"readiness"` // ready | busy | not_dispatchable | no_supervisor | removed | unavailable
 	Queued        []string    `json:"queued_requests"`
 	Budget        string      `json:"budget"`
+	// Library: a connection to an entry of the organization's library; its
+	// adviser is named "@handle" and a version, never an agent
+	Library bool `json:"library,omitempty"`
 }
 
 type adviserDrawerDoc struct {
@@ -74,6 +78,7 @@ type adviserHandle struct {
 	Handle      string `json:"handle"`
 	Readiness   string `json:"readiness"`
 	Queued      int    `json:"queued"`
+	Library     bool   `json:"library,omitempty"`
 }
 
 func adviserHandles(entries []adviserDrawerEntry) []adviserHandle {
@@ -88,15 +93,25 @@ func adviserHandles(entries []adviserDrawerEntry) []adviserHandle {
 		if sess == "" {
 			sess = e.Adviser.SessionID
 		}
-		count[name]++
-		out = append(out, adviserHandle{GrantID: e.GrantID, AgentID: e.Adviser.AgentID, Name: name, SessionName: sess, Readiness: e.Readiness, Queued: len(e.Queued)})
+		if e.Library {
+			name = strings.TrimPrefix(name, "@")
+		} else {
+			count[name]++
+		}
+		out = append(out, adviserHandle{GrantID: e.GrantID, AgentID: e.Adviser.AgentID, Name: name, SessionName: sess, Readiness: e.Readiness, Queued: len(e.Queued), Library: e.Library})
 	}
 	for i := range out {
 		out[i].Handle = out[i].Name
-		if count[out[i].Name] > 1 {
+		switch {
+		case out[i].Library && count[out[i].Name] > 0:
+			// a library handle an agent's name shares: written library/handle
+			out[i].Handle = "library/" + out[i].Name
+		case !out[i].Library && count[out[i].Name] > 1:
 			out[i].Handle = out[i].SessionName + "/" + out[i].Name
 		}
 	}
+	// the connected agents first, then the library's, as the console lists them
+	sort.SliceStable(out, func(a, b int) bool { return !out[a].Library && out[b].Library })
 	return out
 }
 
