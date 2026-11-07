@@ -1730,10 +1730,23 @@ func decideApproval(cr hostedCreds, sess inventoryRow, id, decision string) (app
 	// record that moved without the action changing is still refused by
 	// the service rather than by guesswork here
 	body := map[string]any{"decision": decision, "expected_revision": now.Revision, "action_hash": shown.Hash}
+	// ks mcp says how it reached the decision, so the record names it
+	via := decidedViaFromEnv()
+	if via != "" {
+		body["via"] = via
+	}
 	var env struct {
 		Data approvalOutcome `json:"data"`
 	}
 	if err := hostedMutate(cr, "POST", "/api/v2/approvals/"+url.PathEscape(now.ID)+"/decision", body, &env); err != nil {
+		var he *hostedErr
+		if via != "" && errors.As(err, &he) && he.Type == "ks_body_unknown_field" {
+			// a service that cannot record how: nothing was decided, and a
+			// decision through ks mcp is never recorded without its channel
+			return now, approvalOutcome{}, &cliError{Code: exitConflict, Kind: "decision_channel_unsupported",
+				Message:    "the service does not record how a decision was made yet, so nothing was decided here; decide it in the KeepState console or in a terminal",
+				NextAction: fmt.Sprintf("ks agent %s %s --session %s", decision, now.ID, sess.ShortID)}
+		}
 		return now, approvalOutcome{}, decisionRefusal(cr, sess, now, decision, err)
 	}
 	outcome := env.Data
@@ -1744,6 +1757,16 @@ func decideApproval(cr hostedCreds, sess inventoryRow, id, decision string) (app
 		outcome.Decision = decision
 	}
 	return now, outcome, nil
+}
+
+// decidedViaFromEnv is the channel ks mcp names for a decision: one of its two
+// words, and nothing else (any other value in the environment is ignored).
+func decidedViaFromEnv() string {
+	switch v := os.Getenv(decidedViaEnv); v {
+	case decidedViaElicitation, decidedViaModelConfirm:
+		return v
+	}
+	return ""
 }
 
 // decisionRefusal turns the four refusals that mean "this is not the

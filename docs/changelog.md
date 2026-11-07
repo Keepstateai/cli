@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Approving a permission request through `ks mcp` is recorded by how it was
+  decided. A decision a person answered in the host app is sent as such
+  (`via` `ks-mcp:elicitation`), and a denial the calling model confirmed with
+  the confirm value is sent as that (`ks-mcp:model-confirm`); a decision
+  made in a terminal or the console names no channel. A service that cannot
+  record the channel refuses the decision from `ks mcp` with the words and the
+  command to decide in a terminal, and nothing is decided. The server's
+  instructions no longer tell the model it may confirm an approval: there is
+  no confirm value for `ks_agent_approve`, and a test holds that nothing the
+  model writes in a tool call approves, on every kind of host. The plugin
+  README and `ks skill` say what is recorded and that an app that answers
+  MCP questions by itself would answer in the person's name.
 - The Claude Code plugin now runs `@keepstateai/cli@0.1.38`.
 
 ## v0.1.38 (2026-11-06)

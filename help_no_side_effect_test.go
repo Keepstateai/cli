@@ -67,7 +67,11 @@ func (r *recorder) seen() []string {
 func buildAndAuth(t *testing.T, srv *httptest.Server) (bin, cfg string) {
 	t.Helper()
 	bin = filepath.Join(t.TempDir(), "ks-under-test")
-	out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput()
+	build := []string{"build", "-o", bin}
+	if tags := os.Getenv("KS_TEST_TAGS"); tags != "" { // a sabotage run builds the binary with its build tag
+		build = append(build, "-tags", tags)
+	}
+	out, err := exec.Command("go", append(build, ".")...).CombinedOutput()
 	if err != nil {
 		t.Fatalf("build failed: %v\n%s", err, out)
 	}
