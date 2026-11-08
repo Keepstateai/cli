@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The Claude Code plugin now runs `@keepstateai/cli@0.1.39`.
+
 ## v0.1.39 (2026-11-08)
 
 - The Claude Code plugin now runs `@keepstateai/cli@0.1.38`.
