@@ -1363,8 +1363,8 @@
   {
    "verb": "cruise draft create",
    "aliases": [],
-   "usage": "ks cruise draft create [--dir FOLDER] [--archive FILE] [--session SESSION] [--root FOLDER] [--proposal PROPOSAL] [--goal TEXT] [--paths GLOB...] [--check RUNNER] [--allow PATH...] [--ladder family:model,...] [--spend USD] [--key PROVIDER=KEY] [--generate-tests] [--aim TEXT] [--acceptance TEXT] [--constraints TEXT] [--model family:model]",
-   "summary": "a hosted draft from a folder (packed here by init's own selection), a .zip, .tar.gz or .tar archive, one of your sessions, or an agent's proposal: what was found and the digest computed here",
+   "usage": "ks cruise draft create [--dir FOLDER] [--archive FILE] [--session SESSION] [--root FOLDER] [--proposal PROPOSAL] [--repo REPOSITORY] [--branch BRANCH] [--connection CONNECTION] [--goal TEXT] [--paths GLOB...] [--check RUNNER] [--allow PATH...] [--ladder family:model,...] [--spend USD] [--key PROVIDER=KEY] [--generate-tests] [--aim TEXT] [--acceptance TEXT] [--constraints TEXT] [--model family:model]",
+   "summary": "a hosted draft from a folder (packed here by init's own selection), a .zip, .tar.gz or .tar archive, one of your sessions, an agent's proposal, or a repository on GitHub or GitLab: what was found and the digest computed here",
    "status": "available",
    "surface": "hosted",
    "flags": [
@@ -1387,6 +1387,18 @@
     {
      "flag": "--proposal PROPOSAL",
      "summary": "a job an agent proposed: the service copies the files of the proposal's session and drafts the job on the proposal's terms, every digest recomputed"
+    },
+    {
+     "flag": "--repo REPOSITORY",
+     "summary": "a repository on GitHub or GitLab (github.com/owner/name, gitlab.com/group/project, an https address, or owner/name with --connection): the service fetches its files at the branch's newest commit through your connection; nothing is packed or sent from here"
+    },
+    {
+     "flag": "--branch BRANCH",
+     "summary": "with --repo: the branch; default the repository's default branch"
+    },
+    {
+     "flag": "--connection CONNECTION",
+     "summary": "with --repo: the connection to fetch through (ks connect list); needed when several can reach the repository, which is never chosen for you"
     },
     {
      "flag": "--goal TEXT",
@@ -3706,6 +3718,174 @@
     {
      "flag": "--organization ID",
      "summary": "the organization (ks organization list shows yours); default the one this client works in (ks context use)"
+    }
+   ]
+  },
+  {
+   "verb": "session repo",
+   "aliases": [],
+   "usage": "ks session repo <session> <repository> [--branch BRANCH] [--connection CONNECTION] [--to FOLDER] [--replace] [--no-wait]",
+   "summary": "place a repository from GitHub or GitLab into a running session's workspace, at a branch's newest commit, through one of your connections",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--branch BRANCH",
+     "summary": "the branch; default the repository's default branch"
+    },
+    {
+     "flag": "--connection CONNECTION",
+     "summary": "the connection to fetch through (ks connect list); needed when several can reach the repository, which is never chosen for you"
+    },
+    {
+     "flag": "--to FOLDER",
+     "summary": "the folder of the workspace to place it in; default repo"
+    },
+    {
+     "flag": "--replace",
+     "summary": "replace what that folder holds now; without it a folder that is not empty is refused"
+    },
+    {
+     "flag": "--no-wait",
+     "summary": "answer once the fetch has started, instead of waiting until it is placed or refused"
+    }
+   ]
+  },
+  {
+   "verb": "organization connections",
+   "aliases": [],
+   "usage": "ks organization connections [--organization ID] [--provider github|gitlab] [--organization-only on|off]",
+   "summary": "whether an organization's work uses only its own GitHub and GitLab connections; with --provider and --organization-only, set it for one provider (owner or admin)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours); default the one this client works in (ks context use)"
+    },
+    {
+     "flag": "--provider github|gitlab",
+     "summary": "the provider whose setting changes (with --organization-only)"
+    },
+    {
+     "flag": "--organization-only on|off",
+     "summary": "on: the organization's work never uses a member's own connection; off: it may, when no connection of the organization reaches the repository"
+    }
+   ]
+  },
+  {
+   "verb": "connect list",
+   "aliases": [],
+   "usage": "ks connect list [--organization ID] [--provider github|gitlab]",
+   "summary": "your connections to GitHub and GitLab, or an organization's: provider, host, who each acts as, whose it is, its status in words, the token's last four characters and any warning",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization whose connections these are (ks organization list shows yours); default the context this client works in (ks context use), else your personal account"
+    },
+    {
+     "flag": "--provider github|gitlab",
+     "summary": "only this provider's connections"
+    }
+   ]
+  },
+  {
+   "verb": "connect show",
+   "aliases": [],
+   "usage": "ks connect show <connection>",
+   "summary": "one connection's card in full: who it acts as, whose it is, its status, scopes and when it was made",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "connect github",
+   "aliases": [],
+   "usage": "ks connect github [--organization ID] [--token] [--name NAME]",
+   "summary": "connect GitHub: through GitHub's own page, where you choose the account and the repositories (opened in your browser), or with --token, a token read from a prompt or standard input",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization whose connections these are (ks organization list shows yours); default the context this client works in (ks context use), else your personal account"
+    },
+    {
+     "flag": "--token",
+     "summary": "connect with a token instead: it is read from a prompt that does not echo it, or from standard input when piped; never from a flag or an argument"
+    },
+    {
+     "flag": "--name NAME",
+     "summary": "a name for the connection (with --token)"
+    }
+   ]
+  },
+  {
+   "verb": "connect gitlab",
+   "aliases": [],
+   "usage": "ks connect gitlab [--organization ID] [--token] [--url URL] [--name NAME]",
+   "summary": "connect GitLab: gitlab.com through its own approval page (opened in your browser), or with --token on gitlab.com or, with --url, a self-managed instance",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization whose connections these are (ks organization list shows yours); default the context this client works in (ks context use), else your personal account"
+    },
+    {
+     "flag": "--token",
+     "summary": "connect with a token instead: it is read from a prompt that does not echo it, or from standard input when piped; never from a flag or an argument. Prefer a group or project token with read scopes: a personal token acts as its owner everywhere it reaches"
+    },
+    {
+     "flag": "--url URL",
+     "summary": "the https address of a self-managed GitLab instance (with --token); default gitlab.com"
+    },
+    {
+     "flag": "--name NAME",
+     "summary": "a name for the connection (with --token)"
+    }
+   ]
+  },
+  {
+   "verb": "connect remove",
+   "aliases": [],
+   "usage": "ks connect remove <connection> [--confirm CONNECTION]",
+   "summary": "remove a connection once you confirm it by its id: KeepState deletes what it holds of it",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--confirm CONNECTION",
+     "summary": "confirm the removal by naming the connection's id; --yes does not confirm it"
+    }
+   ]
+  },
+  {
+   "verb": "connect repos",
+   "aliases": [],
+   "usage": "ks connect repos <connection> [--search TEXT]",
+   "summary": "the repositories a connection reaches: name, default branch, private or public",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--search TEXT",
+     "summary": "only repositories whose name matches"
+    }
+   ]
+  },
+  {
+   "verb": "connect branches",
+   "aliases": [],
+   "usage": "ks connect branches <connection> <repository> [--search TEXT]",
+   "summary": "a repository's branches through a connection, the default branch first",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--search TEXT",
+     "summary": "only branches whose name matches"
     }
    ]
   }
