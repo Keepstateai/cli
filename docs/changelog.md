@@ -1,10 +1,7 @@
 # Changelog
 
-## Unreleased
+## v0.1.40 (2026-11-08)
 
-- The Claude Code plugin now runs `@keepstateai/cli@0.1.39`.
-
-## v0.1.39 (2026-11-08)
 - Approving a permission request through `ks mcp` is recorded by how it was
   decided. A decision a person answered in the host app is sent as such
   (`via` `ks-mcp:elicitation`), and a denial the calling model confirmed with
@@ -17,6 +14,9 @@
   model writes in a tool call approves, on every kind of host. The plugin
   README and `ks skill` say what is recorded and that an app that answers
   MCP questions by itself would answer in the person's name.
+- The Claude Code plugin now runs `@keepstateai/cli@0.1.39`.
+
+## v0.1.39 (2026-11-08)
 - The Claude Code plugin now runs `@keepstateai/cli@0.1.38`.
 - The organization's Agent library, from the terminal. `ks agent share AGENT
   --handle HANDLE --title TITLE --save-now` (or `--checkpoint ID`; one is
