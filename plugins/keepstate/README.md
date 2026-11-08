@@ -14,10 +14,20 @@ you the agent, the exact command or tool it asked for and what approving
 lets it do, with Approve and Deny. Only your Approve approves, that one
 request, once. A host app without elicitation approves nothing; you can then
 decide in the KeepState console or with `ks agent approve` in a terminal.
+There is no value Claude can pass to approve, and nothing it writes in a
+tool call approves.
+
+The decision is recorded as made by your account, through `ks mcp`, by your
+answer to the host app's question. That relies on the host app showing the
+question to you: an app or setting that answers MCP questions by itself (a
+hook or a script, for example) would answer it in your name, so do not set
+one up for KeepState. A denial Claude confirmed with a confirm value, not you,
+is recorded as that.
 
 Starting, resuming or stopping an agent, cancelling an instruction and
 denying a request each answer a plan first and act only on a second call
-after you agree. The server never deletes anything and never touches keys,
+with the plan's confirm value; ask Claude to show you the plan before it
+makes that call. The server never deletes anything and never touches keys,
 billing or organizations.
 
 ## What it runs and where it connects

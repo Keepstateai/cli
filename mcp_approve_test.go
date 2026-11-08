@@ -65,7 +65,10 @@ func (c approvalsCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Hash     string  `json:"action_hash"`
 		}
 		_ = json.Unmarshal(b, &body)
+		_, strict := c.rows["_strict"] // a service that takes no "via" field
 		switch {
+		case strict && strings.Contains(string(b), `"via"`):
+			refuse(400, "ks_body_unknown_field", "the request body carries a field this route does not take: unknown field \"via\"")
 		case !ok:
 			refuse(404, "ks_not_found", "no such approval")
 		case row["decision"] != "pending":
@@ -80,6 +83,19 @@ func (c approvalsCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		refuse(404, "ks_not_found", "no such route")
 	}
+}
+
+// postedDecisions are the decision requests the fake saw, with their bodies.
+func (c approvalsCtl) postedDecisions() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []string
+	for _, r := range c.reqs {
+		if strings.HasPrefix(r, "POST /api/v2/approvals/") {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func approvalRowT(id, requester, decision string, revision float64, expires time.Time) map[string]any {
