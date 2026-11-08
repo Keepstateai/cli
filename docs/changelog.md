@@ -1,7 +1,16 @@
 # Changelog
 
-## Unreleased
+## v0.1.41 (2026-11-08)
 
+- Repositories from GitHub and GitLab, from the terminal. `ks connect list`,
+  `show`, `github`, `gitlab`, `remove`, `repos` and `branches` manage the
+  connections; `ks organization connections` lists the organization's; `ks
+  session repo` and `ks cruise draft create --repo` name the repository to
+  work on. A token is read from a prompt that does not echo it or from
+  standard input, never from a flag or an argument, and is never printed; a
+  stray argument on `ks connect github` or `gitlab` is refused without being
+  repeated back. When several connections can reach a repository, every
+  choice is printed with the way to pick one, and none is picked for you.
 - The Claude Code plugin now runs `@keepstateai/cli@0.1.40`.
 
 ## v0.1.40 (2026-11-08)
