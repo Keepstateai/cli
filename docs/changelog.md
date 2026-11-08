@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The Claude Code plugin now runs `@keepstateai/cli@0.1.40`.
+
 ## v0.1.40 (2026-11-08)
 
 - Approving a permission request through `ks mcp` is recorded by how it was
