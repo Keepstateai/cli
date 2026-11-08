@@ -214,25 +214,54 @@ func cruiseModels(inv *Invocation) {
 		if len(c.Harnesses) > 0 {
 			fmt.Println("harnesses (ks run --agent --harness, ks session harness):")
 			for _, h := range c.Harnesses {
+				// the harness's own models on its line, as before; each open
+				// model on a line of its own, with its route,
+				// its price and, when withheld, the catalog's note
 				var ms []string
+				var open []harnessModel
 				for _, m := range h.Models {
+					if m.openModel(h) {
+						open = append(open, m)
+						continue
+					}
 					ms = append(ms, m.ID)
 				}
 				fmt.Printf("  %-12s %-12s %-9s calls %s; models %s\n", sanitize(h.ID), clip(harnessLabel(h), 12), figure(h.Offer.Standing), sanitize(figure(h.Provider)), sanitize(strings.Join(ms, ", ")))
 				if h.Offer.Standing == "withheld" && h.Offer.Note != "" {
 					fmt.Printf("    withheld: %s\n", sanitize(h.Offer.Note))
 				}
+				for _, m := range open {
+					fmt.Printf("    %s\n", m.openModelLine(h))
+					if m.Offer.Standing == "withheld" && m.Offer.Note != "" {
+						fmt.Printf("      withheld: %s\n", sanitize(m.Offer.Note))
+					}
+				}
 				for _, l := range harnessEffortLines(h) {
 					fmt.Printf("    effort %s\n", l)
 				}
 			}
 			fmt.Println("effort: how hard the model thinks (ks run --agent --effort, ks session runner --effort). " + effortMoney)
+			if anyOpenModel(c.Harnesses) {
+				fmt.Println("open model via OpenRouter: it calls an OpenRouter key, your own (ks key add --provider openrouter) or KeepState's where it is offered (--key keepstate); on your own key OpenRouter bills your key at its own price")
+			}
 		}
 		fmt.Println("under runner: exercised = a record shows the Cruise runner ran it; not_verified = nothing does (no interchangeability is claimed)")
 		if c.Note != "" {
 			fmt.Println(sanitize(c.Note))
 		}
 	})
+}
+
+// anyOpenModel says whether any harness lists an open model.
+func anyOpenModel(hs []catalogHarness) bool {
+	for _, h := range hs {
+		for _, m := range h.Models {
+			if m.openModel(h) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // legacyModels is the older control plane's table.

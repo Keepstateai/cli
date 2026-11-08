@@ -172,7 +172,7 @@ func runKey(cr hostedCreds, arg, runnerProvider string) (customerKey, error) {
 		}
 		if k.Provider != runnerProvider || !k.Enabled {
 			return k, &cliError{Code: exitUsage, Kind: "key_unusable",
-				Message: fmt.Sprintf("key %s is a %s key (enabled: %t); the agent calls %s with an enabled %s key. Nothing was created", k.ID, k.Provider, k.Enabled, runnerProvider, runnerProvider), NextAction: "ks key list"}
+				Message: fmt.Sprintf("key %s is a %s key (enabled: %t); the agent calls %s with an enabled %s key%s. Nothing was created", k.ID, k.Provider, k.Enabled, runnerProvider, runnerProvider, openRouterWhy(runnerProvider)), NextAction: "ks key list"}
 		}
 		return k, nil
 	}
@@ -191,7 +191,7 @@ func runKey(cr hostedCreds, arg, runnerProvider string) (customerKey, error) {
 		return usable[0], nil
 	case 0:
 		return customerKey{}, &cliError{Code: exitConflict, Kind: "no_key",
-			Message: "you have no enabled " + runnerProvider + " key, which the agent calls with. Nothing was created", NextAction: "ks key add --provider " + runnerProvider}
+			Message: "you have no enabled " + runnerProvider + " key, which the agent calls with" + openRouterWhy(runnerProvider) + ". Nothing was created", NextAction: "ks key add --provider " + runnerProvider}
 	}
 	var ids []string
 	for _, k := range usable {
@@ -200,6 +200,16 @@ func runKey(cr hostedCreds, arg, runnerProvider string) (customerKey, error) {
 	return customerKey{}, &cliError{Code: exitUsage, Kind: "key_ambiguous",
 		Message:    fmt.Sprintf("you have %d enabled %s keys (%s); name the one this agent calls with. Nothing was created", len(usable), runnerProvider, strings.Join(ids, ", ")),
 		NextAction: "ks run --agent --key <id>"}
+}
+
+// openRouterWhy says, beside a key refusal, why the agent calls an
+// OpenRouter key: its model is an open model via OpenRouter. Nothing for
+// another provider, whose words stay as they were.
+func openRouterWhy(provider string) string {
+	if provider != "openrouter" {
+		return ""
+	}
+	return " (its model is an open model via OpenRouter, so it calls an OpenRouter key: one of yours by id, or keepstate for KeepState's)"
 }
 
 // createdRecord is the session record ks run --agent created.
@@ -280,11 +290,23 @@ func createAgentRecord(cr hostedCreds, name, agentName, keyArg string, model, ef
 	// the provider the harness calls: Anthropic for Claude Code, the
 	// catalog's for another (OpenAI for Codex)
 	runnerProvider := firstNonEmptyStr(harness.Provider, runnerProvider)
+	// the model, read from the catalog before anything exists: one it
+	// withholds on this harness is refused with its note; an open model
+	// calls its own provider's key, OpenRouter's
+	chosen, listed, err := chooseModel(cr, harness, model, "Nothing was created")
+	if err != nil {
+		return none, customerKey{}, err
+	}
+	if listed {
+		runnerProvider = chosen.keyProvider(harness)
+		if chosen.openModel(harness) && startObserver == nil {
+			progress("%s is an %s: its calls go on an %s key, yours or KeepState's", chosen.label(), firstNonEmptyStr(sanitize(chosen.Route), "open model via "+providerName(runnerProvider)), providerName(runnerProvider))
+		}
+	}
 	// an organization's session, when the context names one: the
 	// organization's keys only, never yours (org_run.go)
 	org := currentContext(cr)
 	var choice runKeyChoice
-	var err error
 	if org != "" {
 		progress("context: organization %s (ks context use personal for your own account)", org)
 	} else if choice, err = chooseRunKey(cr, keyArg, runnerProvider, spend); err != nil {

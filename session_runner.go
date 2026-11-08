@@ -157,6 +157,16 @@ func hostedSessionRunner(cr hostedCreds, inv *Invocation) {
 		body["harness"] = strings.TrimSpace(inv.Str("harness"))
 	}
 	if inv.Set("model") {
+		// the model, read from the catalog for the harness it will run on:
+		// one withheld there is refused with its note before anything is sent
+		h := catalogHarness{ID: firstNonEmptyStr(strings.TrimSpace(inv.Str("harness")), rec.Harness, defaultHarness)}
+		chosen, listed, err := chooseModel(cr, h, inv.Str("model"), "Nothing changed.")
+		if err != nil {
+			die(err)
+		}
+		if listed && chosen.openModel(h) {
+			progress("%s", openModelChangeWords(chosen, h))
+		}
 		body["runner_model"] = strings.TrimSpace(inv.Str("model"))
 	}
 	if effortSet {

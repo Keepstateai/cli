@@ -84,7 +84,7 @@
     },
     {
      "flag": "--key KEY",
-     "summary": "the key the agent calls with (with --agent): a key's id or alias, own for your own key, or keepstate for KeepState's key (charged from your purchased credit at the provider's list price plus the spread); default your account's default for the agent's provider, else your one enabled key for it"
+     "summary": "the key the agent calls with (with --agent): a key's id or alias, own for your own key, or keepstate for KeepState's key (charged from your purchased credit at the provider's list price plus the spread); default your account's default for the agent's provider, else your one enabled key for it. The provider is the model's: the harness's, or OpenRouter for an open model, which calls an OpenRouter key"
     },
     {
      "flag": "--spend-limit DOLLARS",
@@ -100,7 +100,7 @@
     },
     {
      "flag": "--model MODEL",
-     "summary": "the model the agent calls, by its exact id: one ks cruise models lists as offered (with --agent); default the service's first rung, or the harness's default model"
+     "summary": "the model the agent calls, by its exact id: one ks cruise models lists as offered for the harness, its own or an open model via OpenRouter (with --agent); a withheld one is refused with the catalog's reason; default the service's first rung, or the harness's default model"
     },
     {
      "flag": "--harness HARNESS",
@@ -494,7 +494,7 @@
     },
     {
      "flag": "--provider PROVIDER",
-     "summary": "with --key keepstate: the provider whose calls go on KeepState's key, anthropic or openai; default the provider of the session's harness"
+     "summary": "with --key keepstate: the provider whose calls go on KeepState's key, anthropic, openai or openrouter; default the provider the session's model calls (its harness's, or openrouter for an open model)"
     },
     {
      "flag": "--spend-limit DOLLARS",
@@ -2003,11 +2003,17 @@
   {
    "verb": "session model",
    "aliases": [],
-   "usage": "ks session model <session> [model]",
+   "usage": "ks session model <session> [model] [--key KEY]",
    "summary": "the model a session's agents call; with a model, change it while the session is paused, in effect from its next resume",
    "status": "available",
    "surface": "hosted",
-   "note": "Reads GET /api/v2/sessions/{id} and sends PATCH /api/v2/sessions/{id} with runner_model and expected_revision; gated on agent.workspace. The service accepts the change while the session is parked or has no machine yet (ks_session_not_paused otherwise, ks_session_killed once it has ended) and only a model GET /api/v2/models offers (ks_model_invalid names the offered ones)."
+   "note": "Reads GET /api/v2/sessions/{id} and sends PATCH /api/v2/sessions/{id} with runner_model and expected_revision; gated on agent.workspace. The service accepts the change while the session is parked or has no machine yet (ks_session_not_paused otherwise, ks_session_killed once it has ended) and only a model GET /api/v2/models offers (ks_model_invalid names the offered ones). With a model, it reads GET /api/v2/models first and refuses a model the catalog withholds for the session's harness with the catalog's note, sending nothing; --key sends key (an OpenRouter key id or keepstate for an open model), and a model of another provider needs the session paused even where the adapter takes the model per instruction.",
+   "flags": [
+    {
+     "flag": "--key KEY",
+     "summary": "with a model of another provider (an open model via OpenRouter, or back): the key it calls, one of your keys of that provider by id (an OpenRouter key for an open model), or keepstate for KeepState's key; default the session's or the account's key for that provider"
+    }
+   ]
   },
   {
    "verb": "agent ask",
@@ -2159,7 +2165,7 @@
     },
     {
      "flag": "--model MODEL",
-     "summary": "the model, one of the harness's models"
+     "summary": "the model, one the catalog offers for the harness (its own, or an open model via OpenRouter, which calls an OpenRouter key)"
     },
     {
      "flag": "--effort LEVEL",
@@ -2167,7 +2173,7 @@
     },
     {
      "flag": "--key KEY",
-     "summary": "the key the runner calls: one of your keys by id, or keepstate for KeepState's key"
+     "summary": "the key the runner calls: one of your keys by id (an OpenRouter key for an open model), or keepstate for KeepState's key"
     },
     {
      "flag": "--spend-limit DOLLARS",
@@ -2987,7 +2993,7 @@
     },
     {
      "flag": "--model MODEL",
-     "summary": "the model the child calls, one ks cruise models lists as offered; default the role's, else the service's"
+     "summary": "the model the child calls, one ks cruise models lists as offered for its harness (an open model via OpenRouter calls an OpenRouter key); default the role's, else the service's"
     },
     {
      "flag": "--effort LEVEL",
@@ -3226,6 +3232,480 @@
     {
      "flag": "--discard",
      "summary": "throw away the unfinished upload this command would continue; nothing is sent"
+    }
+   ]
+  },
+  {
+   "verb": "library list",
+   "aliases": [],
+   "usage": "ks library list [--search TEXT] [--sort newest|asked|forked|helpful] [--team TEAM] [--harness HARNESS] [--model MODEL] [--mine] [--featured] [--all] [--organization ID]",
+   "summary": "the organization's library: its agents with their badges and counts (a count that cannot be read says unavailable, never 0)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--search TEXT",
+     "summary": "match handle, title, description or tags"
+    },
+    {
+     "flag": "--sort newest|asked|forked|helpful",
+     "summary": "the order; default newest"
+    },
+    {
+     "flag": "--team TEAM",
+     "summary": "entries shared by people of this team or the teams under it"
+    },
+    {
+     "flag": "--harness HARNESS",
+     "summary": "only this harness"
+    },
+    {
+     "flag": "--model MODEL",
+     "summary": "only this model"
+    },
+    {
+     "flag": "--mine",
+     "summary": "only entries you own"
+    },
+    {
+     "flag": "--featured",
+     "summary": "only featured entries"
+    },
+    {
+     "flag": "--all",
+     "summary": "include deprecated and retired entries"
+    },
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours); default the one this client works in (ks context use)"
+    }
+   ]
+  },
+  {
+   "verb": "library show",
+   "aliases": [],
+   "usage": "ks library show <handle> [--organization ID]",
+   "summary": "one entry: its badges, counts, lineage and versions with their notes",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours); default the one this client works in (ks context use)"
+    }
+   ]
+  },
+  {
+   "verb": "library connect",
+   "aliases": [],
+   "usage": "ks library connect <handle> [--session ID] [--agent NAME] [--pin N] [--confirm HANDLE] [--expires DURATION] [--organization ID]",
+   "summary": "let one of your agents ask a library agent, after you have seen what is shared and confirmed it by handle",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session of the agent; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--agent NAME",
+     "summary": "the agent that will ask (default main)"
+    },
+    {
+     "flag": "--pin N",
+     "summary": "stay on this version; without it the connection follows the newest version"
+    },
+    {
+     "flag": "--confirm HANDLE",
+     "summary": "confirm the connection by naming the handle; --yes does not confirm it"
+    },
+    {
+     "flag": "--expires DURATION",
+     "summary": "how long the connection lasts (default 24h, at most 720h)"
+    },
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours); default the one this client works in (ks context use)"
+    }
+   ]
+  },
+  {
+   "verb": "library disconnect",
+   "aliases": [],
+   "usage": "ks library disconnect <grant> [--organization ID]",
+   "summary": "withdraw a library connection: every future question over it stops at once",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours); default the one this client works in (ks context use)"
+    }
+   ]
+  },
+  {
+   "verb": "library origin",
+   "aliases": [],
+   "usage": "ks library origin [--session ID] [--organization ID]",
+   "summary": "where a session was forked from, and whether a newer version exists",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session of the agent; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours); default the one this client works in (ks context use)"
+    }
+   ]
+  },
+  {
+   "verb": "library usage",
+   "aliases": [],
+   "usage": "ks library usage <handle> [--organization ID]",
+   "summary": "an entry's counts, and for its owner and the organization's owners and admins who asked and how they rated; never a question's words",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours); default the one this client works in (ks context use)"
+    }
+   ]
+  },
+  {
+   "verb": "library report",
+   "aliases": [],
+   "usage": "ks library report <handle> [--reason wrong|harmful|leaks|spam|other] [--organization ID]",
+   "summary": "report an entry to the organization's owners and admins (one open report per member)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--reason wrong|harmful|leaks|spam|other",
+     "summary": "what is wrong"
+    },
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours); default the one this client works in (ks context use)"
+    }
+   ]
+  },
+  {
+   "verb": "library deprecate",
+   "aliases": [],
+   "usage": "ks library deprecate <handle> [--replacement HANDLE] [--organization ID]",
+   "summary": "deprecate an entry: it keeps answering for 14 days and then retires (its owner, or an owner or admin)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--replacement HANDLE",
+     "summary": "the entry that replaces it"
+    },
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours); default the one this client works in (ks context use)"
+    }
+   ]
+  },
+  {
+   "verb": "library retire",
+   "aliases": [],
+   "usage": "ks library retire <handle> [--confirm HANDLE] [--organization ID]",
+   "summary": "retire an entry: it stops answering and cannot be forked (its owner, or an owner or admin)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--confirm HANDLE",
+     "summary": "confirm by naming the handle; --yes does not confirm it"
+    },
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours); default the one this client works in (ks context use)"
+    }
+   ]
+  },
+  {
+   "verb": "library transfer",
+   "aliases": [],
+   "usage": "ks library transfer <handle> <account> [--organization ID]",
+   "summary": "give an entry, and the agent behind it with its session, to another member who may share",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours); default the one this client works in (ks context use)"
+    }
+   ]
+  },
+  {
+   "verb": "library feature",
+   "aliases": [],
+   "usage": "ks library feature <handle> [--off] [--organization ID]",
+   "summary": "feature an entry, or with --off stop (an owner or admin)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--off",
+     "summary": "remove it from featured"
+    },
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours); default the one this client works in (ks context use)"
+    }
+   ]
+  },
+  {
+   "verb": "library verify",
+   "aliases": [],
+   "usage": "ks library verify <handle> [--version N] [--off] [--organization ID]",
+   "summary": "verify the live version of an entry, or with --off take the badge away (an owner or admin)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--version N",
+     "summary": "the version to verify; default the live one"
+    },
+    {
+     "flag": "--off",
+     "summary": "take the badge away"
+    },
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours); default the one this client works in (ks context use)"
+    }
+   ]
+  },
+  {
+   "verb": "library forks",
+   "aliases": [],
+   "usage": "ks library forks <handle> <state> [--organization ID]",
+   "summary": "turn forks of an entry on or off (its owner, or an owner or admin)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours); default the one this client works in (ks context use)"
+    }
+   ]
+  },
+  {
+   "verb": "library publish",
+   "aliases": [],
+   "usage": "ks library publish <handle> [--checkpoint ID] [--save-now] [--notes TEXT] [--organization ID]",
+   "summary": "publish a new version of an entry from a saved point, or from the agent saved now",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--checkpoint ID",
+     "summary": "a saved point of the source agent's session (ks session checkpoints)"
+    },
+    {
+     "flag": "--save-now",
+     "summary": "save the agent now and publish that"
+    },
+    {
+     "flag": "--notes TEXT",
+     "summary": "release notes"
+    },
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours); default the one this client works in (ks context use)"
+    }
+   ]
+  },
+  {
+   "verb": "library edit",
+   "aliases": [],
+   "usage": "ks library edit <handle> [--title TEXT] [--description TEXT] [--tag TAG] [--show-instructions] [--hide-instructions] [--organization ID]",
+   "summary": "change an entry's title, description, tags or whether its instructions are shown",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--title TEXT",
+     "summary": "the title"
+    },
+    {
+     "flag": "--description TEXT",
+     "summary": "the description"
+    },
+    {
+     "flag": "--tag TAG",
+     "summary": "a tag; repeat for several (replaces the tags)"
+    },
+    {
+     "flag": "--show-instructions",
+     "summary": "show its instructions on each version"
+    },
+    {
+     "flag": "--hide-instructions",
+     "summary": "keep its instructions private"
+    },
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours); default the one this client works in (ks context use)"
+    }
+   ]
+  },
+  {
+   "verb": "library withdraw",
+   "aliases": [],
+   "usage": "ks library withdraw <handle> <version> [--organization ID]",
+   "summary": "withdraw a version so it no longer answers (its owner, or an owner or admin)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours); default the one this client works in (ks context use)"
+    }
+   ]
+  },
+  {
+   "verb": "library review",
+   "aliases": [],
+   "usage": "ks library review <handle> <version> <decision> [--organization ID]",
+   "summary": "approve or decline a version that waits for review (an owner or admin)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours); default the one this client works in (ks context use)"
+    }
+   ]
+  },
+  {
+   "verb": "library settings",
+   "aliases": [],
+   "usage": "ks library settings [--who-may-share members|admins] [--review-required] [--no-review-required] [--organization ID]",
+   "summary": "who may share agents in the organization's library, and whether a new version waits for review; without a change flag, what they are now",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--who-may-share members|admins",
+     "summary": "who may add agents"
+    },
+    {
+     "flag": "--review-required",
+     "summary": "a new version waits for an admin's approval"
+    },
+    {
+     "flag": "--no-review-required",
+     "summary": "a new version answers at once"
+    },
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours); default the one this client works in (ks context use)"
+    }
+   ]
+  },
+  {
+   "verb": "agent share",
+   "aliases": [],
+   "usage": "ks agent share <agent> [--session ID] [--handle HANDLE] [--title TEXT] [--description TEXT] [--tag TAG] [--checkpoint ID] [--save-now] [--show-instructions] [--notes TEXT] [--organization ID]",
+   "summary": "add one of the organization's agents to its library and publish its first version",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session of the agent; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--handle HANDLE",
+     "summary": "the entry's handle, 3 to 32 letters, digits and hyphens"
+    },
+    {
+     "flag": "--title TEXT",
+     "summary": "the entry's title"
+    },
+    {
+     "flag": "--description TEXT",
+     "summary": "what it is for"
+    },
+    {
+     "flag": "--tag TAG",
+     "summary": "a tag; repeat for several"
+    },
+    {
+     "flag": "--checkpoint ID",
+     "summary": "publish this saved point"
+    },
+    {
+     "flag": "--save-now",
+     "summary": "save the agent now and publish that"
+    },
+    {
+     "flag": "--show-instructions",
+     "summary": "show its instructions on each version"
+    },
+    {
+     "flag": "--notes TEXT",
+     "summary": "release notes for the first version"
+    },
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours); default the one this client works in (ks context use)"
+    }
+   ]
+  },
+  {
+   "verb": "agent fork",
+   "aliases": [],
+   "usage": "ks agent fork <handle> [--version N] [--name NAME] [--project ID] [--execute DIGEST] [--plan-id ID] [--organization ID]",
+   "summary": "plan a fork of a library agent, then fork exactly that plan by its digest",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--version N",
+     "summary": "the version to fork; default the newest that answers"
+    },
+    {
+     "flag": "--name NAME",
+     "summary": "the new session's name"
+    },
+    {
+     "flag": "--project ID",
+     "summary": "an organization project to put it in"
+    },
+    {
+     "flag": "--execute DIGEST",
+     "summary": "fork the plan with this digest"
+    },
+    {
+     "flag": "--plan-id ID",
+     "summary": "the plan the digest belongs to"
+    },
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours); default the one this client works in (ks context use)"
+    }
+   ]
+  },
+  {
+   "verb": "advice rate",
+   "aliases": [],
+   "usage": "ks advice rate <consultation> <rating> [--organization ID]",
+   "summary": "rate an answer from a library agent up or down (only the person whose agent asked)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization (ks organization list shows yours); default the one this client works in (ks context use)"
     }
    ]
   }

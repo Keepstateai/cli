@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- The Claude Code plugin now runs `@keepstateai/cli@0.1.39`.
+
+## v0.1.39 (2026-11-08)
 - Approving a permission request through `ks mcp` is recorded by how it was
   decided. A decision a person answered in the host app is sent as such
   (`via` `ks-mcp:elicitation`), and a denial the calling model confirmed with
@@ -15,6 +18,34 @@
   README and `ks skill` say what is recorded and that an app that answers
   MCP questions by itself would answer in the person's name.
 - The Claude Code plugin now runs `@keepstateai/cli@0.1.38`.
+- The organization's Agent library, from the terminal. `ks agent share AGENT
+  --handle HANDLE --title TITLE --save-now` (or `--checkpoint ID`; one is
+  always named, none is chosen for you) adds an agent of the organization and
+  publishes its first version. `ks library list` and `show` find and read
+  entries (a count that cannot be read says `unavailable`, never 0), `ks
+  library connect @handle` lets one of your agents ask it (confirmed by
+  naming the handle; the library agent sees the question only, and the
+  organization's credit and your budget pay), and `ks agent ask` takes
+  `@handle` like any adviser. `ks agent fork @handle` plans a fork and shows
+  what it copies and what it does not, then forks exactly that plan by its
+  digest. The owner's and admins' verbs are `ks library publish`, `edit`,
+  `withdraw`, `review`, `deprecate`, `retire`, `transfer`, `feature`,
+  `verify`, `forks on|off`, `usage` and `settings`; `ks library report` and
+  `ks advice rate` are everyone's. All of it needs the library switched on
+  for your organization.
+- Open models via OpenRouter. `ks cruise models` lists each open model
+  under every harness that runs it, beside the words "open model via
+  OpenRouter", with its price per million tokens on your OpenRouter key
+  (`$2.00 in / $10.00 out per million tokens`) and, where KeepState's key
+  offers it, its price there; a model not offered yet shows the catalog's
+  reason. `ks run --agent --model`, `ks agent run --model`, `ks session
+  model` and `ks session runner --model` take any model the catalog offers
+  for the harness and refuse a withheld one with the catalog's reason,
+  sending nothing. An open model calls an OpenRouter key: one of yours by
+  id, or `keepstate` for KeepState's key; `ks session model` takes `--key`
+  for it. `ks key default openrouter own|keepstate` and `ks session key set
+  --key keepstate --provider openrouter` work, and `--key keepstate` on a
+  session running an open model defaults to OpenRouter.
 
 ## v0.1.38 (2026-11-06)
 
