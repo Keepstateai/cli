@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.39 (2026-11-08)
 
 - The Claude Code plugin now runs `@keepstateai/cli@0.1.38`.
 - The organization's Agent library, from the terminal. `ks agent share AGENT
