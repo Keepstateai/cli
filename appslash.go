@@ -46,10 +46,12 @@ var slashShortcuts = map[string][]string{
 
 // slashExcluded are the commands a window does not run, each with why.
 var slashExcluded = map[string]string{
-	"agent open": "you are in the agent's window already; /home, then Enter, opens another",
-	"attach":     "it takes over the terminal itself: run ks attach outside the app",
-	"login":      "signing in opens a browser: run ks login outside the app",
-	"logout":     "it removes the sign-in the app is using: run ks logout outside the app",
+	"agent open":     "you are in the agent's window already; /home, then Enter, opens another",
+	"attach":         "it takes over the terminal itself: run ks attach outside the app",
+	"login":          "signing in opens a browser: run ks login outside the app",
+	"logout":         "it removes the sign-in the app is using: run ks logout outside the app",
+	"connect github": "it opens a browser, or reads a token at a prompt that does not echo it: run ks connect github outside the app",
+	"connect gitlab": "it opens a browser, or reads a token at a prompt that does not echo it: run ks connect gitlab outside the app",
 }
 
 // windowCommands are handled by the window itself (app.go), not run.

@@ -54,18 +54,24 @@ type draftView struct {
 	Revision int64  `json:"revision"`
 	State    string `json:"state"`
 	Source   struct {
-		Kind           string `json:"kind"`
-		Format         string `json:"format"`
-		Bytes          int64  `json:"bytes"`
-		Layout         string `json:"layout"`
-		LeftOut        int64  `json:"left_out"`
-		StrippedPrefix string `json:"stripped_prefix"`
-		SessionID      string `json:"session_id"`
-		ProposalID     string `json:"proposal_id"`
-		SessionName    string `json:"session_name"`
-		Root           string `json:"root"`
-		CopiedAt       string `json:"copied_at"`
-		AgentActivity  string `json:"agent_activity_at_copy"`
+		Kind           string   `json:"kind"`
+		Format         string   `json:"format"`
+		Bytes          int64    `json:"bytes"`
+		Layout         string   `json:"layout"`
+		LeftOut        int64    `json:"left_out"`
+		StrippedPrefix string   `json:"stripped_prefix"`
+		SessionID      string   `json:"session_id"`
+		ProposalID     string   `json:"proposal_id"`
+		SessionName    string   `json:"session_name"`
+		Root           string   `json:"root"`
+		CopiedAt       string   `json:"copied_at"`
+		AgentActivity  string   `json:"agent_activity_at_copy"`
+		Provider       string   `json:"provider"`
+		Repository     string   `json:"repository"`
+		Branch         string   `json:"branch"`
+		Commit         string   `json:"commit"`
+		ConnectionID   string   `json:"connection_id"`
+		RepoNotes      []string `json:"repository_notes"`
 	} `json:"source"`
 	Upload *struct {
 		Method   string `json:"method"`
@@ -239,6 +245,14 @@ func printDraft(w io.Writer, v *draftView, computed string) {
 		if v.Source.CopiedAt != "" {
 			fmt.Fprintf(w, ", copied at %s", sanitize(v.Source.CopiedAt))
 		}
+	} else if v.Source.Kind == "repository" {
+		fmt.Fprintf(w, "  source       repository %s on %s, branch %s", sanitize(v.Source.Repository), providerWord(v.Source.Provider), sanitize(notRecorded(v.Source.Branch)))
+		if v.Source.Commit != "" {
+			fmt.Fprintf(w, " at %s", firstN(sanitize(v.Source.Commit), 12))
+		}
+		if v.Source.ConnectionID != "" {
+			fmt.Fprintf(w, ", through %s", sanitize(v.Source.ConnectionID))
+		}
 	} else if v.Source.Kind == "session" {
 		fmt.Fprintf(w, "  source       session %s (%s), folder %s", sanitize(v.Source.SessionID), sanitize(notRecorded(v.Source.SessionName)), sanitize(notRecorded(v.Source.Root)))
 		if v.Source.CopiedAt != "" {
@@ -254,6 +268,9 @@ func printDraft(w io.Writer, v *draftView, computed string) {
 		fmt.Fprintf(w, ", top folder %s removed", sanitize(v.Source.StrippedPrefix))
 	}
 	fmt.Fprintln(w)
+	for _, n := range v.Source.RepoNotes {
+		fmt.Fprintf(w, "  not brought  %s\n", sanitize(n))
+	}
 	if v.Refusal != nil {
 		fmt.Fprintf(w, "  refused      %s: %s\n", sanitize(v.Refusal.Code), visible(sanitize(v.Refusal.Message)))
 	}
@@ -458,15 +475,22 @@ func archiveFormat(name string) string {
 
 func hostedCruiseDraftCreate(cr hostedCreds, inv *Invocation) {
 	dir, archive, session := strings.TrimSpace(inv.Str("dir")), strings.TrimSpace(inv.Str("archive")), strings.TrimSpace(inv.Str("session"))
-	proposal := strings.TrimSpace(inv.Str("proposal"))
+	proposal, repo := strings.TrimSpace(inv.Str("proposal")), strings.TrimSpace(inv.Str("repo"))
 	named := 0
-	for _, x := range []string{dir, archive, session, proposal} {
+	for _, x := range []string{dir, archive, session, proposal, repo} {
 		if x != "" {
 			named++
 		}
 	}
 	if named != 1 {
-		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "name exactly one source: --dir FOLDER, --archive FILE, --session SESSION or --proposal PROPOSAL; nothing was sent"})
+		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "name exactly one source: --dir FOLDER, --archive FILE, --session SESSION, --proposal PROPOSAL or --repo REPOSITORY; nothing was sent"})
+	}
+	if repo == "" {
+		for _, f := range []string{"branch", "connection"} {
+			if inv.Set(f) {
+				fail(&cliError{Code: exitUsage, Kind: "usage", Message: fmt.Sprintf("--%s goes with --repo REPOSITORY; nothing was sent", f)})
+			}
+		}
 	}
 	if proposal != "" {
 		for _, f := range []string{"goal", "paths", "check", "ladder", "spend", "key"} {
@@ -490,7 +514,7 @@ func hostedCruiseDraftCreate(cr hostedCreds, inv *Invocation) {
 		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--root names a folder of a session's workspace and goes with --session; nothing was sent"})
 	}
 	body := map[string]any{"storage_consent": true}
-	if session != "" || proposal != "" {
+	if session != "" || proposal != "" || repo != "" {
 		createSessionDraft(cr, inv, body, proposal)
 		return
 	}
@@ -577,7 +601,18 @@ var draftCollectWait = 5 * time.Minute
 // digest recomputed from the files, so the digest to approve is the draft's.
 func createSessionDraft(cr hostedCreds, inv *Invocation, body map[string]any, proposal string) {
 	var source map[string]any
-	if proposal != "" {
+	repo := strings.TrimSpace(inv.Str("repo"))
+	if repo != "" {
+		// a repository: nothing is packed or sent from here; the service
+		// fetches it at the branch's newest commit with the connection
+		source = map[string]any{"kind": "repository", "repository": repo}
+		if b := strings.TrimSpace(inv.Str("branch")); b != "" {
+			source["branch"] = b
+		}
+		if c := strings.TrimSpace(inv.Str("connection")); c != "" {
+			source["connection_id"] = c
+		}
+	} else if proposal != "" {
 		source = map[string]any{"kind": "proposal", "proposal_id": proposal}
 	} else {
 		sess := agentSession(cr, inv)
@@ -594,12 +629,21 @@ func createSessionDraft(cr hostedCreds, inv *Invocation, body map[string]any, pr
 		draftTerms(inv, body)
 		draftTestsTerms(inv, body)
 	}
-	progress("KeepState copies the session's files into this draft only, does not bill for the copy, and deletes it when the draft is approved, discarded or expires")
+	what := "the session's files"
+	if repo != "" {
+		what = "the repository's files"
+		progress("KeepState fetches the repository's files at the commit (no history) into this draft only, with the connection, which only reads and never reaches the job; it does not bill for the copy and deletes it when the draft is approved, discarded or expires")
+	} else {
+		progress("KeepState copies the session's files into this draft only, does not bill for the copy, and deletes it when the draft is approved, discarded or expires")
+	}
 	var env draftEnvelope
 	if note := cruiseContextNote(cr); note != "" {
 		progress("%s", note)
 	}
 	if err := hostedMutate(cr, "POST", inContext(cr, draftsRoute), body, &env); err != nil {
+		if isRepoRefusal(err) {
+			die(repoErr(err, "ks cruise draft create --repo "+repo, "no draft was created"))
+		}
 		die(cruiseCtxErr(cr, err))
 	}
 	v, err := decodeDraft(env.Data)
@@ -609,12 +653,12 @@ func createSessionDraft(cr hostedCreds, inv *Invocation, body map[string]any, pr
 	raw := env.Data
 	deadline := time.Now().Add(draftCollectWait)
 	if v.State == "collecting" {
-		progress("draft %s created; the service is copying and reading the session's files", v.ID)
+		progress("draft %s created; the service is copying and reading %s", v.ID, what)
 	}
 	for v.State == "collecting" {
 		if time.Now().After(deadline) {
 			fail(&cliError{Code: exitTemporary, Kind: "draft_collecting", WorkStarted: workYes,
-				Message:    fmt.Sprintf("draft %s is still reading the session's files after %s", v.ID, draftCollectWait),
+				Message:    fmt.Sprintf("draft %s is still reading %s after %s", v.ID, what, draftCollectWait),
 				NextAction: "ks cruise draft show " + v.ID})
 		}
 		time.Sleep(time.Second)

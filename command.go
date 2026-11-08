@@ -70,7 +70,10 @@ type Command struct {
 	// A registry that lists Needs is always judged by Needs.
 	Fallback string
 	Group    bool // a head with subcommands and no handler of its own
-	Run      func(inv *Invocation)
+	// HideExtra keeps an unexpected argument out of the refusal: on a verb
+	// that reads a secret, a stray argument may be the secret itself.
+	HideExtra bool
+	Run       func(inv *Invocation)
 }
 
 func (c *Command) Name() string { return strings.Join(c.Path, " ") }
@@ -384,6 +387,9 @@ func (c *Command) parse(tokens []string) (*Invocation, *UsageError) {
 	}
 	if len(positional) > len(c.Args) && c.Rest == "" {
 		extra := positional[len(c.Args)]
+		if c.HideExtra {
+			return fail("Unexpected argument (not repeated here). A token is never taken from the command line: it is read from a prompt or standard input. One typed on the command line is in your shell history now, so treat it as seen and replace it.", "")
+		}
 		sugg := ""
 		if strings.HasPrefix(extra, "-") {
 			sugg = c.suggestFlag(extra)
