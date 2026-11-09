@@ -3888,6 +3888,90 @@
      "summary": "only branches whose name matches"
     }
    ]
+  },
+  {
+   "verb": "agent files list",
+   "aliases": [],
+   "usage": "ks agent files list <adviser> [path] [--session ID] [--agent NAME]",
+   "summary": "a folder of the workspace of an agent this agent is connected to (path default the top)",
+   "status": "available",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agents.files capability available (agent.workspace for an older registry), and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the asking agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--agent NAME",
+     "summary": "the asking agent (default main)"
+    }
+   ]
+  },
+  {
+   "verb": "agent files get",
+   "aliases": [],
+   "usage": "ks agent files get <adviser> <path> [--session ID] [--agent NAME] [--to FILE] [--show]",
+   "summary": "fetch one file of an agent this agent is connected to, checked, into .shared-in/ (never replacing anything)",
+   "status": "available",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agents.files capability available (agent.workspace for an older registry), and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the asking agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--agent NAME",
+     "summary": "the asking agent (default main)"
+    },
+    {
+     "flag": "--to FILE",
+     "summary": "write to this new file instead of .shared-in/<adviser session>-<adviser agent>/<path>"
+    },
+    {
+     "flag": "--show",
+     "summary": "print the file (text, up to 1 MiB) instead of writing it"
+    }
+   ]
+  },
+  {
+   "verb": "agent files log",
+   "aliases": [],
+   "usage": "ks agent files log [--session ID] [--agent NAME]",
+   "summary": "every file this agent asked for and every ask made of it: path, bytes, sha256 and outcome, never the content",
+   "status": "available",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agents.files capability available (agent.workspace for an older registry), and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the asking agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--agent NAME",
+     "summary": "the asking agent (default main)"
+    }
+   ]
+  },
+  {
+   "verb": "agent files allow",
+   "aliases": [],
+   "usage": "ks agent files allow <adviser> <setting> [--session ID] [--agent NAME]",
+   "summary": "set what a connection allows of this agent's reach into its adviser's files: read or none",
+   "status": "available",
+   "surface": "hosted",
+   "note": "the binary dispatches this verb; it runs only where the control plane reports the agents.files capability available (agent.workspace for an older registry), and refuses with that reason where it does not",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the asking agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--agent NAME",
+     "summary": "the asking agent (default main)"
+    }
+   ]
   }
  ]
 }

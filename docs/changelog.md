@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Agents can reach the files of the agent a person connected them to, from the
+  terminal and from inside a session. `ks agent files list` shows a folder of
+  the adviser's workspace, `ks agent files get` brings one file (checked
+  against its sha256, up to 250 MiB, never replacing anything) into
+  `.shared-in/`, `ks agent files log` lists every file asked for and every ask
+  made of an agent, and `ks agent files allow <adviser> read|none` sets what a
+  connection allows (read is the default). Nothing is woken and nobody is
+  asked; links, secret names and files that hold a credential are refused, and
+  a connection may fetch 1 GiB an hour. This needs the service's file-sharing
+  release (agents.files) and refuses with its reason where it is not there.
 - The Claude Code plugin now runs `@keepstateai/cli@0.1.41`.
 
 ## v0.1.41 (2026-11-08)

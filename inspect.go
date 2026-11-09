@@ -305,6 +305,19 @@ func hostedFileDownload(cr hostedCreds, inv *Invocation) {
 	}
 	sess := agentSession(cr, inv)
 	route := inspectBase(sess) + "/files/download?" + url.Values{"path": {p}}.Encode()
+	d := fetchVerifiedFile(cr, route, p, dest, "session "+sess.ShortID, func(err error) error { return inspectRefusal(err, sess) })
+	d.SessionID = agentSessionID(sess)
+	emit(d, func() {
+		fmt.Printf("wrote %s bytes to %s (session %s, sha256 %s, checked)\n", commas(d.Bytes), dest, sess.ShortID, short(d.SHA256))
+	})
+}
+
+// fetchVerifiedFile brings the file a download route describes to a NEW local
+// file at dest, under ks file download's rule: the named file appears only
+// when its bytes are the ones the service stated before sending them
+// (X-KS-Size, X-KS-SHA256). Both ks file download and ks agent files get use
+// it. refuse turns the service's refusal into the verb's own words.
+func fetchVerifiedFile(cr hostedCreds, route, p, dest, from string, refuse func(error) error) fileDownload {
 	resp, err := hostedDo(cr, "GET", route, "", nil)
 	if err != nil {
 		die(transportErr{err: err})
@@ -312,7 +325,7 @@ func hostedFileDownload(cr hostedCreds, inv *Invocation) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		die(inspectRefusal(hostedError("GET", route, resp, raw), sess))
+		die(refuse(hostedError("GET", route, resp, raw)))
 	}
 	size, err := strconv.ParseInt(resp.Header.Get("X-KS-Size"), 10, 64)
 	want := strings.ToLower(resp.Header.Get("X-KS-SHA256"))
@@ -325,7 +338,7 @@ func hostedFileDownload(cr hostedCreds, inv *Invocation) {
 	if err != nil {
 		die(err)
 	}
-	progress("downloading %s (%s bytes) from session %s", visible(p), commas(size), sess.ShortID)
+	progress("downloading %s (%s bytes) from %s", visible(p), commas(size), from)
 	h := sha256.New()
 	n, err := io.Copy(io.MultiWriter(f, h), io.LimitReader(resp.Body, size+1))
 	_ = f.Sync()
@@ -351,10 +364,7 @@ func hostedFileDownload(cr hostedCreds, inv *Invocation) {
 	if err := finalize(partial, dest, false); err != nil {
 		die(err)
 	}
-	d := fileDownload{SessionID: agentSessionID(sess), Path: p, Out: dest, Bytes: size, SHA256: want}
-	emit(d, func() {
-		fmt.Printf("wrote %s bytes to %s (session %s, sha256 %s, checked)\n", commas(size), dest, sess.ShortID, short(want))
-	})
+	return fileDownload{Path: p, Out: dest, Bytes: size, SHA256: want}
 }
 
 func logLine(e logEntry) string {
