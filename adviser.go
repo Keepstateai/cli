@@ -51,6 +51,7 @@ type adviserGrant struct {
 	// sized the connection for one turn of the adviser's model.
 	LimitsFrom        string `json:"limits_from,omitempty"`
 	ContextPolicy     string `json:"context_policy"`
+	Files             string `json:"files,omitempty"` // read | none: what the connection allows of file reach
 	SourceAgentName   string `json:"source_agent_name,omitempty"`
 	SourceSessionID   string `json:"source_session_id,omitempty"`
 	SourceSessionName string `json:"source_session_name,omitempty"`

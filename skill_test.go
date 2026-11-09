@@ -47,7 +47,7 @@ func TestSkillManualKeepsThePublishingRules(t *testing.T) {
 		t.Errorf("the manual has tracker-shaped ids: %v", m)
 	}
 	known := map[string]bool{}
-	for _, w := range strings.Fields("AGENT Also An Approve Deny Then There Find ID MCP Show Through Before Child Closing DATA Delegate Do Each Every It Its JSON KEY KeepState Keys NAME NEW Name Never On Only PERSON ROLE Read Reference Review Session Start Status Talk Tell That The They This What When Without You Your") {
+	for _, w := range strings.Fields("AGENT Also An Approve Deny Then There Find ID MCP Show Through Before Child Closing DATA Delegate Do Each Every It Its JSON KEY KeepState Keys NAME NEW Name Never On Only PERSON ROLE Read Reference Review Session Start Status Talk Tell That The They This What When Without You Your MiB GiB") {
 		known[w] = true
 	}
 	for _, w := range regexp.MustCompile(`\b[A-Z][a-zA-Z]+\b`).FindAllString(skillManual, -1) {
