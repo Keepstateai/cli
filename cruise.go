@@ -61,6 +61,8 @@ usage:
   ks cruise artifact JOB [--out FILE]               download the accepted tarball (sha256-verified)
   ks cruise receipt JOB [--out FILE]                download the signed receipt, exactly as sealed
   ks cruise models            the model table the control plane serves (families, rungs, default ladder)
+  ks cruise verify RECEIPT [--keys-file FILE | --keys-url URL | --public-key KEY]
+                              check a receipt's Ed25519 signature offline against the published key list
 
 A job is a goal, a check and a ladder of models. init reads the repository
 and drafts the manifest; nothing runs until you approve it. The check is the
