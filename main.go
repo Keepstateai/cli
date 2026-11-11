@@ -1713,6 +1713,12 @@ var registry = []*Command{
 				die(err)
 			}
 		}},
+	{Path: []string{"cruise", "receipt"}, Summary: "download an accepted job's signed receipt, exactly as the service sealed it", Surface: "hosted",
+		Effects:  "reads the job's status and downloads its receipt file; writes one new file after the bytes match the digest the job's result names (the served header and the bytes); never over an existing file, and the receipt is written as received, never parsed and written out again. Nothing is run or uploaded",
+		Examples: []string{"ks cruise receipt <job>", "ks cruise receipt <job> --out receipt.json"},
+		Args:     []Arg{{Name: "job", Required: true}},
+		Flags:    []Flag{{Name: "out", Kind: flagString, Value: "FILE", Summary: "where to write it; default JOB.receipt.json; an existing file is never written over"}},
+		Nothing:  "Nothing was written.", Run: cruiseReceipt},
 	{Path: []string{"cruise", "models"}, Summary: "the model catalog: exact ids, family, provider route, rung, runner compatibility as stated, price standing and your key route", Surface: "hosted",
 		Flags:    []Flag{{Name: "cached", Kind: flagBool, Summary: "show the last catalog read, labelled CACHED with its version and served_at; makes no request"}},
 		Effects:  "reads the catalog (and keeps a copy labelled with its version and served time); nothing changes. Live provider availability is not checked by the catalog",

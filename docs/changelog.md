@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- `ks cruise receipt <job> [--out FILE]` downloads an accepted job's signed
+  receipt exactly as the service sealed it (written as received, never parsed
+  and written out again, never over an existing file). The bytes are checked
+  against the digest the job's result names before the file exists, and the
+  command says whether the receipt is publicly verifiable (an Ed25519
+  signature anyone can check with the published public key) or
+  service-verifiable only. A job accepted before the service kept receipt
+  files says so in plain words and writes nothing. This needs the service's
+  receipt release.
 - `ks cruise verify RECEIPT` checks a Cruise receipt's Ed25519 signature
   offline, against the public key list KeepState publishes at
   https://ctl.keepstate.ai/.well-known/keepstate-receipt-keys.json (or a saved

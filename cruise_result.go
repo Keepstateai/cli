@@ -60,6 +60,9 @@ type liveResult struct {
 	Limitations     []string       `json:"limitations"`
 	// the per-file changeset against the approved workspace (QA-078-3)
 	Changeset *liveChangeset `json:"changeset"`
+	// the signed receipt file, as sealed; null when the result was accepted
+	// before the service kept them
+	Receipt *liveReceipt `json:"receipt"`
 	// the pull request the service opened for this result, once it opens
 	// them; absent until then
 	PullRequest *livePullRequest `json:"pull_request"`
@@ -169,6 +172,9 @@ func resultLines(jobID string, r *liveResult) []string {
 		fmt.Sprintf("  manifest       sha256 %s, revision %d", notRecorded(r.ManifestSHA), r.ManifestVersion),
 	}
 	out = append(out, provenanceLines(r.Provenance)...)
+	if r.Receipt != nil {
+		out = append(out, "  receipt file   ks cruise receipt "+jobID+" ("+receiptVerifiabilityWords(r.Receipt)+")")
+	}
 	out = append(out, "  limitations")
 	if len(r.Limitations) == 0 {
 		out = append(out, "    none were stated")
