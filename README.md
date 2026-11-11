@@ -51,6 +51,7 @@ ks cruise approve                                       # locks it: .keepstate/c
 ks cruise run                                           # uploads the workspace, starts the job
 ks cruise status                                        # rung, attempts, save points, spend, verdict
 ks cruise artifact <job>                                # the accepted tarball, sha256-verified
+ks cruise receipt <job>                                 # the signed receipt, exactly as sealed
 ```
 
 `init` reads the repository: the check is the test command it finds

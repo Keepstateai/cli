@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- `ks cruise receipt <job> [--out FILE]` downloads an accepted job's signed
+  receipt exactly as the service sealed it (written as received, never parsed
+  and written out again, never over an existing file). The bytes are checked
+  against the digest the job's result names before the file exists, and the
+  command says whether the receipt is publicly verifiable (an Ed25519
+  signature anyone can check with the published public key) or
+  service-verifiable only. A job accepted before the service kept receipt
+  files says so in plain words and writes nothing. This needs the service's
+  receipt release.
 - Agents can reach the files of the agent a person connected them to, from the
   terminal and from inside a session. `ks agent files list` shows a folder of
   the adviser's workspace, `ks agent files get` brings one file (checked

@@ -1998,6 +1998,23 @@
    "note": "Reads GET /api/jobs/{id}/status and GET /api/jobs/{id}/changeset (both served by production ctl 4f9b4ad, build 8a22c753; unauthenticated requests answer 401)."
   },
   {
+   "verb": "cruise receipt",
+   "aliases": [],
+   "usage": "ks cruise receipt <job> [--out FILE]",
+   "summary": "download an accepted job's signed receipt, exactly as the service sealed it",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--out FILE",
+     "summary": "where to write it; default JOB.receipt.json; an existing file is never written over"
+    }
+   ],
+   "safety": "Checks the bytes against the digest the job's status names (the served X-KS-Sha256 and the bytes received) before the named file exists; a mismatch is refused and nothing is written. The receipt is written as received, never parsed and written out again.",
+   "safetyMeasured": "2026-11-12, cruise_receipt_test.go (TestCruiseReceiptWritesTheExactBytes, TestCruiseReceiptRefusesBytesThatAreNotTheRecordedOnes) against a control plane serving a tampered or re-serialised receipt.",
+   "note": "Reads GET /api/jobs/{id}/status and GET /api/jobs/{id}/receipt (served once the control plane that keeps receipt files is deployed; an older one has no such route and the status names no receipt, which this verb says in plain words)."
+  },
+  {
    "verb": "session migrate",
    "aliases": [],
    "usage": "ks session migrate <session> [--confirm DIGEST]",
