@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- `ks cruise verify RECEIPT` checks a Cruise receipt's Ed25519 signature
+  offline, against the public key list KeepState publishes at
+  https://ctl.keepstate.ai/.well-known/keepstate-receipt-keys.json (or a saved
+  copy with `--keys-file`, or one key with `--public-key`). It needs no
+  sign-in and no service key, and the receipt is never sent anywhere. It
+  exits 0 when the signature is valid under a key that was valid at the
+  receipt's time, 1 when it is not (altered, another key, a key that is
+  unknown, outside its window or revoked), and 3 for a receipt with no
+  Ed25519 signature, which only the service can check ("service-verifiable
+  only"). The signed bytes are reproduced exactly as the service writes them,
+  checked against vectors shared with the service.
 - Agents can reach the files of the agent a person connected them to, from the
   terminal and from inside a session. `ks agent files list` shows a folder of
   the adviser's workspace, `ks agent files get` brings one file (checked

@@ -3972,6 +3972,33 @@
      "summary": "the asking agent (default main)"
     }
    ]
+  },
+  {
+   "verb": "cruise verify",
+   "aliases": [],
+   "usage": "ks cruise verify <receipt> [--keys-url URL] [--keys-file FILE] [--public-key KEY] [--trust-before-revocation]",
+   "summary": "check a Cruise receipt's Ed25519 signature offline against the published key list",
+   "status": "available",
+   "surface": "client",
+   "flags": [
+    {
+     "flag": "--keys-url URL",
+     "summary": "read the key list from this address; default https://ctl.keepstate.ai/.well-known/keepstate-receipt-keys.json"
+    },
+    {
+     "flag": "--keys-file FILE",
+     "summary": "read a saved copy of the key list instead; nothing is requested"
+    },
+    {
+     "flag": "--public-key KEY",
+     "summary": "check against this one public key (32 bytes, base64 or 64 hex characters) instead of a list"
+    },
+    {
+     "flag": "--trust-before-revocation",
+     "summary": "accept a receipt made before its key's revoked_at; by default a receipt under a revoked key is refused"
+    }
+   ],
+   "note": "makes no request but one read of the key list (none with --keys-file or --public-key); the receipt is never sent and no sign-in is needed. Exit 0 verified, 1 not verified, 3 no Ed25519 signature (service-verifiable only: an old receipt, or one made before the key was placed), 2 unreadable inputs or a wrong command line. The signed bytes are reproduced exactly as the service writes them (shared vectors in testdata/receipt-verify)"
   }
  ]
 }
