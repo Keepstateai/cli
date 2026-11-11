@@ -51,6 +51,7 @@ ks cruise approve                                       # locks it: .keepstate/c
 ks cruise run                                           # uploads the workspace, starts the job
 ks cruise status                                        # rung, attempts, save points, spend, verdict
 ks cruise artifact <job>                                # the accepted tarball, sha256-verified
+ks cruise verify receipt.json                           # the receipt's signature, checked offline
 ```
 
 `init` reads the repository: the check is the test command it finds
@@ -63,6 +64,15 @@ excluded). Defaults: 1800 s per attempt and a $2 spend ceiling
 (`--spend`); the ladder comes from the model table (`ks cruise models`,
 `--ladder family:model,...`). `ks cruise logs`, `cancel` and `resume`
 complete the set. Every `--help` makes no request.
+
+`ks cruise verify RECEIPT` checks a receipt's Ed25519 signature against the
+public key list KeepState publishes (`--keys-url`, or a saved copy with
+`--keys-file`, which makes no request at all), with no sign-in and no service
+key; the receipt is never sent anywhere. Exit 0: verified under a key that was
+valid at the receipt's time. Exit 1: not verified (altered, another key, key
+unknown, outside its window or revoked; `--trust-before-revocation` accepts a
+receipt made before its key was revoked). Exit 3: the receipt has no Ed25519
+signature, so only the service can check it. Exit 2: unreadable inputs.
 
 ## Uninstall (one line)
 

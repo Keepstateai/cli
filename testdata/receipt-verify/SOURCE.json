@@ -1,0 +1,8 @@
+{
+ "what": "the shared receipt-verify-v1 vectors for ks cruise verify, vendored unchanged from the service repository",
+ "server_commit": "78b6c78ec366f4850fe9963cc13fda1f5b63880e",
+ "from": "docs/upgrade/vectors/receipt-verify-v1.json",
+ "sha256": "632c26dee2d9f39c178cb16380e1f790367672665cdc539c4472ef9e24dc897e",
+ "vendored_sha256": "632c26dee2d9f39c178cb16380e1f790367672665cdc539c4472ef9e24dc897e",
+ "transform": "none: the service file carries no private governance id, so the public scrub leaves it unchanged"
+}

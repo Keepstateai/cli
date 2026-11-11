@@ -60,6 +60,8 @@ usage:
   ks cruise resume JOB [--ladder family:model,...]   resume a job from review, on the same or a wider ladder
   ks cruise artifact JOB [--out FILE]               download the accepted tarball (sha256-verified)
   ks cruise models            the model table the control plane serves (families, rungs, default ladder)
+  ks cruise verify RECEIPT [--keys-file FILE | --keys-url URL | --public-key KEY]
+                              check a receipt's Ed25519 signature offline against the published key list
 
 A job is a goal, a check and a ladder of models. init reads the repository
 and drafts the manifest; nothing runs until you approve it. The check is the
