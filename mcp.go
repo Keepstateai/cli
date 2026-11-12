@@ -467,13 +467,17 @@ func (s *mcpServer) humanDecision(t mcpTool, args map[string]any, digest, plan s
 		}
 		// the request is read again: an answer about a request that moved
 		// while the person was reading it decides nothing
-		outb, _, code := s.runVerb(t.Target(args), 2*time.Minute)
-		if code != 0 {
-			return toolText(t.noHuman(args, "the request could not be read again after the answer"), true)
-		}
-		rev, _, refusal := t.Inspect(s, args, outb)
-		if refusal != "" {
-			return toolText(refusal, true)
+		rev := ""
+		if t.Target != nil {
+			outb, _, code := s.runVerb(t.Target(args), 2*time.Minute)
+			if code != 0 {
+				return toolText(t.noHuman(args, "the request could not be read again after the answer"), true)
+			}
+			r2, _, refusal := t.Inspect(s, args, outb)
+			if refusal != "" {
+				return toolText(refusal, true)
+			}
+			rev = r2
 		}
 		cr, _ := hostedTokenQuiet()
 		h := sha256.Sum256([]byte(t.Name + "\n" + canonicalArgs(args) + "\n" + cr.AccountID + "\n" + rev))
@@ -499,8 +503,11 @@ func (s *mcpServer) applyHumanAnswer(t mcpTool, args map[string]any, action stri
 	case "approve":
 		return s.runToolVia(t, args, true, decidedViaElicitation)
 	case "deny":
-		if d := findMCPTool("ks_agent_deny"); d != nil {
+		if d := findMCPTool(t.DenyTool); t.DenyTool != "" && d != nil {
 			return s.runToolVia(*d, args, true, decidedViaElicitation)
+		}
+		if t.DenyTool == "" {
+			return toolText("The person denied the approval, so "+firstNonEmpty(t.Nothing, "nothing was done")+".", false)
 		}
 	}
 	return toolText("The answer chose neither Approve nor Deny, so nothing was decided.", false)
@@ -509,7 +516,7 @@ func (s *mcpServer) applyHumanAnswer(t mcpTool, args map[string]any, action stri
 func humanDecisionSchema() map[string]any {
 	return map[string]any{"type": "object", "properties": map[string]any{
 		"decision": map[string]any{"type": "string", "enum": []string{"approve", "deny"}, "title": "Your decision",
-			"description": "Approve lets the agent do exactly this action, once. Deny refuses it."}},
+			"description": "Approve does exactly what the message says, once. Deny refuses it and nothing is done."}},
 		"required": []string{"decision"}}
 }
 

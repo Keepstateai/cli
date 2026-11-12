@@ -1,0 +1,8 @@
+{
+ "what": "the shared autopilot-binding-v2 vectors: the digest of the plain sentences an Autopilot approval binds, and the canonical bytes of the autopilot block, vendored unchanged from the service repository",
+ "from": "docs/upgrade/vectors/autopilot-binding-v2.json",
+ "server_commit": "5229e3ac5d68203de3abb562b76202b4fbd16d68",
+ "sha256": "d61909513ee49b9c4e812b3f4dad9a0ba86c1340dfcebeeeb4006e74d166ddcb",
+ "vendored_sha256": "d61909513ee49b9c4e812b3f4dad9a0ba86c1340dfcebeeeb4006e74d166ddcb",
+ "transform": "none: the service file carries no private governance id, so the public scrub leaves it unchanged"
+}
