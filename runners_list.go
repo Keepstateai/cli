@@ -104,7 +104,7 @@ const runnersJSON = `{
    "report": "libtest",
    "stderr": "merge",
    "env": ["CARGO_HOME", "RUSTUP_HOME", "CARGO_TARGET_DIR"],
-   "fetch": {"lockfiles": "^Cargo\\.lock$", "argv": ["cargo", "fetch", "--locked"], "env": {"CARGO_HOME": "{deps}/cargo-home"},
+   "fetch": {"lockfiles": "^Cargo\\.lock$", "keyedByAccount": true, "keyFiles": "^Cargo\\.toml$", "keyPaths": "(^|/)\\.cargo/config(\\.toml)?$", "argv": ["cargo", "fetch", "--locked"], "env": {"CARGO_HOME": "{deps}/cargo-home"},
              "check": {"env": {"CARGO_HOME": "{deps}/cargo-home", "CARGO_NET_OFFLINE": "true"}}},
    "version": ["cargo", "--version"],
    "command": "cargo test --test '*'"
@@ -212,7 +212,7 @@ const runnersJSON = `{
    "summary": "phpunit",
    "buildDirs": ["vendor"],
    "buildDirsBeside": "^composer\\.json$",
-   "fetch": {"lockfiles": "^composer\\.lock$",
+   "fetch": {"lockfiles": "^composer\\.lock$", "keyedByAccount": true, "keyFiles": "^composer\\.json$",
              "argv": ["composer", "install", "--no-interaction", "--no-scripts", "--no-plugins", "--no-progress", "--prefer-dist"],
              "collect": {"vendor": "vendor"}, "check": {"copyInto": {"vendor": "{deps}/vendor"}}},
    "version": ["php", "--version"],
