@@ -13,7 +13,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -402,10 +401,7 @@ func TestMCPRefusalsAndSafety(t *testing.T) {
 }
 
 func TestMCPSignedOut(t *testing.T) {
-	bin := filepath.Join(t.TempDir(), "ks-under-test")
-	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
-		t.Fatalf("build: %v\n%s", err, out)
-	}
+	bin := sharedKS(t)
 	c := startMCP(t, bin, []string{"XDG_CONFIG_HOME=" + t.TempDir(), "HOME=" + t.TempDir()})
 	c.call("initialize", map[string]any{"protocolVersion": "2025-06-18"})
 	r := resultOf(t, c.call("tools/call", toolCall("ks_session_list", map[string]any{}, nil)))
