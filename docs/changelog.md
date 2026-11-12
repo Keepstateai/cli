@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.42 (2026-11-12)
 
 - `ks cruise receipt <job> [--out FILE]` downloads an accepted job's signed
   receipt exactly as the service sealed it (written as received, never parsed
