@@ -467,13 +467,17 @@ func (s *mcpServer) humanDecision(t mcpTool, args map[string]any, digest, plan s
 		}
 		// the request is read again: an answer about a request that moved
 		// while the person was reading it decides nothing
-		outb, _, code := s.runVerb(t.Target(args), 2*time.Minute)
-		if code != 0 {
-			return toolText(t.noHuman(args, "the request could not be read again after the answer"), true)
-		}
-		rev, _, refusal := t.Inspect(s, args, outb)
-		if refusal != "" {
-			return toolText(refusal, true)
+		rev := ""
+		if t.Target != nil {
+			outb, _, code := s.runVerb(t.Target(args), 2*time.Minute)
+			if code != 0 {
+				return toolText(t.noHuman(args, "the request could not be read again after the answer"), true)
+			}
+			r2, _, refusal := t.Inspect(s, args, outb)
+			if refusal != "" {
+				return toolText(refusal, true)
+			}
+			rev = r2
 		}
 		cr, _ := hostedTokenQuiet()
 		h := sha256.Sum256([]byte(t.Name + "\n" + canonicalArgs(args) + "\n" + cr.AccountID + "\n" + rev))

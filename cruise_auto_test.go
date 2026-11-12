@@ -122,6 +122,7 @@ func startAutoFake(t *testing.T) (*autoFake, string, string) {
 	}
 	digest := autoPlainChecksDigest(autoSentences)
 	manifest := map[string]any{"family": "cruise", "version": json.Number("1"), "binding_version": json.Number("2"),
+		"limits": map[string]any{"spend_microusd": json.Number("2000000")}, "ladder": []any{map[string]any{"family": "anthropic", "model": "claude-haiku-4-5-20251001"}},
 		"autopilot": map[string]any{"lane": "code", "plain_checks": plain, "plain_checks_digest": digest,
 			"not_checked": []any{"How it looks or feels: taste is not checked by a machine."}}}
 	canon, err := canonicalJSON(manifest)
@@ -146,7 +147,7 @@ func startAutoFake(t *testing.T) (*autoFake, string, string) {
 		"planning": map[string]any{"line": "Planning used $0.012000 of the free $0.250000."},
 		"card": map[string]any{"checks": checks, "already_true": []any{}, "today": map[string]any{"pass": 0, "of": 2, "line": "today 0 of 2 pass"},
 			"not_checked": []any{"How it looks or feels: taste is not checked by a machine."},
-			"cost":        map[string]any{"low_microusd": "unavailable", "high_microusd": 2000000, "cap_microusd": 2000000}, "routing": "starts on claude-haiku-4-5-20251001, the default: there are no settled jobs like this one yet",
+			"cost":        map[string]any{"low_microusd": "unavailable", "high_microusd": 2000000, "cap_microusd": 2000000}, "ladder": []any{"claude-haiku-4-5-20251001"}, "routing": "starts on claude-haiku-4-5-20251001, the default: there are no settled jobs like this one yet",
 			"plain_checks_digest": digest, "manifest_sha": msha, "held_out": "no checks are held back from the agent yet: it can read every check above",
 			"checker": map[string]any{"model": "claude-haiku-5-5"}, "data_classification": "customer: your files are treated as private", "delivery": "a zip of the result and a preview link"}}
 	srv := httptest.NewServer(f)
@@ -417,8 +418,17 @@ func TestCruiseAutoMCPToolsSpeakEveryVerb(t *testing.T) {
 	if argv != "cruise auto approve --json --no-input --confirm=0123456789ab -- "+fakePlanID {
 		t.Fatalf("the approve argv: %s", argv)
 	}
-	if brief := findMCPTool("ks_cruise_auto_brief"); !strings.Contains(brief.Desc, "consent") {
-		t.Fatal("the brief tool does not say what consent is")
+	// consent to the file note comes from a person, never from the model
+	brief := findMCPTool("ks_cruise_auto_brief")
+	if !brief.Human || brief.Kind != "confirm" || !strings.Contains(strings.Join(brief.Fixed, " "), "--consent") {
+		t.Fatalf("the brief tool lets a model give consent: %+v", brief)
+	}
+	if _, has := brief.schema()["properties"].(map[string]any)["consent"]; has {
+		t.Fatal("the brief tool takes a consent a model could pass")
+	}
+	bargv := strings.Join(brief.argv(map[string]any{"draft": "crd_1", "text": "x"}, true), " ")
+	if !strings.Contains(bargv, "--consent") {
+		t.Fatalf("the confirmed brief does not pass consent: %s", bargv)
 	}
 }
 
@@ -437,5 +447,34 @@ func TestCruiseAutoMCPApprovePlanNamesTheSentences(t *testing.T) {
 	doc, _ = json.Marshal(map[string]any{"data": f.plan})
 	if _, _, refusal := autoApproveInspect(nil, map[string]any{"plan": fakePlanID, "digest": msha[:12]}, doc); !strings.Contains(refusal, "nothing to approve") {
 		t.Fatalf("a plan not ready: %q", refusal)
+	}
+}
+
+// A plan card whose cap or models are not the manifest's is refused, in approve
+// and in status: what is shown is what the digest binds.
+func TestCruiseAutoRefusesACardThatDisagreesWithTheManifest(t *testing.T) {
+	url := "POST /api/v2/cruise-auto/" + fakePlanID + "/approve"
+	for name, mut := range map[string]func(card map[string]any){
+		"a cap of another size": func(card map[string]any) { card["cost"].(map[string]any)["cap_microusd"] = 5000000 },
+		"another ladder":        func(card map[string]any) { card["ladder"] = []any{"claude-opus-5-5"} },
+	} {
+		f, bin, cfg := startAutoFake(t)
+		msha := f.plan["card"].(map[string]any)["manifest_sha"].(string)
+		f.mu.Lock()
+		mut(f.plan["card"].(map[string]any))
+		f.mu.Unlock()
+		if out, errs, code := ksIn(t, bin, cfg, t.TempDir(), "cruise", "auto", "approve", fakePlanID, "--confirm", msha[:12]); code != exitIntegrity || f.count(url) != 0 {
+			t.Fatalf("%s, approve: exit %d, requests %v\n%s%s", name, code, f.seen(), out, errs)
+		}
+		if out, errs, code := ksIn(t, bin, cfg, t.TempDir(), "cruise", "auto", "status", fakePlanID); code != exitIntegrity {
+			t.Fatalf("%s, status: exit %d\n%s%s", name, code, out, errs)
+		}
+	}
+	// the cap shown is the manifest's
+	f, bin, cfg := startAutoFake(t)
+	msha := f.plan["card"].(map[string]any)["manifest_sha"].(string)
+	_, errs, code := ksIn(t, bin, cfg, t.TempDir(), "cruise", "auto", "approve", fakePlanID, "--confirm", msha[:12])
+	if code != 0 || !strings.Contains(errs, "most it can spend: $2.00") || !strings.Contains(errs, "claude-haiku-4-5-20251001") {
+		t.Fatalf("approve: exit %d\n%s", code, errs)
 	}
 }

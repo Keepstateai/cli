@@ -74,10 +74,11 @@ type autoView struct {
 			High int64 `json:"high_microusd"`
 			Cap  int64 `json:"cap_microusd"`
 		} `json:"cost"`
-		Routing           string `json:"routing"`
-		PlainChecksDigest string `json:"plain_checks_digest"`
-		ManifestSHA       string `json:"manifest_sha"`
-		HeldOut           string `json:"held_out"`
+		Routing           string   `json:"routing"`
+		Ladder            []string `json:"ladder"`
+		PlainChecksDigest string   `json:"plain_checks_digest"`
+		ManifestSHA       string   `json:"manifest_sha"`
+		HeldOut           string   `json:"held_out"`
 		Checker           struct {
 			Model string `json:"model"`
 		} `json:"checker"`
@@ -153,6 +154,64 @@ func autoBlock(m map[string]any) ([]autoCheck, string, []string, error) {
 	rawNC, _ := json.Marshal(ao["not_checked"])
 	_ = json.Unmarshal(rawNC, &nc)
 	return checks, strings.ToLower(digest), nc, nil
+}
+
+// autoTerms reads the spend limit and the ladder's models out of the manifest
+// whose digest an approval names.
+func autoTerms(m map[string]any) (int64, []string) {
+	var capMicro int64
+	if lim, ok := m["limits"].(map[string]any); ok {
+		if n, ok := lim["spend_microusd"].(json.Number); ok {
+			capMicro, _ = n.Int64()
+		}
+	}
+	var ladder []string
+	if l, ok := m["ladder"].([]any); ok {
+		for _, it := range l {
+			if o, ok := it.(map[string]any); ok {
+				if mod, _ := o["model"].(string); mod != "" {
+					ladder = append(ladder, mod)
+				}
+			}
+		}
+	}
+	return capMicro, ladder
+}
+
+// autoCheckedCard refuses a plan card whose cap or models are not the
+// manifest's: what is shown is what the digest binds. It returns the manifest,
+// its digest, the sentences and what cannot be checked, all read from the
+// manifest itself.
+func autoCheckedCard(cr hostedCreds, v *autoView, nothing string) (m map[string]any, computed string, checks []autoCheck, notChecked []string) {
+	d, _ := fetchDraft(cr, v.DraftID)
+	if !d.hasManifest() {
+		fail(&cliError{Code: exitConflict, Kind: "draft_no_manifest", Message: fmt.Sprintf("plan %s has no manifest; %s", v.ID, nothing), NextAction: "ks cruise auto status " + v.ID})
+	}
+	computed = d.checkedDigest(nothing)
+	m, err := d.manifestMap()
+	if err != nil {
+		fail(integrity("manifest_unreadable", err.Error()+"; "+nothing))
+	}
+	checks, named, notChecked, err := autoBlock(m)
+	if err != nil {
+		fail(integrity("autopilot_block_unreadable", err.Error()+"; "+nothing))
+	}
+	plain := autoPlainChecksDigest(checks)
+	if plain != named {
+		fail(integrity("plain_checks_digest_mismatch", fmt.Sprintf("the manifest names digest %s for its sentences, but they digest to %s here; %s", short(named), short(plain), nothing)))
+	}
+	if strings.ToLower(v.Card.PlainChecksDigest) != plain {
+		fail(integrity("plain_checks_digest_mismatch", fmt.Sprintf("the service states digest %s for the sentences it showed, but the manifest's sentences digest to %s here; %s", short(v.Card.PlainChecksDigest), short(plain), nothing)))
+	}
+	if strings.ToLower(v.Card.ManifestSHA) != computed {
+		fail(integrity("manifest_digest_mismatch", fmt.Sprintf("the plan states manifest digest %s, but the manifest hashes to %s here; %s", short(v.Card.ManifestSHA), short(computed), nothing)))
+	}
+	capMicro, ladder := autoTerms(m)
+	if capMicro != v.Card.Cost.Cap || strings.Join(ladder, ",") != strings.Join(v.Card.Ladder, ",") {
+		fail(integrity("card_terms_mismatch", fmt.Sprintf("the plan card shows a spend limit of %s and models %s, but the manifest it names says %s and %s; %s",
+			autoMoney(v.Card.Cost.Cap), strings.Join(v.Card.Ladder, ", "), autoMoney(capMicro), strings.Join(ladder, ", "), nothing)))
+	}
+	return m, computed, checks, notChecked
 }
 
 func autoWords(w io.Writer, indent string, s string) {
@@ -328,6 +387,9 @@ func hostedCruiseAutoStatus(cr hostedCreds, inv *Invocation) {
 		return
 	}
 	v, raw := fetchAuto(cr, inv.Arg(0))
+	if v.State == "plan_ready" && v.Card != nil {
+		autoCheckedCard(cr, v, "nothing is shown as approvable")
+	}
 	finishAutoShow(v, raw)
 }
 
@@ -344,29 +406,8 @@ func hostedCruiseAutoApprove(cr hostedCreds, inv *Invocation) {
 			NextAction: "ks cruise auto status " + v.ID})
 	}
 	// the digests are computed here, from the manifest the service holds
-	d, _ := fetchDraft(cr, v.DraftID)
-	if !d.hasManifest() {
-		fail(&cliError{Code: exitConflict, Kind: "draft_no_manifest", Message: fmt.Sprintf("plan %s has no manifest to approve; nothing was approved", v.ID), NextAction: "ks cruise auto status " + v.ID})
-	}
-	computed := d.checkedDigest("nothing was approved")
-	m, err := d.manifestMap()
-	if err != nil {
-		fail(integrity("manifest_unreadable", err.Error()+"; nothing was approved"))
-	}
-	checks, named, notChecked, err := autoBlock(m)
-	if err != nil {
-		fail(integrity("autopilot_block_unreadable", err.Error()+"; nothing was approved"))
-	}
+	_, computed, checks, notChecked := autoCheckedCard(cr, v, "nothing was approved")
 	plain := autoPlainChecksDigest(checks)
-	if plain != named {
-		fail(integrity("plain_checks_digest_mismatch", fmt.Sprintf("the manifest names digest %s for its sentences, but they digest to %s here; nothing was approved", short(named), short(plain))))
-	}
-	if strings.ToLower(v.Card.PlainChecksDigest) != plain {
-		fail(integrity("plain_checks_digest_mismatch", fmt.Sprintf("the service states digest %s for the sentences it showed, but the manifest's sentences digest to %s here; nothing was approved", short(v.Card.PlainChecksDigest), short(plain))))
-	}
-	if strings.ToLower(v.Card.ManifestSHA) != computed {
-		fail(integrity("manifest_digest_mismatch", fmt.Sprintf("the plan states manifest digest %s, but the manifest hashes to %s here; nothing was approved", short(v.Card.ManifestSHA), short(computed))))
-	}
 	keep := inv.Int("keep-days")
 	if keep < 0 || keep > 30 {
 		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--keep-days is 0 to 30; nothing was approved"})

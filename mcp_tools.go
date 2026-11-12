@@ -76,6 +76,9 @@ type mcpTool struct {
 // noHuman is the refusal of a step only a person may answer: why nothing
 // was approved, and where a person can decide instead.
 func (t mcpTool) noHuman(a map[string]any, why string) string {
+	if strings.HasPrefix(t.Name, "ks_cruise_auto_") {
+		return sanitize(fmt.Sprintf("%s needs a person's answer, and %s, so %s. A person can do it in a terminal with ks cruise auto, or in the KeepState console.", t.Title, why, firstNonEmpty(t.Nothing, "nothing was done")))
+	}
 	return sanitize(fmt.Sprintf("Approving a permission request needs a person's answer, and %s, so nothing was approved. A person must answer it: in the host app when it asks, in the KeepState console, or in a terminal with ks agent approve %s --session %s (or ks agent deny).",
 		why, strArg(a, "request"), strArg(a, "session")))
 }
@@ -185,11 +188,13 @@ var mcpTools = []mcpTool{
 	// Cruise Autopilot: the same verbs as ks cruise auto, one tool each. Approving
 	// spends, so only a person's answer in the host app approves; deleting a
 	// plan's files is confirmed by a plan and a confirm value.
-	{Name: "ks_cruise_auto_brief", Title: "Start a Cruise Autopilot plan", Kind: "act", Verb: []string{"cruise", "auto", "brief"},
-		Desc: "Start a Cruise Autopilot plan from what your person wants and a ready draft of their files: at most three questions come back, each with a default already filled in. It acts at once and spends nothing: planning is free up to a small limit, nothing runs and nothing is charged until a person approves. A brief for work no check exists for is refused at once. Set consent true only if your person agreed that the service keeps their files for this plan only and that the model writing the checks reads them." + dataNote,
+	{Name: "ks_cruise_auto_brief", Title: "Start a Cruise Autopilot plan (asks a person)", Kind: "confirm", Human: true, Nothing: "nothing was started", Verb: []string{"cruise", "auto", "brief"}, Fixed: []string{"--consent"},
+		Desc: "Ask your person to start a Cruise Autopilot plan from what they want and a ready draft of their files. Starting needs their agreement that the service keeps the files for this plan only and that the model writing the checks reads them, so this tool cannot start on its own and neither can you: it takes no confirm value and no consent. The call shows the person the brief and that note and asks Approve or Deny; only their Approve starts it, once. It spends nothing: planning is free up to a small limit and nothing runs or is charged until a person approves the plan." + dataNote,
 		Props: []mcpProp{{Name: "draft", Type: "string", Required: true, Desc: "the ready draft's id (ks cruise draft create)"},
-			{Name: "text", Type: "string", Flag: "text", Required: true, Desc: "what the person wants, in a few sentences"},
-			{Name: "consent", Type: "boolean", Flag: "consent", Desc: "true only if the person agreed to the file note above; without it nothing is started"}}},
+			{Name: "text", Type: "string", Flag: "text", Required: true, Desc: "what the person wants, in a few sentences"}},
+		Plan: func(a map[string]any) string {
+			return fmt.Sprintf("Start an Autopilot plan on draft %s for this brief: %q. The service keeps the draft's files for this plan only, and the model that writes the checks reads them. Planning is free to you up to a small limit; nothing runs or is charged until you approve the plan.", strArg(a, "draft"), clipText(strArg(a, "text"), 400))
+		}},
 	{Name: "ks_cruise_auto_answer", Title: "Answer an Autopilot plan's questions", Kind: "act", Verb: []string{"cruise", "auto", "answer"},
 		Desc: "Answer one question of a plan, or none to accept every default. It acts at once and runs nothing." + dataNote,
 		Props: []mcpProp{{Name: "plan", Type: "string", Required: true, Desc: "the plan's id"},
