@@ -6,17 +6,13 @@ package main
 import (
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 )
 
 func TestSkillPrintsTheManualWithNoNetwork(t *testing.T) {
-	bin := filepath.Join(t.TempDir(), "ks-under-test")
-	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
-		t.Fatalf("build: %v\n%s", err, out)
-	}
+	bin := sharedKS(t)
 	for _, args := range [][]string{{"--skill"}, {"skill"}} {
 		cmd := exec.Command(bin, args...)
 		// signed out, and a control plane that cannot be reached: the manual

@@ -36,10 +36,7 @@ func fakeGh(t *testing.T, mode string) (dir, argsFile string) {
 }
 
 func TestVersionVerifyNeverPassesByDefault(t *testing.T) {
-	bin := filepath.Join(t.TempDir(), "ks")
-	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
-		t.Fatalf("%v\n%s", err, out)
-	}
+	bin := sharedKS(t)
 	run := func(path string) (string, int) {
 		cmd := exec.Command(bin, "version", "--verify")
 		cmd.Env = []string{"PATH=" + path, "HOME=" + t.TempDir(), "XDG_CONFIG_HOME=" + t.TempDir()}
