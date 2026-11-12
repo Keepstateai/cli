@@ -1,6 +1,6 @@
-// BACKLOG-640: ks agent files, an agent's reach into the files of the agent
-// it is connected to (the server's BACKLOG-624) and the person's setting of
-// it (BACKLOG-623). Keyless: a fake control plane, no model, no machine.
+// ks agent files, an agent's reach into the files of the agent
+// it is connected to (the service's file access) and the person's setting of
+// it. Keyless: a fake control plane, no model, no machine.
 package main
 
 import (

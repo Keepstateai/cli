@@ -1,5 +1,5 @@
 // agent_files.go: ks agent files, an agent's reach into the files of the
-// agent a person connected it to (the service's BACKLOG-623 and 624).
+// agent a person connected it to (the service's agent file access and its setting).
 //
 //	ks agent files list <adviser> [path]       a folder of the adviser's workspace
 //	ks agent files get <adviser> <path>        one file, verified, into .shared-in/
