@@ -1,7 +1,7 @@
 {
   "name": "keepstate",
   "displayName": "KeepState",
-  "version": "0.1.41",
+  "version": "0.1.42",
   "description": "Start, watch, message and pause KeepState agents from Claude Code through ks mcp; approving a permission request always asks you.",
   "author": {
     "name": "KeepState",

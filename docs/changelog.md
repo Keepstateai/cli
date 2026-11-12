@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The Claude Code plugin now runs `@keepstateai/cli@0.1.42`.
+
 ## v0.1.42 (2026-11-12)
 
 - `ks cruise receipt <job> [--out FILE]` downloads an accepted job's signed
