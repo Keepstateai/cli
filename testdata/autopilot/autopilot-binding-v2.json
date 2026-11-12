@@ -1,0 +1,205 @@
+{
+ "name": "ks-autopilot-binding-v2",
+ "version": 1,
+ "rule": "plain_checks_digest = sha256 over the manifest-canonical JSON (docs/upgrade/vectors/manifest-canonical-v1.json) of the list of {id, sentence} objects in the order listed. The autopilot block's canonical bytes and sha256 are the same canonical form. A block is sound when its digest is the digest of its sentences, its ids are unique and not_checked is not empty.",
+ "consumers": [
+  "ctl: apPlainChecksDigest and apValidateBlock (ctl/autopilot_manifest.go)",
+  "the judge: judge/autopilot.py",
+  "the client: ks cruise auto (the vendored copy in its testdata/autopilot)"
+ ],
+ "digest_cases": [
+  {
+   "name": "two ascii checks",
+   "plain_checks": [
+    {
+     "id": "tests.keepstate.test_calc_add::test_add_two_negatives",
+     "sentence": "Adding -2 and -3 gives -5.",
+     "check_ref": "tests.keepstate.test_calc_add::test_add_two_negatives"
+    },
+    {
+     "id": "tests.keepstate.test_calc_add::test_add_two_positives",
+     "sentence": "Adding 2 and 3 gives 5.",
+     "check_ref": "tests.keepstate.test_calc_add::test_add_two_positives"
+    }
+   ],
+   "plain_checks_digest": "924da3c11704393ea56029c4b112692db4b19a3b517fafea2b66758260a25ac9"
+  },
+  {
+   "name": "quotes, accents, an emoji and a backslash",
+   "plain_checks": [
+    {
+     "id": "c1",
+     "sentence": "A price of \"9,99 \u20ac\" is shown with the comma, as the customer wrote it.",
+     "check_ref": "c1"
+    },
+    {
+     "id": "c2",
+     "sentence": "Caf\u00e9 menu items sort by name: \u00c0 la carte comes first \ud83d\udc4d",
+     "check_ref": "c2"
+    },
+    {
+     "id": "c3",
+     "sentence": "A back\\slash and a tab\there do not change the digest of the others.",
+     "check_ref": "c3"
+    }
+   ],
+   "plain_checks_digest": "e912adcf3bda64d23c4c146763a4fd0cd475f37401797a60b1b595ea924af61f"
+  },
+  {
+   "name": "one check",
+   "plain_checks": [
+    {
+     "id": "only",
+     "sentence": "The page says hello.",
+     "check_ref": "only"
+    }
+   ],
+   "plain_checks_digest": "85872b6da2f2a4221171d8d80cd46f1fbbce19d6884f62555bb1489266428b6b"
+  },
+  {
+   "name": "order matters",
+   "plain_checks": [
+    {
+     "id": "tests.keepstate.test_calc_add::test_add_two_positives",
+     "sentence": "Adding 2 and 3 gives 5.",
+     "check_ref": "tests.keepstate.test_calc_add::test_add_two_positives"
+    },
+    {
+     "id": "tests.keepstate.test_calc_add::test_add_two_negatives",
+     "sentence": "Adding -2 and -3 gives -5.",
+     "check_ref": "tests.keepstate.test_calc_add::test_add_two_negatives"
+    }
+   ],
+   "plain_checks_digest": "ac43502835bf3e89f748f38e69bb77fa0ef175e0879114fb9f28f8420b49a2fd"
+  }
+ ],
+ "block_cases": [
+  {
+   "name": "sound block with held-out checks",
+   "block": {
+    "brief_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "answers_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "lane": "code",
+    "plain_checks": [
+     {
+      "id": "tests.keepstate.test_calc_add::test_add_two_negatives",
+      "sentence": "Adding -2 and -3 gives -5.",
+      "check_ref": "tests.keepstate.test_calc_add::test_add_two_negatives"
+     },
+     {
+      "id": "tests.keepstate.test_calc_add::test_add_two_positives",
+      "sentence": "Adding 2 and 3 gives 5.",
+      "check_ref": "tests.keepstate.test_calc_add::test_add_two_positives"
+     }
+    ],
+    "plain_checks_digest": "924da3c11704393ea56029c4b112692db4b19a3b517fafea2b66758260a25ac9",
+    "not_checked": [
+     "Whether these checks capture what you meant."
+    ],
+    "checker": {
+     "family": "anthropic",
+     "model": "claude-haiku-5-5",
+     "record_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+     "session_ref": "0123456789abcdef01234567"
+    },
+    "start_rung_basis": {
+     "sample": 6,
+     "passed": 5,
+     "rule": "a job starts on a cheaper rung only after 5 passes",
+     "start": "claude-haiku-4-5-20251001"
+    },
+    "heldout": {
+     "digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+     "count": 3
+    }
+   },
+   "canonical": "{\"answers_sha\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"brief_sha\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"checker\":{\"family\":\"anthropic\",\"model\":\"claude-haiku-5-5\",\"record_digest\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"session_ref\":\"0123456789abcdef01234567\"},\"heldout\":{\"count\":3,\"digest\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"},\"lane\":\"code\",\"not_checked\":[\"Whether these checks capture what you meant.\"],\"plain_checks\":[{\"check_ref\":\"tests.keepstate.test_calc_add::test_add_two_negatives\",\"id\":\"tests.keepstate.test_calc_add::test_add_two_negatives\",\"sentence\":\"Adding -2 and -3 gives -5.\"},{\"check_ref\":\"tests.keepstate.test_calc_add::test_add_two_positives\",\"id\":\"tests.keepstate.test_calc_add::test_add_two_positives\",\"sentence\":\"Adding 2 and 3 gives 5.\"}],\"plain_checks_digest\":\"924da3c11704393ea56029c4b112692db4b19a3b517fafea2b66758260a25ac9\",\"start_rung_basis\":{\"passed\":5,\"rule\":\"a job starts on a cheaper rung only after 5 passes\",\"sample\":6,\"start\":\"claude-haiku-4-5-20251001\"}}",
+   "sha256": "26fbf59e7f39045af886d9a7e9b6958c9a33868ebfaaddad80ba9870cdba8479",
+   "sound": true
+  },
+  {
+   "name": "a sentence changed, the digest not",
+   "block": {
+    "brief_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "answers_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "lane": "code",
+    "plain_checks": [
+     {
+      "id": "tests.keepstate.test_calc_add::test_add_two_negatives",
+      "sentence": "Adding -2 and -3 gives -6.",
+      "check_ref": "tests.keepstate.test_calc_add::test_add_two_negatives"
+     },
+     {
+      "id": "tests.keepstate.test_calc_add::test_add_two_positives",
+      "sentence": "Adding 2 and 3 gives 5.",
+      "check_ref": "tests.keepstate.test_calc_add::test_add_two_positives"
+     }
+    ],
+    "plain_checks_digest": "924da3c11704393ea56029c4b112692db4b19a3b517fafea2b66758260a25ac9",
+    "not_checked": [
+     "Whether these checks capture what you meant."
+    ],
+    "checker": {
+     "family": "anthropic",
+     "model": "claude-haiku-5-5",
+     "record_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+     "session_ref": "0123456789abcdef01234567"
+    },
+    "start_rung_basis": {
+     "sample": 6,
+     "passed": 5,
+     "rule": "a job starts on a cheaper rung only after 5 passes",
+     "start": "claude-haiku-4-5-20251001"
+    },
+    "heldout": {
+     "digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+     "count": 3
+    }
+   },
+   "canonical": "{\"answers_sha\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"brief_sha\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"checker\":{\"family\":\"anthropic\",\"model\":\"claude-haiku-5-5\",\"record_digest\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"session_ref\":\"0123456789abcdef01234567\"},\"heldout\":{\"count\":3,\"digest\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"},\"lane\":\"code\",\"not_checked\":[\"Whether these checks capture what you meant.\"],\"plain_checks\":[{\"check_ref\":\"tests.keepstate.test_calc_add::test_add_two_negatives\",\"id\":\"tests.keepstate.test_calc_add::test_add_two_negatives\",\"sentence\":\"Adding -2 and -3 gives -6.\"},{\"check_ref\":\"tests.keepstate.test_calc_add::test_add_two_positives\",\"id\":\"tests.keepstate.test_calc_add::test_add_two_positives\",\"sentence\":\"Adding 2 and 3 gives 5.\"}],\"plain_checks_digest\":\"924da3c11704393ea56029c4b112692db4b19a3b517fafea2b66758260a25ac9\",\"start_rung_basis\":{\"passed\":5,\"rule\":\"a job starts on a cheaper rung only after 5 passes\",\"sample\":6,\"start\":\"claude-haiku-4-5-20251001\"}}",
+   "sha256": "3fa1a6bb8dbc5c73cd69d8c8ab82f4434f78f37f7d6c765ab0afa5203548f2bd",
+   "sound": false
+  },
+  {
+   "name": "not_checked empty",
+   "block": {
+    "brief_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "answers_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "lane": "code",
+    "plain_checks": [
+     {
+      "id": "tests.keepstate.test_calc_add::test_add_two_negatives",
+      "sentence": "Adding -2 and -3 gives -5.",
+      "check_ref": "tests.keepstate.test_calc_add::test_add_two_negatives"
+     },
+     {
+      "id": "tests.keepstate.test_calc_add::test_add_two_positives",
+      "sentence": "Adding 2 and 3 gives 5.",
+      "check_ref": "tests.keepstate.test_calc_add::test_add_two_positives"
+     }
+    ],
+    "plain_checks_digest": "924da3c11704393ea56029c4b112692db4b19a3b517fafea2b66758260a25ac9",
+    "not_checked": [],
+    "checker": {
+     "family": "anthropic",
+     "model": "claude-haiku-5-5",
+     "record_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+     "session_ref": "0123456789abcdef01234567"
+    },
+    "start_rung_basis": {
+     "sample": 6,
+     "passed": 5,
+     "rule": "a job starts on a cheaper rung only after 5 passes",
+     "start": "claude-haiku-4-5-20251001"
+    },
+    "heldout": {
+     "digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+     "count": 3
+    }
+   },
+   "canonical": "{\"answers_sha\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"brief_sha\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"checker\":{\"family\":\"anthropic\",\"model\":\"claude-haiku-5-5\",\"record_digest\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"session_ref\":\"0123456789abcdef01234567\"},\"heldout\":{\"count\":3,\"digest\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"},\"lane\":\"code\",\"not_checked\":[],\"plain_checks\":[{\"check_ref\":\"tests.keepstate.test_calc_add::test_add_two_negatives\",\"id\":\"tests.keepstate.test_calc_add::test_add_two_negatives\",\"sentence\":\"Adding -2 and -3 gives -5.\"},{\"check_ref\":\"tests.keepstate.test_calc_add::test_add_two_positives\",\"id\":\"tests.keepstate.test_calc_add::test_add_two_positives\",\"sentence\":\"Adding 2 and 3 gives 5.\"}],\"plain_checks_digest\":\"924da3c11704393ea56029c4b112692db4b19a3b517fafea2b66758260a25ac9\",\"start_rung_basis\":{\"passed\":5,\"rule\":\"a job starts on a cheaper rung only after 5 passes\",\"sample\":6,\"start\":\"claude-haiku-4-5-20251001\"}}",
+   "sha256": "b5007e36befe55d71d4836d489519406eda0a69ec14707da4068c22b7a7f5bb3",
+   "sound": false
+  }
+ ]
+}

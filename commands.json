@@ -4016,6 +4016,100 @@
     }
    ],
    "note": "makes no request but one read of the key list (none with --keys-file or --public-key); the receipt is never sent and no sign-in is needed. Exit 0 verified, 1 not verified, 3 no Ed25519 signature (service-verifiable only: an old receipt, or one made before the key was placed), 2 unreadable inputs or a wrong command line. The signed bytes are reproduced exactly as the service writes them (shared vectors in testdata/receipt-verify)"
+  },
+  {
+   "verb": "cruise auto brief",
+   "aliases": [],
+   "usage": "ks cruise auto brief <draft> [--text TEXT] [--consent]",
+   "summary": "start a plan from what you want and a ready draft of your files: at most three questions come back, each already answered with its default",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--text TEXT",
+     "summary": "what you want, in a few sentences"
+    },
+    {
+     "flag": "--consent",
+     "summary": "you agree the service keeps your files for this plan only and the model that writes the checks reads them; required"
+    }
+   ]
+  },
+  {
+   "verb": "cruise auto answer",
+   "aliases": [],
+   "usage": "ks cruise auto answer <plan> [--set QUESTION=ANSWER]",
+   "summary": "answer the questions of a plan; giving no answer accepts every default",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--set QUESTION=ANSWER",
+     "summary": "an answer to one question (repeatable); a question left out keeps its default"
+    }
+   ]
+  },
+  {
+   "verb": "cruise auto plan",
+   "aliases": [],
+   "usage": "ks cruise auto plan <plan> [--wait]",
+   "summary": "have the checks written by a model that is not on the job's ladder and run twice on your files, each of which must fail; planning stops at its free limit",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--wait",
+     "summary": "wait for the checks to be written and measured (a few minutes)"
+    }
+   ]
+  },
+  {
+   "verb": "cruise auto status",
+   "aliases": [],
+   "usage": "ks cruise auto status [plan]",
+   "summary": "your plans, or one plan in words: the checks as plain sentences, today's count, what cannot be checked, the cost limit, what planning cost and the next step",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "cruise auto approve",
+   "aliases": [],
+   "usage": "ks cruise auto approve <plan> [--confirm DIGEST] [--keep-days N]",
+   "summary": "run a plan by confirming the digest of the exact manifest shown, computed here; the sentences shown are the ones inside it",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--confirm DIGEST",
+     "summary": "the manifest digest you reviewed (all of it, or the 12 characters shown); required without a terminal, never implied by --yes"
+    },
+    {
+     "flag": "--keep-days N",
+     "summary": "keep the source files for N days after the job ends (0 to 30, the account's owner only); default they are deleted when it ends"
+    }
+   ]
+  },
+  {
+   "verb": "cruise auto receipt",
+   "aliases": [],
+   "usage": "ks cruise auto receipt <plan> [--sources]",
+   "summary": "the receipt's five lines for a plan's job: checked independently, locked before work, re-checkable, measured cost, not checked",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--sources",
+     "summary": "also name the records each line was built from"
+    }
+   ]
+  },
+  {
+   "verb": "cruise auto discard",
+   "aliases": [],
+   "usage": "ks cruise auto discard <plan>",
+   "summary": "discard a plan that is not approved; its copy of the files is deleted and it never runs",
+   "status": "available",
+   "surface": "hosted"
   }
  ]
 }

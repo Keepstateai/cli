@@ -499,8 +499,11 @@ func (s *mcpServer) applyHumanAnswer(t mcpTool, args map[string]any, action stri
 	case "approve":
 		return s.runToolVia(t, args, true, decidedViaElicitation)
 	case "deny":
-		if d := findMCPTool("ks_agent_deny"); d != nil {
+		if d := findMCPTool(t.DenyTool); t.DenyTool != "" && d != nil {
 			return s.runToolVia(*d, args, true, decidedViaElicitation)
+		}
+		if t.DenyTool == "" {
+			return toolText("The person denied the approval, so "+firstNonEmpty(t.Nothing, "nothing was done")+".", false)
 		}
 	}
 	return toolText("The answer chose neither Approve nor Deny, so nothing was decided.", false)
@@ -509,7 +512,7 @@ func (s *mcpServer) applyHumanAnswer(t mcpTool, args map[string]any, action stri
 func humanDecisionSchema() map[string]any {
 	return map[string]any{"type": "object", "properties": map[string]any{
 		"decision": map[string]any{"type": "string", "enum": []string{"approve", "deny"}, "title": "Your decision",
-			"description": "Approve lets the agent do exactly this action, once. Deny refuses it."}},
+			"description": "Approve does exactly what the message says, once. Deny refuses it and nothing is done."}},
 		"required": []string{"decision"}}
 }
 

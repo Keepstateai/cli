@@ -68,6 +68,9 @@ type mcpTool struct {
 	// Human: only a person's answer in the host app completes the confirm
 	// step; there is no confirm value the calling model could pass
 	Human bool
+	// DenyTool is the tool a person's Deny runs; empty: Deny decides nothing
+	// and the call ends there (a Cruise approval has no deny to record)
+	DenyTool string
 }
 
 // noHuman is the refusal of a step only a person may answer: why nothing
@@ -169,7 +172,7 @@ var mcpTools = []mcpTool{
 		},
 		Target:         agentStatusTarget,
 		ExtraOnConfirm: func(a map[string]any) []string { return []string{"--confirm=" + strArg(a, "name")} }},
-	{Name: "ks_agent_approve", Title: "Approve a permission request (asks a person)", Kind: "confirm", Human: true, Verb: []string{"agent", "approve"}, Destructive: true, Nothing: "nothing was approved",
+	{Name: "ks_agent_approve", Title: "Approve a permission request (asks a person)", Kind: "confirm", Human: true, DenyTool: "ks_agent_deny", Verb: []string{"agent", "approve"}, Destructive: true, Nothing: "nothing was approved",
 		Desc:   "Ask your person to approve one permission request an agent waits on. This tool cannot approve on its own and neither can you: it takes no confirm value, and approving needs a person's answer in the host app. The call shows the person the agent, the exact command or tool and what approving lets it do, and asks Approve or Deny; only their Approve approves, that request at that revision, once. A host app that cannot ask its person approves nothing; the person can then decide in the KeepState console or with ks agent approve in a terminal. A request already decided or expired is refused." + dataNote,
 		Props:  []mcpProp{{Name: "request", Type: "string", Required: true, Desc: "the permission request's id, from ks_approval_list"}, {Name: "session", Type: "string", Flag: "session", Required: true, Desc: "the session the request belongs to"}},
 		Plan:   func(a map[string]any) string { return "Approve permission request " + strArg(a, "request") + "." },
@@ -179,6 +182,41 @@ var mcpTools = []mcpTool{
 		Props:  []mcpProp{{Name: "request", Type: "string", Required: true, Desc: "the permission request's id, from ks_approval_list"}, {Name: "session", Type: "string", Flag: "session", Required: true, Desc: "the session the request belongs to"}},
 		Plan:   func(a map[string]any) string { return "Deny permission request " + strArg(a, "request") + "." },
 		Target: approvalTarget, Inspect: approvalInspect("deny")},
+	// Cruise Autopilot: the same verbs as ks cruise auto, one tool each. Approving
+	// spends, so only a person's answer in the host app approves; deleting a
+	// plan's files is confirmed by a plan and a confirm value.
+	{Name: "ks_cruise_auto_brief", Title: "Start a Cruise Autopilot plan", Kind: "act", Verb: []string{"cruise", "auto", "brief"},
+		Desc: "Start a Cruise Autopilot plan from what your person wants and a ready draft of their files: at most three questions come back, each with a default already filled in. It acts at once and spends nothing: planning is free up to a small limit, nothing runs and nothing is charged until a person approves. A brief for work no check exists for is refused at once. Set consent true only if your person agreed that the service keeps their files for this plan only and that the model writing the checks reads them." + dataNote,
+		Props: []mcpProp{{Name: "draft", Type: "string", Required: true, Desc: "the ready draft's id (ks cruise draft create)"},
+			{Name: "text", Type: "string", Flag: "text", Required: true, Desc: "what the person wants, in a few sentences"},
+			{Name: "consent", Type: "boolean", Flag: "consent", Desc: "true only if the person agreed to the file note above; without it nothing is started"}}},
+	{Name: "ks_cruise_auto_answer", Title: "Answer an Autopilot plan's questions", Kind: "act", Verb: []string{"cruise", "auto", "answer"},
+		Desc: "Answer one question of a plan, or none to accept every default. It acts at once and runs nothing." + dataNote,
+		Props: []mcpProp{{Name: "plan", Type: "string", Required: true, Desc: "the plan's id"},
+			{Name: "set", Type: "string", Flag: "set", Desc: "QUESTION=ANSWER for one question; leave out to accept every default"}}},
+	{Name: "ks_cruise_auto_plan", Title: "Have an Autopilot plan's checks written", Kind: "act", Verb: []string{"cruise", "auto", "plan"},
+		Desc:  "Ask the service to write the plan's checks with a model that is not on the job's ladder and measure that each fails on the files. It acts at once and is free to the person up to a small limit, which is never passed; it answers while the work goes on, so read the plan with ks_cruise_auto_status." + dataNote,
+		Props: []mcpProp{{Name: "plan", Type: "string", Required: true, Desc: "the plan's id"}}},
+	{Name: "ks_cruise_auto_status", Title: "Show Autopilot plans", Kind: "read", Verb: []string{"cruise", "auto", "status"},
+		Desc:  "Your Autopilot plans, or one plan in words: the checks as plain sentences, today's count, what cannot be checked, the cost limit, what planning cost and the next step." + dataNote,
+		Props: []mcpProp{{Name: "plan", Type: "string", Desc: "the plan's id; leave out for your plans"}}},
+	{Name: "ks_cruise_auto_receipt", Title: "Show an Autopilot receipt", Kind: "read", Verb: []string{"cruise", "auto", "receipt"},
+		Desc: "The receipt's five lines for a plan's job, each built from the job's own records: checked independently, locked before work, re-checkable, measured cost, not checked." + dataNote,
+		Props: []mcpProp{{Name: "plan", Type: "string", Required: true, Desc: "the plan's id"},
+			{Name: "sources", Type: "boolean", Flag: "sources", Desc: "also name the records each line was built from"}}},
+	{Name: "ks_cruise_auto_approve", Title: "Approve an Autopilot job (asks a person)", Kind: "confirm", Human: true, Destructive: true, Nothing: "nothing was approved", Verb: []string{"cruise", "auto", "approve"},
+		Desc: "Ask your person to approve one Autopilot plan: the job then runs, spends against their key and credit up to the limit shown, and is checked by the checks they read. This tool cannot approve on its own and neither can you: it takes no confirm value. The call shows the person the exact sentences, what cannot be checked and the limit, and asks Approve or Deny; only their Approve approves, that manifest, once. Pass the 12-character manifest digest ks_cruise_auto_status shows; one that is not the plan's now is refused." + dataNote,
+		Props: []mcpProp{{Name: "plan", Type: "string", Required: true, Desc: "the plan's id"},
+			{Name: "digest", Type: "string", Flag: "confirm", Required: true, Desc: "the 12-character manifest digest the plan's status shows"}},
+		Plan:   func(a map[string]any) string { return "Approve Autopilot plan " + strArg(a, "plan") + "." },
+		Target: autoStatusTarget, Inspect: autoApproveInspect},
+	{Name: "ks_cruise_auto_discard", Title: "Discard an Autopilot plan", Kind: "confirm", Destructive: true, Verb: []string{"cruise", "auto", "discard"},
+		Desc:  "Discard a plan that is not approved: its copy of the files is deleted now and nothing runs. The first call does nothing and answers a plan and a confirm value; call again with confirm." + dataNote,
+		Props: []mcpProp{{Name: "plan", Type: "string", Required: true, Desc: "the plan's id"}},
+		Plan: func(a map[string]any) string {
+			return "Discard Autopilot plan " + strArg(a, "plan") + ": its copy of the files is deleted now and nothing runs."
+		},
+		Target: autoStatusTarget},
 	{Name: "ks_task_cancel", Title: "Cancel an instruction", Kind: "confirm", Verb: []string{"task", "cancel"}, Destructive: true,
 		Desc:  "Cancel one instruction; a running one is asked to stop at a safe boundary. The first call does nothing and answers a plan and a confirm value; call again with confirm." + dataNote,
 		Props: []mcpProp{{Name: "instruction", Type: "string", Required: true, Desc: "the instruction's id"}, pSession, {Name: "reason", Type: "string", Flag: "reason", Desc: "why, recorded with the cancel"}},
@@ -460,4 +498,37 @@ func (s *mcpServer) agentLabel(ap approvalRow) string {
 		}
 	}
 	return "agent " + id
+}
+
+func autoStatusTarget(a map[string]any) []string {
+	return []string{"cruise", "auto", "status", "--json", "--no-input", "--", strArg(a, "plan")}
+}
+
+// autoApproveInspect turns the plan into the words a person approves: the
+// exact sentences, what cannot be checked, the limit and the digest. A plan
+// that is not ready, or a digest that is not the plan's now, is refused before
+// any plan is shown.
+func autoApproveInspect(s *mcpServer, a map[string]any, doc []byte) (string, string, string) {
+	var env struct {
+		Data autoView `json:"data"`
+	}
+	if err := json.Unmarshal(doc, &env); err != nil || env.Data.ID == "" {
+		return "", "", "The plan could not be read, so nothing was planned and nothing was approved."
+	}
+	v := env.Data
+	if v.State != "plan_ready" || v.Card == nil {
+		return "", "", sanitize(fmt.Sprintf("Plan %s is %s, so there is nothing to approve yet and nothing was approved.", v.ID, v.StateLabel))
+	}
+	digest := strings.ToLower(strings.TrimSpace(strArg(a, "digest")))
+	if len(digest) != 12 || !strings.HasPrefix(strings.ToLower(v.Card.ManifestSHA), digest) {
+		return "", "", sanitize(fmt.Sprintf("%q is not the digest of plan %s's manifest now (%s), so nothing was approved. Read the plan again with ks_cruise_auto_status.", digest, v.ID, short(v.Card.ManifestSHA)))
+	}
+	var checks []string
+	for i, c := range v.Card.Checks {
+		checks = append(checks, fmt.Sprintf("%d. %s", i+1, c.Sentence))
+	}
+	plan := fmt.Sprintf("Approve Autopilot plan %s. The job runs until these %d checks pass: %s. Autopilot cannot check: %s. It spends at most %s of the person's key and credit and stops and asks rather than go past it. The checks were written by %s, which is not a model doing the work. Manifest digest %s.",
+		v.ID, len(v.Card.Checks), strings.Join(checks, " "), strings.Join(v.Card.NotChecked, " "), autoMoney(v.Card.Cost.Cap), v.Card.Checker.Model, digest)
+	rev := fmt.Sprintf("plan=%s,manifest=%s,plain=%s,state=%s", v.ID, v.Card.ManifestSHA, v.Card.PlainChecksDigest, v.State)
+	return rev, sanitize(plan), ""
 }
