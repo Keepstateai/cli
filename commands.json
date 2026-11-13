@@ -4110,6 +4110,78 @@
    "summary": "discard a plan that is not approved; its copy of the files is deleted and it never runs",
    "status": "available",
    "surface": "hosted"
+  },
+  {
+   "verb": "agent folder list",
+   "aliases": [],
+   "usage": "ks agent folder list",
+   "summary": "your folders and the agents in each, in order",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "agent folder create",
+   "aliases": [],
+   "usage": "ks agent folder create <name>",
+   "summary": "make a folder, last in your order",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "agent folder rename",
+   "aliases": [],
+   "usage": "ks agent folder rename <folder> <name>",
+   "summary": "give one of your folders a new name",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "agent folder order",
+   "aliases": [],
+   "usage": "ks agent folder order <folder> [--position N]",
+   "summary": "move one of your folders to a place among your folders",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--position N",
+     "summary": "the folder's place among your folders, counted from 1 (the others make room)"
+    }
+   ]
+  },
+  {
+   "verb": "agent folder delete",
+   "aliases": [],
+   "usage": "ks agent folder delete <folder>",
+   "summary": "delete one of your folders; its agents go back to the top level",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "agent move",
+   "aliases": [],
+   "usage": "ks agent move <name> [--session ID] [--folder NAME] [--top] [--before AGENT]",
+   "summary": "put an agent in one of your folders, or back at the top level",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session the agent lives in; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--folder NAME",
+     "summary": "the folder to put the agent in (its name, or its id)"
+    },
+    {
+     "flag": "--top",
+     "summary": "put the agent back at the top level, in no folder"
+    },
+    {
+     "flag": "--before AGENT",
+     "summary": "with --folder: place it just before this agent of the folder; without it, last"
+    }
+   ]
   }
  ]
 }
