@@ -12,7 +12,7 @@ import (
 // ---- a new agent ------------------------------------------------------------
 
 // nameRuleText is the service's name rule, as a person reads it.
-const nameRuleText = "1 to 48 letters, digits, hyphens or underscores, starting with a letter."
+const nameRuleText = "1 to 48 letters, digits, spaces, hyphens or underscores, starting with a letter."
 
 // nameProblem says, in a few words, what makes a new name one the service
 // would refuse; empty when it is a name.
@@ -21,17 +21,17 @@ func nameProblem(name string) string {
 		return ""
 	}
 	switch {
-	case len(name) > 48:
+	case len([]rune(tidyName(name))) > 48:
 		return "it is longer than 48 characters"
-	case strings.ContainsAny(name, " \t"):
-		return "it has a space in it"
+	case strings.ContainsAny(name, "\t\n\r"):
+		return "it has a tab or a line break in it"
 	}
 	r := []rune(name)
 	if len(r) > 0 && !(r[0] >= 'a' && r[0] <= 'z' || r[0] >= 'A' && r[0] <= 'Z') {
 		return "it must start with a letter"
 	}
 	for _, c := range r {
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_' || c == ' ') {
 			return fmt.Sprintf("%q is not allowed in a name", string(c))
 		}
 	}

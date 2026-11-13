@@ -200,12 +200,7 @@ func allAgentsLines(l agentStatusList) []string {
 	return out
 }
 
-func nameOrPlaceholder(s string) string {
-	if agentNameSafe.MatchString(s) {
-		return s
-	}
-	return "<name>"
-}
+func nameOrPlaceholder(s string) string { return commandWord(s) }
 
 // aggregateStatus is the root record of the watch: the most urgent state
 // of all the agents, and the counts in words.

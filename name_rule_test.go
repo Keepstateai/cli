@@ -98,7 +98,7 @@ func TestANewNameTheServiceRefusesIsAUsageErrorBeforeAnyRequest(t *testing.T) {
 		{"run", "--agent", "--agent-name", long},
 		{"run", "--agent", "--name", "1agent"},
 		{"run", "--agent", "--name", "a.b"},
-		{"run", "--agent", "--name", long},
+		{"run", "--agent", "--name", strings.Repeat("a", 65)}, // a session's name may be up to 64
 		{"agent", "create", "1agent"},
 		{"agent", "create", "a.b"},
 		{"agent", "create", long},

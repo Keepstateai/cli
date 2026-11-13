@@ -1038,7 +1038,8 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 // terminal that can run it again later (herdr); none for a name that is
 // not safe to put on a command line as it is.
 func agentResumeArgv(name, short string) []string {
-	if !agentNameSafe.MatchString(name) || !agentNameSafe.MatchString(short) {
+	// a name with a space is one argument of the vector, never joined into a string
+	if !(agentNameSafe.MatchString(name) || displayNameOK(name, agentNameMax) && tidyName(name) == name) || !agentNameSafe.MatchString(short) {
 		return nil
 	}
 	return []string{"ks", "agent", "open", name, "--session", short}
@@ -2821,10 +2822,7 @@ func (p *pasteBuffer) feed(raw string) (text string, done, ok bool) {
 // agent is a new agent session (a plain session without a workspace record
 // cannot be migrated).
 func plainSessionError(sess inventoryRow, arg string) *cliError {
-	name := "<name>"
-	if agentNameSafe.MatchString(arg) {
-		name = arg
-	}
+	name := commandWord(arg)
 	return &cliError{Code: exitUsage, Kind: "not_an_agent_session",
 		Message:    fmt.Sprintf("session %s is a plain session (started by ks run without --agent): it has no agents, so there is no agent %q in it. Nothing was done", sess.ShortID, arg),
 		NextAction: "ks run --agent --agent-name " + name}

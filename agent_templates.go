@@ -126,7 +126,7 @@ func loadTemplates() ([]agentTemplate, error) {
 	}
 	for _, f := range files {
 		name := strings.TrimSuffix(filepath.Base(f), ".md")
-		if newNameRefusal(name, "") != nil {
+		if roleNameRefusal(name) != nil {
 			return nil, fmt.Errorf("template file %s: %q is not a role name (1 to 48 letters, digits, hyphens or underscores, starting with a letter)", f, sanitize(name))
 		}
 		b, err := os.ReadFile(f)

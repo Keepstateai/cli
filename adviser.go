@@ -26,7 +26,6 @@ import (
 	"os"
 	"sort"
 	"strings"
-	"time"
 )
 
 type grantLimits struct {
@@ -49,7 +48,12 @@ type adviserGrant struct {
 	// LimitsFrom says where the limits came from: "named" when the person
 	// named both token limits, or "default for <model>" when the service
 	// sized the connection for one turn of the adviser's model.
-	LimitsFrom        string `json:"limits_from,omitempty"`
+	LimitsFrom string `json:"limits_from,omitempty"`
+	// EndedReason says how a removed connection ended: "person" (a person removed it) or why
+	// the service ended it (agent_removed, session_deleted, session_ended, access_lost,
+	// asker_gone); EndedWords says it in words
+	EndedReason       string `json:"ended_reason,omitempty"`
+	EndedWords        string `json:"ended_words,omitempty"`
 	ContextPolicy     string `json:"context_policy"`
 	Files             string `json:"files,omitempty"` // read | none: what the connection allows of file reach
 	SourceAgentName   string `json:"source_agent_name,omitempty"`
@@ -60,15 +64,28 @@ type adviserGrant struct {
 	TargetSessionName string `json:"target_session_name,omitempty"`
 }
 
-// grantState is the one word a person reads: live, revoked or expired.
+// grantState is the one word a person reads: live, revoked (a person removed it)
+// or ended (the service ended it because the other agent is no longer available).
+// A connection has no expiry.
 func grantState(g adviserGrant) string {
 	switch {
 	case g.RevokedAt != "":
+		if g.EndedReason != "" && g.EndedReason != "person" {
+			return "ended"
+		}
 		return "revoked"
 	case g.Live:
 		return "live"
 	}
-	return "expired"
+	return "ended"
+}
+
+// noteExpiresIgnored says, on stderr, that --expires does nothing now: it is still
+// accepted so a script that passes it keeps working.
+func noteExpiresIgnored(inv *Invocation) {
+	if inv.Set("expires") {
+		fmt.Fprintln(os.Stderr, "note: a connection no longer expires, so --expires is ignored; it stays until you remove it")
+	}
 }
 
 // end is one side of a connection as a person must see it before granting.
@@ -276,14 +293,7 @@ func hostedAdviserConnect(cr hostedCreds, inv *Invocation) {
 	if err != nil {
 		die(err)
 	}
-	expires := inv.Str("expires")
-	if expires == "" {
-		expires = "24h"
-	}
-	ttl, perr := time.ParseDuration(expires)
-	if perr != nil || ttl <= 0 || ttl > 30*24*time.Hour {
-		fail(&cliError{Code: exitUsage, Kind: "usage", Message: fmt.Sprintf("--expires %q is not a duration between 1s and 720h", expires), NextAction: "--expires 24h"})
-	}
+	noteExpiresIgnored(inv)
 	named := namedLimits(inv)
 	// WHAT IS ABOUT TO BE GRANTED, shown before anything is sent
 	// shown on stderr even under --quiet: this is the decision's own display,
@@ -296,12 +306,12 @@ func hostedAdviserConnect(cr hostedCreds, inv *Invocation) {
 	shown("  scope     advice only, one round per consultation; a reply authorises nothing")
 	shown("  shares    the question %s writes, and nothing of its transcript or files", from.label())
 	shown("  limits    %s", limitsShown(named))
-	shown("  expires   in %s; revoke at any time with ks adviser disconnect <grant>", ttl)
+	shown("  lasts     until you remove it with ks adviser disconnect <grant>, or the adviser is no longer available")
 	shown("  paid by   model use for advice is metered to the ADVISER's session (%s) under its own key", to.SessionName)
 	confirmGrant(to, inv.Str("confirm"))
 
 	body := map[string]any{"source_agent_id": src.ID, "target_agent_id": tgt.ID, "scope": "advice",
-		"context_policy": "question_only", "expires_seconds": int64(ttl / time.Second)}
+		"context_policy": "question_only"}
 	if len(named) > 0 {
 		// only what was named: the service sizes the rest for one turn of
 		// the adviser's model, and says so on the answer (limits_from)
@@ -317,7 +327,7 @@ func hostedAdviserConnect(cr hostedCreds, inv *Invocation) {
 	emit(map[string]any{"grant": g, "from": from, "adviser": to, "confirmed": true}, func() {
 		fmt.Printf("connected: %s may consult %s (grant %s, revision %d, %s)\n", from.label(), to.label(), g.ID, g.GrantRevision, grantState(g))
 		fmt.Println(resolvedLimitsLine(g))
-		fmt.Printf("expires %s; withdraw with: ks adviser disconnect %s\n", g.ExpiresAt, g.ID)
+		fmt.Printf("it stays connected until you remove it: ks adviser disconnect %s\n", g.ID)
 	})
 }
 
@@ -326,7 +336,11 @@ func grantLine(g adviserGrant, agentID string) string {
 	if g.TargetAgentID == agentID {
 		dir, other = "advises", g.SourceSessionName+"/"+g.SourceAgentName
 	}
-	return fmt.Sprintf("%-18s %-8s %-8s %-28s rev %-3d expires %s", g.ID, grantState(g), dir, other, g.GrantRevision, g.ExpiresAt)
+	line := fmt.Sprintf("%-18s %-8s %-8s %-28s rev %-3d", g.ID, grantState(g), dir, other, g.GrantRevision)
+	if g.EndedWords != "" {
+		line += " " + sanitize(g.EndedWords)
+	}
+	return line
 }
 
 func hostedAdviserList(cr hostedCreds, inv *Invocation) {

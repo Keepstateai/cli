@@ -172,7 +172,7 @@ func TestAConnectionIsGrantedOnlyAfterBothEndsAreShownAndTheAdviserIsConfirmed(t
 	if code != exitUsage || !strings.Contains(errs, "--confirm reviewer/main") || c.postCount() != 0 {
 		t.Fatalf("unconfirmed connect: %d out=%q err=%q posts=%d", code, out, errs, c.postCount())
 	}
-	for _, want := range []string{"checkout/main", "reviewer/main", "session session_rev", "project proj_1", "question", "one turn of the adviser's model", "expires", "nothing was connected"} {
+	for _, want := range []string{"checkout/main", "reviewer/main", "session session_rev", "project proj_1", "question", "one turn of the adviser's model", "lasts", "nothing was connected"} {
 		if !strings.Contains(errs, want) && !strings.Contains(out, want) {
 			t.Errorf("the confirmation does not show %q:\n%s", want, errs)
 		}
@@ -221,8 +221,15 @@ func TestAConnectionIsGrantedOnlyAfterBothEndsAreShownAndTheAdviserIsConfirmed(t
 	// service's to size, for one turn of the adviser's model
 	lim, _ := p["limits"].(map[string]any)
 	if p["source_agent_id"] != "agent_src" || p["target_agent_id"] != "agent_rev" || p["context_policy"] != "question_only" ||
-		lim["max_consultations"] != float64(3) || p["expires_seconds"] != float64(7200) {
+		lim["max_consultations"] != float64(3) {
 		t.Fatalf("the grant sent: %v", p)
+	}
+	// a connection has no expiry: --expires is accepted and ignored, and nothing about time is sent
+	if _, sent := p["expires_seconds"]; sent {
+		t.Fatalf("an expiry was sent for a connection that has none: %v", p)
+	}
+	if !strings.Contains(errs, "--expires is ignored") {
+		t.Fatalf("--expires is accepted but is not said to be ignored:\n%s", errs)
 	}
 	if _, sent := lim["max_tokens_per_consultation"]; sent {
 		t.Fatalf("a token limit nobody named was sent: %v", lim)
@@ -263,7 +270,8 @@ func TestAdviserListShowsLiveAndRevokedAndDisconnectSaysWhatStops(t *testing.T) 
 		{"id": "grant_gone", "source_agent_id": "agent_src", "target_agent_id": "agent_rev", "live": false, "revoked_at": "2026-09-26T10:00:00Z", "grant_revision": 1,
 			"expires_at": "2026-09-27T00:00:00Z", "source_session_name": "checkout", "source_agent_name": "main", "target_session_name": "reviewer", "target_agent_name": "main"},
 		{"id": "grant_old", "source_agent_id": "agent_rev", "target_agent_id": "agent_src", "live": false, "grant_revision": 1,
-			"expires_at": "2026-09-20T00:00:00Z", "source_session_name": "reviewer", "source_agent_name": "main", "target_session_name": "checkout", "target_agent_name": "main"},
+			"expires_at": "2026-09-20T00:00:00Z", "source_session_name": "reviewer", "source_agent_name": "main", "target_session_name": "checkout", "target_agent_name": "main",
+			"revoked_at": "2026-09-21T00:00:00Z", "ended_reason": "agent_removed", "ended_words": "main was removed, so it is no longer connected."},
 	}}
 	srv := httptest.NewServer(c)
 	defer srv.Close()
@@ -272,7 +280,7 @@ func TestAdviserListShowsLiveAndRevokedAndDisconnectSaysWhatStops(t *testing.T) 
 	env := fastEnv(cfg)
 	out, errs, code := auditExec(t, bin, cfg, dir, env, "adviser", "list", "--session", "fleetsrc0000")
 	if code != 0 || !strings.Contains(out, "grant_live") || !strings.Contains(out, "revoked") || !strings.Contains(out, "reviewer/main") ||
-		!strings.Contains(out, "expired") || !strings.Contains(out, "advises") {
+		!strings.Contains(out, "ended") || !strings.Contains(out, "main was removed, so it is no longer connected.") || !strings.Contains(out, "advises") {
 		t.Fatalf("list: %d %s %s", code, out, errs)
 	}
 	out, _, code = auditExec(t, bin, cfg, dir, env, "adviser", "list", "--session", "fleetsrc0000", "--json")
