@@ -1,5 +1,5 @@
 {
- "what": "the shared manifest-canonical-v1 test vectors (KS-074 VER-074-1) and the shared name-rule-v1 vectors, vendored unchanged from the service repository",
+ "what": "the shared manifest-canonical-v1 test vectors (KS-074 VER-074-1), the shared name-rule-v1 vectors and the shared name-rule-v2 (display name) vectors, vendored unchanged from the service repository",
  "server_commit": "fe2cab32a00db5ef8daef99529fca55dd27d0998",
  "files": {
   "manifest-canonical-v1.json": {
@@ -13,6 +13,13 @@
    "server_commit": "57e4c6f4e758fe6d3ebdc1771a69f38987208d98",
    "sha256": "5999dae68a43cfe188f93e8c7422a25ea24b95507e088a0b7d184244054b6623",
    "vendored_sha256": "5999dae68a43cfe188f93e8c7422a25ea24b95507e088a0b7d184244054b6623",
+   "transform": "none: the service file carries no private governance id, so the public scrub leaves it unchanged"
+  },
+  "name-rule-v2.json": {
+   "from": "docs/upgrade/vectors/name-rule-v2.json",
+   "server_commit": "2b47a114fbcaa4bc8a3d28a13e5edff86cff041e+feat/console-agents-1to5",
+   "sha256": "e7acbe1d8d97e09671214862761678db8819aa2a0e27e90c70a3af949b7f6a16",
+   "vendored_sha256": "e7acbe1d8d97e09671214862761678db8819aa2a0e27e90c70a3af949b7f6a16",
    "transform": "none: the service file carries no private governance id, so the public scrub leaves it unchanged"
   }
  }

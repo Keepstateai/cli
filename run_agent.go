@@ -25,7 +25,6 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
-	"time"
 )
 
 type provisionPhaseRow struct {
@@ -145,7 +144,11 @@ func runAgentNameRefusal(inv *Invocation) *cliError {
 		if !inv.Set(f) {
 			continue
 		}
-		if err := newNameRefusal(inv.Str(f), "nothing was created"); err != nil {
+		refuse := newNameRefusal
+		if f == "name" {
+			refuse = newSessionNameRefusal
+		}
+		if err := refuse(inv.Str(f), "nothing was created"); err != nil {
 			err.Message = "--" + f + ": " + err.Message
 			return err
 		}
@@ -359,10 +362,13 @@ func createAgentRecord(cr hostedCreds, name, agentName, keyArg string, model, ef
 	}
 
 	// ---- 3. the record and its primary agent --------------------------------
-	if name == "" {
-		name = "run-" + time.Now().UTC().Format("20060102-150405")
+	// no --name: the service names the session after its agent ("<agent name> session",
+	// then "<agent name> session 2" if that name is taken), so the terminal, the app, the
+	// console and the API all agree
+	body := map[string]any{"mode": "agent"}
+	if name != "" {
+		body["name"] = tidyName(name)
 	}
-	body := map[string]any{"name": name, "mode": "agent"}
 	if org != "" {
 		body["org_id"] = org
 	}
@@ -500,10 +506,7 @@ func failedStart(cr hostedCreds, p provisionAnswer, sessionID, older string, aga
 	if sessionID == "" || hostedCall(cr, "GET", "/api/v2/sessions/"+url.PathEscape(sessionID), nil, &env) != nil || env.Data.RuntimeState != "failed" {
 		return ce
 	}
-	name := sanitize(env.Data.Name)
-	if !agentNameSafe.MatchString(name) {
-		name = "<name>"
-	}
+	name := commandWord(sanitize(env.Data.Name))
 	ce.NextAction = "ks session delete " + sessionID + ", then " + again(name)
 	return ce
 }

@@ -3,6 +3,21 @@
 ## Unreleased
 
 - The Claude Code plugin now runs `@keepstateai/cli@0.1.43`.
+- An agent's name and a session's name may have spaces, for example `ks agent
+  create "Senior Analyst"`. Spaces at the ends are dropped and a run of spaces
+  becomes one; an agent's name is up to 48 characters and a session's up to 64.
+  A name is not an identifier: quote it in a shell, and the commands `ks`
+  suggests quote it for you. A project's name and a key alias keep the older
+  rule (no spaces).
+- `ks run --agent` without `--name` no longer makes up `run-<time>`: the service
+  names the session after its agent, "<agent name> session", then
+  "<agent name> session 2" when that name is taken, as the console does. A name
+  you give is used as it is.
+- An adviser connection never expires. It stays until you remove it
+  (`ks adviser disconnect`), or until the connected agent is no longer available
+  (removed, its session deleted or ended, or its account lost access), when the
+  service ends it and `ks adviser list` says why. `--expires` is still accepted
+  and ignored, so a script that passes it keeps working.
 
 ## v0.1.43 (2026-11-13)
 

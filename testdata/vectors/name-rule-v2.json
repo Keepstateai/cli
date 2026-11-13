@@ -1,0 +1,81 @@
+{
+ "name": "ks-display-name-rule",
+ "version": 2,
+ "what": "The display-name rule for an AGENT and a SESSION (the C04 identifier rule of name-rule-v1.json still holds for a project and a key alias). A name is what a person reads and types, so it may carry single spaces: ASCII letters, digits, hyphens, underscores and single spaces between them, starting with a letter. The service trims leading and trailing spaces and collapses a run of spaces to one before it judges and stores a name; an agent's name is at most 48 characters and a session's at most 64, counted after that. The name is never an identifier: records are named by their ids, and where a word must be typed on its own (an @ mention) the console uses a slug, the name with each space written as a hyphen. The service's rule is checked against these cases by ctl's tests; the client vendors this file and holds every name it sends to the same cases.",
+ "rule": "^[A-Za-z][A-Za-z0-9_-]*(?: [A-Za-z0-9_-]+)*$",
+ "agent_max": 48,
+ "session_max": 64,
+ "accepted": [
+  "main",
+  "a",
+  "Senior_Analyst",
+  "Senior Analyst",
+  "Team 2 reviewers",
+  "a b",
+  "agent-2",
+  "x- y_",
+  "Z",
+  "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUV"
+ ],
+ "normalized": [
+  {
+   "in": "  Senior   Analyst  ",
+   "out": "Senior Analyst"
+  },
+  {
+   "in": "main ",
+   "out": "main"
+  },
+  {
+   "in": "a     b     c",
+   "out": "a b c"
+  }
+ ],
+ "refused": [
+  "",
+  "   ",
+  "1agent",
+  "1 agent",
+  "a.b",
+  "a/b c",
+  " 9",
+  "-main",
+  "_x y",
+  "a\tb",
+  "a\nb",
+  "main\n",
+  "a\u00a0b",
+  "agent\u00e9",
+  "\u00e9 agent",
+  "a:b",
+  "<b> x",
+  "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVW"
+ ],
+ "session_only_accepted": [
+  "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVW",
+  "Senior_Analyst session",
+  "Senior_Analyst session 2",
+  "run-20261112-065644",
+  "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+ ],
+ "session_refused": [
+  "",
+  "   ",
+  "1agent",
+  "1 agent",
+  "a.b",
+  "a/b c",
+  " 9",
+  "-main",
+  "_x y",
+  "a\tb",
+  "a\nb",
+  "main\n",
+  "a\u00a0b",
+  "agent\u00e9",
+  "\u00e9 agent",
+  "a:b",
+  "<b> x",
+  "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+ ]
+}

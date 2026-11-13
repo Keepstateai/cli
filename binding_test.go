@@ -348,7 +348,7 @@ func TestAgentRenameIsByIDAgainstTheRevisionRead(t *testing.T) {
 		t.Fatalf("the change sent: %v", c.patches)
 	}
 	c.reset()
-	for _, bad := range []string{"1lead", "has space", strings.Repeat("a", 49), "../x"} {
+	for _, bad := range []string{"1lead", "has\ttab", "1 lead", strings.Repeat("a", 49), "../x"} {
 		if _, errs, code := auditExec(t, bin, cfg, dir, env, "agent", "rename", "lead", bad, "--session", "fleetaaa1"); code != exitUsage || !strings.Contains(errs, "not a name") {
 			t.Errorf("bad name %q: exit %d\n%s", bad, code, errs)
 		}

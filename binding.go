@@ -41,10 +41,50 @@ import (
 	"time"
 )
 
-// c04Name is the C04 name rule, the one the service applies to sessions
-// and agents: 1 to 48 ASCII letters, digits, hyphens or underscores,
-// starting with a letter.
+// c04Name is the C04 name rule, the identifier rule the service applies to a
+// project, a check and a key alias: 1 to 48 ASCII letters, digits, hyphens or
+// underscores, starting with a letter.
 var c04Name = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]{0,47}$`)
+
+// displayName is the rule for the name of an agent and of a session, held to
+// the shared testdata/vectors/name-rule-v2.json: ASCII letters, digits, hyphens,
+// underscores and single spaces between them, starting with a letter; an agent's
+// name is at most 48 characters and a session's at most 64, counted after the
+// spaces at its ends are dropped and each run of spaces is made one. The service
+// does the same before it stores a name. A name is not an identifier: records are
+// named by their ids, and a name with a space is one argument, quoted in a shell.
+var displayName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]*(?: [A-Za-z0-9_-]+)*$`)
+
+const (
+	agentNameMax   = 48
+	sessionNameMax = 64
+)
+
+var spaceRun = regexp.MustCompile(` {2,}`)
+
+// tidyName drops the spaces at the ends of a name and makes a run of spaces one.
+// Only U+0020 is touched: a tab or a no-break space stays and the rule refuses it.
+func tidyName(name string) string {
+	return spaceRun.ReplaceAllString(strings.Trim(name, " "), " ")
+}
+
+func displayNameOK(name string, max int) bool {
+	n := tidyName(name)
+	return n != "" && len([]rune(n)) <= max && displayName.MatchString(n)
+}
+
+// commandWord writes a name as one word of a command a person may paste: as it is
+// when a shell reads it as one word, single-quoted when it has a space (the rule
+// allows no quote), and "<name>" for anything else.
+func commandWord(name string) string {
+	switch {
+	case agentNameSafe.MatchString(name):
+		return name
+	case displayNameOK(name, sessionNameMax) && tidyName(name) == name:
+		return "'" + name + "'"
+	}
+	return "<name>"
+}
 
 const repoBindingFile = ".keepstate/session.json"
 
@@ -436,17 +476,42 @@ func checkName(name string) {
 	}
 }
 
-// newNameRefusal is the one check of a NEW name this client sends: a
-// session's or an agent's, from a command or the app. It is the service's own
-// rule (c04Name, held to the shared testdata/vectors/name-rule-v1.json), so a
-// name the service would refuse is refused here, before any request.
-// agentNameSafe is only for showing a name inside a suggested command line.
+func checkSessionName(name string) {
+	if err := newSessionNameRefusal(name, "nothing was renamed"); err != nil {
+		fail(err)
+	}
+}
+
+// newNameRefusal is the one check of a NEW agent name this client sends, from a
+// command or the app. It is the service's own rule (displayName, held to the
+// shared testdata/vectors/name-rule-v2.json), so a name the service would refuse
+// is refused here, before any request. agentNameSafe is only for showing a name
+// inside a suggested command line.
 func newNameRefusal(name, nothing string) *cliError {
+	if displayNameOK(name, agentNameMax) {
+		return nil
+	}
+	return &cliError{Code: exitUsage, Kind: "name_invalid",
+		Message: fmt.Sprintf("%q is not a name: 1 to 48 ASCII letters, digits, spaces, hyphens or underscores, starting with a letter; %s", sanitize(name), nothing)}
+}
+
+// newSessionNameRefusal is the same for a session's name (up to 64 characters).
+func newSessionNameRefusal(name, nothing string) *cliError {
+	if displayNameOK(name, sessionNameMax) {
+		return nil
+	}
+	return &cliError{Code: exitUsage, Kind: "name_invalid",
+		Message: fmt.Sprintf("%q is not a name: 1 to 64 ASCII letters, digits, spaces, hyphens or underscores, starting with a letter; %s", sanitize(name), nothing)}
+}
+
+// roleNameRefusal is the identifier rule (c04Name), for a name that is a file's
+// name, such as an agent template's role.
+func roleNameRefusal(name string) *cliError {
 	if c04Name.MatchString(name) {
 		return nil
 	}
 	return &cliError{Code: exitUsage, Kind: "name_invalid",
-		Message: fmt.Sprintf("%q is not a name: 1 to 48 ASCII letters, digits, hyphens or underscores, starting with a letter; %s", sanitize(name), nothing)}
+		Message: fmt.Sprintf("%q is not a name: 1 to 48 ASCII letters, digits, hyphens or underscores, starting with a letter", sanitize(name))}
 }
 
 // checkNewNames refuses, before the capability check or any other request,
@@ -459,8 +524,10 @@ func checkNewNames(inv *Invocation) {
 	switch inv.Cmd.Name() {
 	case "agent create":
 		err = newNameRefusal(inv.Arg(0), "nothing was created")
-	case "agent rename", "session rename":
+	case "agent rename":
 		err = newNameRefusal(inv.Arg(1), "nothing was renamed")
+	case "session rename":
+		err = newSessionNameRefusal(inv.Arg(1), "nothing was renamed")
 	case "run":
 		err = runAgentNameRefusal(inv)
 	case "agent run":
@@ -520,7 +587,7 @@ func renameRefusal(err error, next string) error {
 
 func hostedSessionRename(cr hostedCreds, inv *Invocation) {
 	to := inv.Arg(1)
-	checkName(to)
+	checkSessionName(to)
 	r, err := resolveSession(cr, inv.Arg(0))
 	if err != nil {
 		die(err)

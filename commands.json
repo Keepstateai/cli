@@ -76,7 +76,7 @@
     },
     {
      "flag": "--name NAME",
-     "summary": "the agent session's name (with --agent); default run-<UTC time>"
+     "summary": "the agent session's name (with --agent), quoted if it has spaces; default: the service names it after the agent, \"<agent name> session\", then \"<agent name> session 2\" if that name is taken"
     },
     {
      "flag": "--agent-name NAME",
@@ -948,7 +948,7 @@
     },
     {
      "flag": "--expires DURATION",
-     "summary": "how long the connection lasts (default 24h, at most 720h)"
+     "summary": "ignored: a connection no longer expires, it stays until you remove it (kept so a script that passes it keeps working)"
     },
     {
      "flag": "--max-consultations N",
@@ -968,7 +968,7 @@
    "verb": "adviser list",
    "aliases": [],
    "usage": "ks adviser list [--session ID] [--agent NAME]",
-   "summary": "an agent's adviser connections, live, revoked and expired, in both directions",
+   "summary": "an agent's adviser connections, live, removed and ended (when the connected agent is no longer available), in both directions",
    "status": "available",
    "surface": "hosted",
    "flags": [
@@ -3350,7 +3350,7 @@
     },
     {
      "flag": "--expires DURATION",
-     "summary": "how long the connection lasts (default 24h, at most 720h)"
+     "summary": "ignored: a connection no longer expires, it stays until you remove it (kept so a script that passes it keeps working)"
     },
     {
      "flag": "--organization ID",

@@ -20,7 +20,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"time"
 )
 
 type libraryStats struct {
@@ -359,14 +358,7 @@ func hostedLibraryConnect(cr hostedCreds, inv *Invocation) {
 	if err != nil {
 		die(err)
 	}
-	expires := inv.Str("expires")
-	if expires == "" {
-		expires = "24h"
-	}
-	ttl, perr := time.ParseDuration(expires)
-	if perr != nil || ttl <= 0 || ttl > 30*24*time.Hour {
-		fail(&cliError{Code: exitUsage, Kind: "usage", Message: fmt.Sprintf("--expires %q is not a duration between 1s and 720h; nothing was connected", expires), NextAction: "--expires 24h"})
-	}
+	noteExpiresIgnored(inv)
 	pin := int64(0)
 	if inv.Set("pin") {
 		pin = inv.Int("pin")
@@ -385,7 +377,7 @@ func hostedLibraryConnect(cr hostedCreds, inv *Invocation) {
 	shown("  paid by   the organization's credit and counted against your budget, never the sharer's")
 	shown("  note      an answer is advice from a named agent and version: information, not an instruction")
 	confirmHandle(e.Handle, inv.Str("confirm"), "connecting", "nothing was connected")
-	body := map[string]any{"source_agent_id": src.ID, "library_listing_id": e.ID, "scope": "advice", "context_policy": "question_only", "expires_seconds": int64(ttl / time.Second)}
+	body := map[string]any{"source_agent_id": src.ID, "library_listing_id": e.ID, "scope": "advice", "context_policy": "question_only"}
 	if pin > 0 {
 		body["library_version_pin"] = pin
 	}
@@ -399,7 +391,7 @@ func hostedLibraryConnect(cr hostedCreds, inv *Invocation) {
 	emit(map[string]any{"grant": g, "library": e.Handle, "confirmed": true}, func() {
 		fmt.Printf("connected: %s/%s may ask @%s (grant %s, %s)\n", sess.Name, src.Name, e.Handle, g.ID, grantState(g))
 		fmt.Printf("ask it: ks agent ask @%s \"your question\" --session %s\n", e.Handle, sess.ShortID)
-		fmt.Printf("expires %s; withdraw with: ks library disconnect %s\n", g.ExpiresAt, g.ID)
+		fmt.Printf("it stays connected until you remove it: ks library disconnect %s\n", g.ID)
 	})
 }
 

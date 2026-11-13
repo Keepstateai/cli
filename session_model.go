@@ -72,8 +72,8 @@ func primaryAgentName(cr hostedCreds, rec string) string {
 		return "<agent>"
 	}
 	for _, a := range agents {
-		if a.IsPrimary && agentNameSafe.MatchString(a.Name) {
-			return a.Name
+		if a.IsPrimary && commandWord(a.Name) != "<name>" {
+			return commandWord(a.Name)
 		}
 	}
 	return "<agent>"
