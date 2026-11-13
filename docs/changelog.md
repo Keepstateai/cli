@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `ks cruise status` no longer prints a `record:` line that always read
+  "unavailable". An accepted job's status now says `receipt: ks cruise receipt
+  <job>`; any other job says plainly that it has no receipt (yet, or because it
+  was not accepted).
 - The Claude Code plugin now runs `@keepstateai/cli@0.1.42`.
 
 ## v0.1.42 (2026-11-12)

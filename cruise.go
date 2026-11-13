@@ -1534,8 +1534,24 @@ func printJob(job map[string]any) {
 	} else {
 		fmt.Println("artifact: unavailable")
 	}
-	fmt.Printf("record: %s\n", jstr(job, "record_url"))
+	fmt.Println(receiptLine(job))
 	fmt.Printf("updated: %s\n", jstr(job, "updated_at"))
+}
+
+// receiptLine is the status line about the signed receipt. The job resource
+// carries no record link, so the line names the verb that fetches the receipt
+// of an accepted job (one that has an artifact or the verdict accepted), and
+// otherwise says plainly why there is none.
+func receiptLine(job map[string]any) string {
+	verdict, _ := job["verdict"].(string)
+	sha, _ := job["artifact_sha"].(string)
+	switch {
+	case sha != "" || verdict == "accepted":
+		return "receipt: ks cruise receipt " + jstr(job, "id")
+	case verdict != "":
+		return "receipt: none (this job was not accepted)"
+	}
+	return "receipt: none yet (a job that is accepted has one)"
 }
 
 func cruiseLogs(inv *Invocation) {

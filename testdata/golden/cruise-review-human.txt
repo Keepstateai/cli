@@ -8,6 +8,6 @@ save points: 0
 spent unavailable of unavailable ceiling
 verdict: ladder-exhausted
 artifact: unavailable
-record: unavailable
+receipt: none (this job was not accepted)
 updated: 2026-09-20T00:00:00Z
 --- stderr ---
