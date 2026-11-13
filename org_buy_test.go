@@ -83,3 +83,28 @@ func TestOrganizationBuyAndCredits(t *testing.T) {
 		t.Errorf("credits: %d %s", code, out)
 	}
 }
+
+// An organization that holds credit KeepState gave it, and bought none: the
+// credit line says which part is which and that none of it was bought.
+func TestOrganizationCreditsShowsCreditFromKeepState(t *testing.T) {
+	c := &orgBillingCtl{profile: map[string]any{}}
+	c.extra = func(w http.ResponseWriter, r *http.Request, body []byte) bool {
+		if r.Method == "GET" && r.URL.Path == "/api/v2/orgs/org_a/credits" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"schema_version": 2, "request_id": "r", "data": map[string]any{
+				"org_id": "org_a", "balance_micros": 1000000000, "purchased_micros": 0, "sponsored_micros": 1000000000, "funded_micros": 1000000000, "has_bought": false,
+				"entries": []any{map[string]any{"seq": 1, "ts": "t1", "kind": "grant", "amount_micros": 1000000000, "ref": "sponsor:x", "balance_after_micros": 1000000000, "label": "Credit from KeepState"}},
+				"orders":  []any{}}})
+			return true
+		}
+		return false
+	}
+	syncFixture(t, &c.mu)
+	srv := httptest.NewServer(c)
+	defer srv.Close()
+	bin, cfg := buildAndAuth(t, srv)
+	out, errs, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "organization", "credits", "org_a")
+	if code != 0 || !strings.Contains(out, "(bought: $0.00, credit from KeepState: $1,000.00)") || !strings.Contains(out, "given, not bought") || !strings.Contains(out, "Credit from KeepState\n") {
+		t.Errorf("credits: %d\n%s%s", code, out, errs)
+	}
+}
