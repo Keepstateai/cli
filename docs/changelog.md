@@ -1,7 +1,19 @@
 # Changelog
 
-## Unreleased
+## v0.1.44 (2026-11-14)
 
+- `ks agent folder list | create | rename | order | delete` and `ks agent move
+  NAME --folder FOLDER | --top [--before AGENT]` sort your agents into the
+  folders the console's agents menu shows. A folder is a label on your own
+  view, kept by the service per person and per context; it changes no agent,
+  session or permission. A folder is named by its name (quoted when it has
+  spaces, capitals aside) or its id. Deleting a folder puts its agents back at
+  the top level and deletes none.
+- `ks organization credits` now says how much of an organization's balance is
+  credit KeepState gave it, that it was given and not bought, and labels those
+  ledger rows. An organization that held only given credit used to read
+  "bought: $0.00" and "It has bought no credit yet". An older service sends
+  nothing to show, and the output is unchanged.
 - The Claude Code plugin now runs `@keepstateai/cli@0.1.43`.
 - An agent's name and a session's name may have spaces, for example `ks agent
   create "Senior Analyst"`. Spaces at the ends are dropped and a run of spaces
