@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The Claude Code plugin now runs `@keepstateai/cli@0.1.43`.
+
 ## v0.1.43 (2026-11-13)
 
 - `ks cruise auto` runs Cruise Autopilot from a terminal, in seven steps.
