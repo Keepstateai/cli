@@ -17,7 +17,7 @@
   },
   "name-rule-v2.json": {
    "from": "docs/upgrade/vectors/name-rule-v2.json",
-   "server_commit": "2b47a114fbcaa4bc8a3d28a13e5edff86cff041e+feat/console-agents-1to5",
+   "server_commit": "8751bcc5",
    "sha256": "e7acbe1d8d97e09671214862761678db8819aa2a0e27e90c70a3af949b7f6a16",
    "vendored_sha256": "e7acbe1d8d97e09671214862761678db8819aa2a0e27e90c70a3af949b7f6a16",
    "transform": "none: the service file carries no private governance id, so the public scrub leaves it unchanged"
