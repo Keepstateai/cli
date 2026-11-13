@@ -566,19 +566,21 @@ type modelTable struct {
 	DefaultLadder []rung                 `json:"default_ladder"`
 }
 
-// embeddedModels mirrors ctl/models.json v1, the table GET /api/models
+// embeddedModels mirrors ctl/models.json v1 (its families and its default
+// ladder: Claude Haiku 5.5, then Claude Sonnet 5.5; a drift test holds the two
+// together when a server checkout is named), the table GET /api/models
 // serves (docs/cruise-contract.md section 1.5). init drafts from it so it
 // makes no request; ks cruise models shows the live table, and the control
 // plane decides a ladder's validity at run.
 var embeddedModels = modelTable{
 	Version: "v1",
 	Families: map[string]modelFamily{
-		"anthropic": {Provider: "anthropic", Rungs: []string{"claude-haiku-4-5-20251001", "claude-sonnet-5"}},
+		"anthropic": {Provider: "anthropic", Rungs: []string{"claude-haiku-4-5-20251001", "claude-sonnet-5", "claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5"}},
 		"openai":    {Provider: "openrouter", Rungs: []string{"openai/gpt-4o-mini", "openai/gpt-4o"}},
 	},
 	DefaultLadder: []rung{
-		{Family: "anthropic", Model: "claude-haiku-4-5-20251001"},
-		{Family: "anthropic", Model: "claude-sonnet-5"},
+		{Family: "anthropic", Model: "claude-haiku-5-5"},
+		{Family: "anthropic", Model: "claude-sonnet-5-5"},
 	},
 }
 
