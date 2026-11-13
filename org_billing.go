@@ -324,7 +324,9 @@ type customerOrgCredits struct {
 	OrgID     string `json:"org_id"`
 	Balance   int64  `json:"balance_micros"`
 	Purchased int64  `json:"purchased_micros"`
-	HasBought bool   `json:"has_bought"`
+	// Sponsored is credit KeepState gave the organization; it is not a purchase
+	Sponsored int64 `json:"sponsored_micros"`
+	HasBought bool  `json:"has_bought"`
 	Entries   []struct {
 		Seq          int64  `json:"seq"`
 		TS           string `json:"ts"`
@@ -332,6 +334,7 @@ type customerOrgCredits struct {
 		AmountMicros int64  `json:"amount_micros"`
 		Ref          string `json:"ref"`
 		BalanceAfter int64  `json:"balance_after_micros"`
+		Label        string `json:"label"`
 	} `json:"entries"`
 	More   bool `json:"more"`
 	Orders []struct {
@@ -355,7 +358,12 @@ func hostedOrgCredits(cr hostedCreds, inv *Invocation) {
 	}
 	c := env.Data
 	emit(c, func() {
-		fmt.Printf("The organization %s's credit: %s (bought: %s)\n", org, receiptMoney(c.Balance), receiptMoney(c.Purchased))
+		if c.Sponsored > 0 {
+			fmt.Printf("The organization %s's credit: %s (bought: %s, credit from KeepState: %s)\n", org, receiptMoney(c.Balance), receiptMoney(c.Purchased), receiptMoney(c.Sponsored))
+			fmt.Println("Credit from KeepState was given, not bought: no payment was taken and no invoice is made for it.")
+		} else {
+			fmt.Printf("The organization %s's credit: %s (bought: %s)\n", org, receiptMoney(c.Balance), receiptMoney(c.Purchased))
+		}
 		if !c.HasBought {
 			fmt.Println("It has bought no credit yet: buy some with ks organization buy " + org + " --amount 50")
 		}
@@ -372,7 +380,11 @@ func hostedOrgCredits(cr hostedCreds, inv *Invocation) {
 		if len(c.Entries) > 0 {
 			fmt.Println("Ledger, newest first:")
 			for _, e := range c.Entries {
-				fmt.Printf("  %s  %-6s %12s  balance %s\n", e.TS, e.Kind, receiptMoney(e.AmountMicros), receiptMoney(e.BalanceAfter))
+				what := ""
+				if e.Label != "" {
+					what = "  " + sanitize(e.Label)
+				}
+				fmt.Printf("  %s  %-6s %12s  balance %s%s\n", e.TS, e.Kind, receiptMoney(e.AmountMicros), receiptMoney(e.BalanceAfter), what)
 			}
 		}
 		if c.More {
