@@ -1,7 +1,28 @@
 # Changelog
 
-## Unreleased
+## v0.1.43 (2026-11-13)
 
+- `ks cruise auto` runs Cruise Autopilot from a terminal, in seven steps.
+  `ks cruise auto brief <draft> [--text TEXT] --consent` starts a plan from what
+  you want and a ready draft of your files; at most three questions come back,
+  each already answered with its default. `ks cruise auto answer <plan> [--set
+  QUESTION=ANSWER]` answers them (giving no answer accepts every default).
+  `ks cruise auto plan <plan> [--wait]` has the checks written by a model that
+  is not on the job's ladder and run twice on your files, each of which must
+  fail; planning stops at its free limit. `ks cruise auto status [plan]` shows
+  your plans, or one plan in words: the checks as plain sentences, today's
+  count, what cannot be checked, the cost limit, what planning cost and the
+  next step. `ks cruise auto approve <plan>` runs a plan only when you confirm
+  the digest of the exact manifest shown. The digest is computed here, the
+  sentences shown are the ones inside that manifest, and `--yes` never approves
+  (without a terminal, `--confirm DIGEST` is required). `ks cruise auto receipt
+  <plan> [--sources]` prints the receipt's five lines for the plan's job:
+  checked independently, locked before work, re-checkable, measured cost, not
+  checked. `ks cruise auto discard <plan>` discards a plan that is not approved;
+  its copy of the files is deleted and it never runs. The client refuses a plan
+  card whose spend limit or models are not the manifest's. The same steps are
+  MCP tools; the approve tool asks a person in the host app and takes no
+  confirm value, and the brief tool never takes consent from the model.
 - The default ladder `ks cruise init` drafts with, and a run with no `--ladder`
   uses, is now Claude Haiku 5.5, then Claude Sonnet 5.5 (it was Claude Haiku
   4.5, then Claude Sonnet 5). The model table the client carries lists the 5.5
