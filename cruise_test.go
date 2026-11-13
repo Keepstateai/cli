@@ -888,10 +888,10 @@ func TestCruiseModelsCatalogAndLadderValidation(t *testing.T) {
 		t.Fatalf("init: %s", errs)
 	}
 	f.mu.Lock()
-	f.dropped = "claude-sonnet-5"
+	f.dropped = "claude-sonnet-5-5"
 	f.mu.Unlock()
 	_, errs, code = ksIn(t, bin, cfg, repo, "cruise", "approve")
-	if code != exitConflict || !strings.Contains(errs, `model "claude-sonnet-5" (family anthropic) is not listed in catalog v2`) || !strings.Contains(errs, "nothing is substituted") {
+	if code != exitConflict || !strings.Contains(errs, `model "claude-sonnet-5-5" (family anthropic) is not listed in catalog v2`) || !strings.Contains(errs, "nothing is substituted") {
 		t.Fatalf("approve with a dropped model: %d\n%s", code, errs)
 	}
 	// dropped after approval: run refuses before any upload
@@ -902,10 +902,10 @@ func TestCruiseModelsCatalogAndLadderValidation(t *testing.T) {
 		t.Fatalf("approve: %s", errs)
 	}
 	f.mu.Lock()
-	f.dropped, f.hits = "claude-haiku-4-5-20251001", nil
+	f.dropped, f.hits = "claude-haiku-5-5", nil
 	f.mu.Unlock()
 	_, errs, code = ksIn(t, bin, cfg, repo, "cruise", "run")
-	if code == 0 || !strings.Contains(errs, "claude-haiku-4-5-20251001") {
+	if code == 0 || !strings.Contains(errs, "claude-haiku-5-5") {
 		t.Fatalf("run with a dropped model: %d\n%s", code, errs)
 	}
 	for _, h := range f.seen() {

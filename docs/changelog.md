@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- The default ladder `ks cruise init` drafts with, and a run with no `--ladder`
+  uses, is now Claude Haiku 5.5, then Claude Sonnet 5.5 (it was Claude Haiku
+  4.5, then Claude Sonnet 5). The model table the client carries lists the 5.5
+  models, so `--ladder claude-haiku-5-5,claude-opus-5-5` reads. A job already
+  approved keeps the ladder it locked.
+- `ks cruise status` no longer prints a `record:` line that always read
+  "unavailable". An accepted job's status now says `receipt: ks cruise receipt
+  <job>`; any other job says plainly that it has no receipt (yet, or because it
+  was not accepted).
 - The Claude Code plugin now runs `@keepstateai/cli@0.1.42`.
 
 ## v0.1.42 (2026-11-12)
