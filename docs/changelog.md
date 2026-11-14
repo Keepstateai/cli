@@ -26,6 +26,17 @@
   from that outline and not from your files. On files nothing changes: name a
   draft and give `--consent`. Needs a service that has the change (the
   console's Autopilot page uses the same routes).
+- `ks profile show` and `ks profile set [--name NAME] [--title TITLE] [--picture
+  on|off]` read and change your own profile: your name (1 to 80 characters),
+  your title (up to 80; `--title ""` clears it) and whether your sign-in picture
+  shows or your initials show instead. `ks email show` and `ks email set
+  [--onboarding on|off] [--changelog on|off]` read and change your two email
+  choices: up to 3 onboarding emails in the first 14 days after you sign up (on
+  unless you turn it off) and a changelog email (off unless you turn it on).
+  Mail about your account (sign-in codes, alerts, statements and security
+  notices) always arrives and no choice stops it. A change needs at least one
+  flag and changes only what you name. All four are about your personal
+  account: they never take an organization's context.
 
 ## v0.1.44 (2026-11-14)
 
