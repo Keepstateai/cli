@@ -76,9 +76,9 @@ func fixtureFile(t testing.TB, name, as string) string {
 
 type redactVectors struct {
 	Cases []struct {
-		Name  string          `json:"name"`
-		In    []any           `json:"in"`
-		Want  string          `json:"want"`
+		Name  string         `json:"name"`
+		In    []any          `json:"in"`
+		Want  string         `json:"want"`
 		Kinds map[string]int `json:"kinds"`
 	} `json:"cases"`
 }
