@@ -71,6 +71,16 @@ func (c *importCtl) count(prefix string) int {
 	return n
 }
 
+func (c *importCtl) countExact(line string) int {
+	n := 0
+	for _, l := range c.seenLog() {
+		if l == line {
+			n++
+		}
+	}
+	return n
+}
+
 func canonicalDecl(m map[string]any) string {
 	b, _ := json.Marshal(m)
 	return string(b)

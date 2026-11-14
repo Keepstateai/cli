@@ -23,9 +23,11 @@ func importFlags(cursor bool) []Flag {
 		Flag{Name: "budget", Aliases: []string{"spend-limit"}, Kind: flagString, Value: "DOLLARS", Summary: "the new session's spend limit on KeepState's key, in dollars (with --key keepstate)"},
 		Flag{Name: "harness", Kind: flagString, Value: "H", Summary: "the agent the new session runs, claude-code or codex, for a written summary; default the session's own tool (Cursor: claude-code). A conversation is resumed only in its own tool; into the other one it goes across as a summary"},
 	)
-	if !cursor {
-		fs = append(fs, Flag{Name: "brief", Kind: flagBool, Summary: "send a written summary of the conversation instead of the conversation (always the case into another tool, and for a conversation over the size limit)"})
+	briefWords := "send a written summary of the conversation instead of the conversation (always the case into another tool, and for a conversation over the size limit)"
+	if cursor {
+		briefWords = "a Cursor chat is always sent as a written summary; accepted so the same arguments work for every tool"
 	}
+	fs = append(fs, Flag{Name: "brief", Kind: flagBool, Summary: briefWords})
 	return append(fs,
 		Flag{Name: "plan", Kind: flagBool, Summary: "plan only: what would go up, what is replaced and what it costs; creates nothing and prints a digest"},
 		Flag{Name: "execute", Kind: flagString, Value: "DIGEST", Summary: "do exactly the plan with this digest (the conversation is read again; if it changed since the plan, nothing is created)"},
