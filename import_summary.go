@@ -27,7 +27,43 @@ const (
 	summaryOpenMax      = 10
 	summaryOpenClip     = 240
 	summaryFilesMax     = 40
+
+	// the shares of the 6000 characters: each section is cut to its own, the
+	// rest of the summary is never pushed out by a long one
+	summaryAskedBudget    = 2000
+	summaryDecisionBudget = 800
+	summaryStandsBudget   = 1000
+	summaryOpenBudget     = 600
+	summaryFilesBudget    = 600
 )
+
+// fit clips each item so that the items together fit the budget.
+func fit(items []string, budget int) []string {
+	if len(items) == 0 {
+		return items
+	}
+	per := budget/len(items) - 14
+	if per < 40 {
+		per = 40
+	}
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		out = append(out, clipWords(it, per))
+	}
+	return out
+}
+
+// fitCount keeps as many items as the budget holds.
+func fitCount(items []string, budget int) []string {
+	used := 0
+	for i, it := range items {
+		used += len(it) + 3
+		if used > budget {
+			return items[:i]
+		}
+	}
+	return items
+}
 
 var (
 	decisionCue = regexp.MustCompile(`(?i)\b(decided|decision|we will|we'll|i will use|i'll use|chose|chosen|instead of|going with|switch(?:ed)? to)\b`)
@@ -109,7 +145,7 @@ func (b *summaryBuilder) add(role, text string) {
 	}
 	for _, loc := range pathToken.FindAllStringIndex(text, -1) {
 		tok := strings.Trim(text[loc[0]:loc[1]], ".,;:)(\"'`")
-		if loc[0] >= 3 && strings.HasSuffix(text[:loc[0]], "://") || strings.Contains(tok, "://") {
+		if strings.HasSuffix(text[:loc[0]], ":/") || strings.HasSuffix(text[:loc[0]], "://") || strings.Contains(tok, "://") {
 			continue
 		}
 		if !pathLike(tok) || b.fileSeen[tok] || len(b.files) >= summaryFilesMax {
@@ -159,17 +195,18 @@ func (b *summaryBuilder) build(source string, counts redactCounts) string {
 		asked = append(asked, b.firstUser)
 	}
 	asked = append(asked, b.recentUsers...)
-	list("What the person asked for (their own words, oldest first; the first message, then the most recent):", asked, true)
-	list("Decisions the assistant stated:", b.decisions, false)
+	// each section has a share of the cap, so a long one never crowds out the rest
+	list("What the person asked for (their own words, oldest first; the first message, then the most recent):", fit(asked, summaryAskedBudget), true)
+	list("Decisions the assistant stated:", fit(b.decisions, summaryDecisionBudget), false)
 	stands := []string{}
 	if b.lastStands != "" {
 		stands = append(stands, clipWords(b.lastStands, summaryStandsClip))
 	}
-	list("Where it stands (the assistant's last message):", stands, false)
-	list("Open tasks:", b.open, false)
+	list("Where it stands (the assistant's last message):", fit(stands, summaryStandsBudget), false)
+	list("Open tasks:", fit(b.open, summaryOpenBudget), false)
 	files := append([]string(nil), b.files...)
 	sort.Strings(files)
-	list("Files mentioned:", files, false)
+	list("Files mentioned:", fitCount(files, summaryFilesBudget), false)
 	out := head + "\n\n" + strings.Join(sec, "\n")
 	out = redactImportText(out, counts)
 	if r := []rune(out); len(r) > summaryMaxChars {

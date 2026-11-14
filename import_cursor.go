@@ -53,6 +53,10 @@ type cursorChat struct {
 
 type cursorTurn struct{ Role, Text string }
 
+// cursorTextFilter, set only by tests, changes each bubble's text as it is
+// read (the synthetic store keeps secret markers that a test expands).
+var cursorTextFilter func(string) string
+
 type cursorStore struct {
 	db      *sqliteDB
 	dir     string
@@ -244,7 +248,11 @@ func (c *cursorStore) turns(ch cursorChat) ([]cursorTurn, error) {
 		if jsonInt(b["type"]) == 1 {
 			role = "user"
 		}
-		if t := strings.TrimSpace(asStr(b["text"])); t != "" {
+		txt := asStr(b["text"])
+		if cursorTextFilter != nil {
+			txt = cursorTextFilter(txt)
+		}
+		if t := strings.TrimSpace(txt); t != "" {
 			text[id] = cursorTurn{role, t}
 		}
 		return nil

@@ -343,7 +343,9 @@ func importExecute(cr hostedCreds, inv *Invocation, p *importPrep, set importSet
 			Next           string `json:"next"`
 		} `json:"data"`
 	}
-	if err := hostedMutate(cr, "POST", "/api/v2/imports/apply", body, &env); err != nil {
+	// apply is idempotent on the service (the same digest and upload place
+	// once), so a lost answer is asked again by running the command again
+	if err := hostedCall(cr, "POST", "/api/v2/imports/apply", body, &env); err != nil {
 		fail(&cliError{Code: exitFailed, Kind: "import_not_applied", WorkStarted: workYes,
 			Message:    "the session and the uploads are in place, but the service did not apply the import: " + sanitize(errText(err)),
 			NextAction: again + " (it continues from here and creates nothing new)"})
