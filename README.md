@@ -75,6 +75,38 @@ unknown, outside its window or revoked; `--trust-before-revocation` accepts a
 receipt made before its key was revoked). Exit 3: the receipt has no Ed25519
 signature, so only the service can check it. Exit 2: unreadable inputs.
 
+## Bring a conversation in
+
+A Claude Code or Codex CLI session on your machine can continue as a new
+KeepState agent session, with the same conversation; a Cursor chat comes in as
+a written summary.
+
+```sh
+ks import list                                   # the sessions on this machine: id, project, date, size, messages
+ks import claude-code --latest --plan            # what would go up, and a digest; nothing is created
+ks import claude-code --latest --execute <digest>   # exactly that plan
+ks import codex --session 01a1c2d3 --with-files --plan
+ks import cursor --latest --plan                 # a written summary, never a transcript
+```
+
+The session file is read on your machine. What must not travel is taken out
+(the old machine's system prompt and tool list, account ids, permission modes,
+signed thinking, encrypted reasoning), the old project paths are said as the
+new workspace's, and anything shaped like a secret (API keys, tokens, private
+keys, connection strings) is replaced before anything is sent; the plan counts
+the replacements by kind and never shows a secret. The plan comes first and
+creates nothing; `--execute` names its digest, and a conversation that changed
+since is refused. A conversation over 50 MB is refused: start a new session
+from a shorter one, or import it as a written summary with `--brief`. A
+conversation goes into its own tool only; into the other one (`--harness`) it
+goes across as a summary. `--with-files` brings the git repository at the
+session's folder under the upload policy: `.env` files, credential-named
+files, `node_modules` and what `.gitignore` lists stay home, and `.git` goes.
+The first reply re-reads the whole conversation, so it costs more than a short
+message. Cursor's chat store is not documented: reading it is best effort, from
+a copy, and nothing in it is changed. The same import is the MCP tool
+`ks_import_session`, which plans first and acts only on a confirm value.
+
 ## Uninstall (one line)
 
 ```sh

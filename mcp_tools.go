@@ -17,6 +17,12 @@
 // and what deciding lets it do, and only that request at that revision is
 // decided, once.
 //
+// Importing a conversation is a confirm tool too (ks_import_session): the
+// first call reads the person's own local session, takes out what must not
+// travel and answers the plan (what goes up, the secrets replaced by kind,
+// the size, the files, the cost) with the service's digest; only a second
+// call with the confirm value creates the session.
+//
 // Left out of this release on purpose, so no tool can do them: every
 // deletion (kill, session delete, agent remove), keys, billing,
 // organizations, adviser grants, Cruise approve and
@@ -71,6 +77,12 @@ type mcpTool struct {
 	// DenyTool is the tool a person's Deny runs; empty: Deny decides nothing
 	// and the call ends there (a Cruise approval has no deny to record)
 	DenyTool string
+	// VerbOf, when set, is the verb for these arguments (a verb that has one
+	// row per tool it reads, such as ks import claude-code); Verb is then
+	// only the head
+	VerbOf func(a map[string]any) []string
+	// InVerb names the properties VerbOf already says, so argv leaves them out
+	InVerb []string
 }
 
 // noHuman is the refusal of a step only a person may answer: why nothing
@@ -225,6 +237,21 @@ var mcpTools = []mcpTool{
 			return "Discard Autopilot plan " + strArg(a, "plan") + ": its copy of the files is deleted now and nothing runs."
 		},
 		Target: autoStatusTarget},
+	{Name: "ks_import_session", Title: "Import a conversation into a new agent session", Kind: "confirm", Verb: []string{"import", "claude-code"}, VerbOf: importVerbOf, InVerb: []string{"harness", "session"}, Nothing: "nothing was created",
+		Desc: "Bring one of your own Claude Code, Codex CLI or Cursor conversations from this machine into a NEW KeepState agent session (a Claude Code or Codex session continues the same conversation; Cursor, or a conversation going into the other tool, goes across as a written summary). It reads only the person's local session files. What must not travel (the old system prompt and tool list, account ids, signed thinking) is taken out, and anything shaped like a secret is replaced before anything is sent. The first call creates nothing and answers a plan (what goes up, the secrets replaced by kind, the size, the files if with_files, the cost: the first reply re-reads the whole conversation, and imported bytes count toward storage) and a confirm value; show it to your person, and only with their yes call again with the same arguments and confirm. No model is called by the import itself. With session latest it takes the newest session for project." + dataNote,
+		Props: []mcpProp{{Name: "harness", Type: "string", Flag: "harness", Required: true, Enum: []string{"claude-code", "codex", "cursor"}, Desc: "whose conversation: claude-code, codex or cursor"},
+			{Name: "session", Type: "string", Flag: "session", Desc: "the session's id (a unique start of it is accepted), or latest (the default)"},
+			{Name: "project", Type: "string", Flag: "project", Desc: "the project folder: which session latest takes, and where with_files reads the repository from"},
+			{Name: "with_files", Type: "boolean", Flag: "with-files", Desc: "bring the project's git repository (files and history, under the upload policy: .env files, credential-named files and node_modules are left out) into the new session's workspace"},
+			{Name: "brief", Type: "boolean", Flag: "brief", Desc: "send a written summary of the conversation instead of the conversation"},
+			{Name: "name", Type: "string", Flag: "name", Desc: "the new session's name"},
+			{Name: "model", Type: "string", Flag: "model", Desc: "the model, one KeepState offers for the harness"}},
+		Target:         importTargetArgv,
+		Inspect:        importInspect,
+		ExtraOnConfirm: importExtraOnConfirm,
+		Plan: func(a map[string]any) string {
+			return fmt.Sprintf("Import the %s conversation %s into a NEW agent session. It is planned from the person's local session files; model use is metered only from the first instruction.", strArg(a, "harness"), firstNonEmpty(strArg(a, "session"), "latest"))
+		}},
 	{Name: "ks_task_cancel", Title: "Cancel an instruction", Kind: "confirm", Verb: []string{"task", "cancel"}, Destructive: true,
 		Desc:  "Cancel one instruction; a running one is asked to stop at a safe boundary. The first call does nothing and answers a plan and a confirm value; call again with confirm." + dataNote,
 		Props: []mcpProp{{Name: "instruction", Type: "string", Required: true, Desc: "the instruction's id"}, pSession, {Name: "reason", Type: "string", Flag: "reason", Desc: "why, recorded with the cancel"}},
@@ -353,7 +380,11 @@ func (t mcpTool) checkArgs(a map[string]any) error {
 // another flag), then -- and the positionals (so a positional can never be
 // read as a flag).
 func (t mcpTool) argv(a map[string]any, confirmed bool) []string {
-	out := append([]string{}, t.Verb...)
+	verb := t.Verb
+	if t.VerbOf != nil {
+		verb = t.VerbOf(a)
+	}
+	out := append([]string{}, verb...)
 	out = append(out, "--json", "--no-input")
 	out = append(out, t.Fixed...)
 	var pos []string
@@ -361,6 +392,9 @@ func (t mcpTool) argv(a map[string]any, confirmed bool) []string {
 		v, ok := a[p.Name]
 		if !ok {
 			continue
+		}
+		if containsStr(t.InVerb, p.Name) {
+			continue // said in the verb itself (VerbOf)
 		}
 		if p.Flag == "" {
 			pos = append(pos, fmt.Sprint(v))

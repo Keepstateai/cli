@@ -103,6 +103,11 @@ type uploadPlan struct {
 	Skipped []uploadSkip
 	WithGit bool  // --with-git: the folder's .git is carried
 	GitSize int64 // what the carried .git holds, for the size refusal
+	// Wire is the kind the declaration names when it is not Kind: a
+	// conversation is read as a file and declared as a conversation, which
+	// the session's machine holds and checks but does not place in the
+	// workspace
+	Wire string
 }
 
 // uploadView is the service's answer about one upload.
@@ -491,10 +496,16 @@ type uploader struct {
 	shown  int64
 	tty    bool
 	lastAt time.Time
+	// againCmd, when set, is the command that continues this upload in the
+	// words of the command that started it (ks import)
+	againCmd string
 }
 
 // again is the command that continues (or repeats) this upload.
 func (u *uploader) again(extra ...string) string {
+	if u.againCmd != "" {
+		return u.againCmd
+	}
 	parts := []string{"ks file upload", shellWord(u.inv.Arg(0))}
 	if u.inv.Set("to") {
 		parts = append(parts, "--to", shellWord(u.plan.To))
@@ -603,7 +614,9 @@ func short64(s string) string {
 func (u *uploader) declare(discard bool) {
 	body := map[string]any{"kind": u.plan.Kind, "to": u.plan.To, "size": u.plan.Size, "sha256": u.plan.SHA256,
 		"content_bytes": u.plan.Content, "replace": u.inv.Bool("replace") || discard}
-	if u.plan.Kind == "file" {
+	if u.plan.Wire != "" {
+		body = map[string]any{"kind": u.plan.Wire, "to": u.plan.To, "size": u.plan.Size, "sha256": u.plan.SHA256}
+	} else if u.plan.Kind == "file" {
 		body["mode"] = u.plan.Mode
 	} else {
 		files := make([]map[string]any, 0, len(u.plan.Entries))
@@ -821,7 +834,7 @@ func (u *uploader) complete() uploadView {
 		if !transient(err) || round >= uploadRetries || u.ctx.Err() != nil {
 			break
 		}
-		if v, serr := u.status(); serr == nil && v.State == "placed" {
+		if v, serr := u.status(); serr == nil && (v.State == "placed" || v.State == "verified") {
 			return v
 		}
 		time.Sleep(uploadBackoff(round))

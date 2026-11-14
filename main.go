@@ -1433,6 +1433,11 @@ var registry = []*Command{
 		Effects:  "reads the local file, or packs the folder as a tar leaving out the repository's history (unless --with-git, which carries .git and counts it toward the limit), dependency and tool folders, credential and secret file names, what .gitignore lists and links (each said), and empty folders; refuses before anything is sent more than 1 GB, a path outside the workspace and a secret file name. The session's machine checks the path, that it does not exist and that there is room before any byte, takes the bytes in chunks at the count it holds, and places the upload only when the whole sha256 matches, so nothing half-written is left at the path. An interrupted upload is kept for 24 hours and the same command continues it. The session must be running and is never woken. Uploaded files count toward your storage: saved points keep them, as they keep everything in the workspace. With --tell, one instruction is queued for the agent after the upload",
 		Examples: []string{"ks file upload ./myproj --session 3f2a1c", "ks file upload ./myproj --session 3f2a1c --with-git", "ks file upload data.csv --to inputs/data.csv --agent review --tell", "ks file upload ./myproj --session 3f2a1c --replace --json"},
 		Nothing:  "Nothing was uploaded.", Run: hosted(hostedFileUpload)},
+	{Path: []string{"import"}, Group: true, Summary: "a Claude Code, Codex or Cursor conversation brought into a new KeepState agent session", Surface: "hosted"},
+	importListRow(),
+	importRow("claude-code"),
+	importRow("codex"),
+	importRow("cursor"),
 	{Path: []string{"result"}, Group: true, Summary: "what an agent's tasks produced: listed, described, downloaded and verified", Surface: "hosted"},
 	{Path: []string{"result", "list"}, Summary: "the results of one task, or of a session's tasks: name, size, sha256, task, verification", Surface: "hosted",
 		Flags: []Flag{
