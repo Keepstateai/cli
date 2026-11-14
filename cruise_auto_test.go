@@ -478,3 +478,82 @@ func TestCruiseAutoRefusesACardThatDisagreesWithTheManifest(t *testing.T) {
 		t.Fatalf("approve: exit %d\n%s", code, errs)
 	}
 }
+
+// A plan on no files is a new project: the brief sends no draft and no consent,
+// the outline is read from the manifest and its digest computed here, and the
+// approval carries that digest with the checks' and the manifest's.
+func startNewProjectFake(t *testing.T) (*autoFake, string, string, string) {
+	t.Helper()
+	f, bin, cfg := startAutoFake(t)
+	files := []autoOutlineFile{{Path: "shopping.py", SHA256: strings.Repeat("c", 64)}}
+	digest := autoSetDigest(files)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.manifest["autopilot"].(map[string]any)["outline"] = map[string]any{"digest": digest, "files": []any{map[string]any{"path": "shopping.py", "sha256": strings.Repeat("c", 64)}}}
+	canon, _ := canonicalJSON(f.manifest)
+	sum := sha256.Sum256(canon)
+	msha := hex.EncodeToString(sum[:])
+	f.draft["manifest"], f.draft["manifest_sha"] = json.RawMessage(canon), msha
+	card := f.plan["card"].(map[string]any)
+	card["manifest_sha"] = msha
+	card["outline"] = map[string]any{"digest": digest, "files": []any{map[string]any{"path": "shopping.py", "bytes": 64, "content": "x"}}}
+	f.plan["new_project"], f.plan["draft_id"] = true, "crd_0123456789ab"
+	return f, bin, cfg, digest
+}
+
+func TestCruiseAutoBriefWithNoDraftIsANewProjectAndNeedsNoConsent(t *testing.T) {
+	f, bin, cfg := startAutoFake(t)
+	out, errs, code := ksIn(t, bin, cfg, t.TempDir(), "cruise", "auto", "brief", "--text", "a function that totals prices with VAT")
+	if code != 0 || f.count("POST /api/v2/cruise-auto") != 1 {
+		t.Fatalf("a brief with no draft: exit %d, requests %v\n%s%s", code, f.seen(), out, errs)
+	}
+	var req map[string]any
+	if err := json.Unmarshal(f.posted["POST /api/v2/cruise-auto"], &req); err != nil || req["brief"] != "a function that totals prices with VAT" || len(req) != 1 {
+		t.Fatalf("the brief carries files or a consent it does not have: %s", f.posted["POST /api/v2/cruise-auto"])
+	}
+	// files still need the consent, and send it
+	if _, _, code := ksIn(t, bin, cfg, t.TempDir(), "cruise", "auto", "brief", "crd_0123456789ab", "--text", "x"); code != exitUsage {
+		t.Fatalf("files without --consent: exit %d", code)
+	}
+}
+
+func TestCruiseAutoApproveOfANewProjectSendsTheOutlineDigestComputedHere(t *testing.T) {
+	f, bin, cfg, digest := startNewProjectFake(t)
+	msha := f.plan["card"].(map[string]any)["manifest_sha"].(string)
+	url := "POST /api/v2/cruise-auto/" + fakePlanID + "/approve"
+	out, errs, code := ksIn(t, bin, cfg, t.TempDir(), "cruise", "auto", "approve", fakePlanID, "--confirm", msha[:12])
+	if code != 0 {
+		t.Fatalf("approve: exit %d\n%s%s", code, out, errs)
+	}
+	for _, want := range []string{"a new project: you gave no files", "shopping.py (64 bytes)"} {
+		if !strings.Contains(errs, want) {
+			t.Errorf("the review does not say %q:\n%s", want, errs)
+		}
+	}
+	var req map[string]any
+	if err := json.Unmarshal(f.posted[url], &req); err != nil || req["outline_digest"] != digest || req["manifest_sha"] != msha || len(req) != 3 {
+		t.Fatalf("approve body %s", f.posted[url])
+	}
+	// a card that shows another outline than the manifest holds is refused before anything is sent
+	f2, bin2, cfg2, _ := startNewProjectFake(t)
+	f2.mu.Lock()
+	f2.plan["card"].(map[string]any)["outline"].(map[string]any)["digest"] = strings.Repeat("9", 64)
+	m2 := f2.plan["card"].(map[string]any)["manifest_sha"].(string)
+	f2.mu.Unlock()
+	if _, _, code := ksIn(t, bin2, cfg2, t.TempDir(), "cruise", "auto", "approve", fakePlanID, "--confirm", m2[:12]); code != exitIntegrity || f2.count(url) != 0 {
+		t.Fatalf("a card that shows another outline: exit %d", code)
+	}
+	// a new project whose manifest names no outline is refused
+	f3, bin3, cfg3, _ := startNewProjectFake(t)
+	f3.mu.Lock()
+	delete(f3.manifest["autopilot"].(map[string]any), "outline")
+	canon, _ := canonicalJSON(f3.manifest)
+	sum := sha256.Sum256(canon)
+	n3 := hex.EncodeToString(sum[:])
+	f3.draft["manifest"], f3.draft["manifest_sha"] = json.RawMessage(canon), n3
+	f3.plan["card"].(map[string]any)["manifest_sha"] = n3
+	f3.mu.Unlock()
+	if _, _, code := ksIn(t, bin3, cfg3, t.TempDir(), "cruise", "auto", "approve", fakePlanID, "--confirm", n3[:12]); code != exitIntegrity || f3.count(url) != 0 {
+		t.Fatalf("a new project with no outline in its manifest: exit %d", code)
+	}
+}

@@ -1,6 +1,7 @@
 // cruise_auto.go: Cruise Autopilot, from a terminal.
 //
-//	ks cruise auto brief     start a plan: what you want, and the draft of your files
+//	ks cruise auto brief     start a plan: what you want, and optionally the draft of your files
+//	                         (with none it is a new project: Autopilot writes an outline to start from)
 //	ks cruise auto answer    answer the questions (none given: every default)
 //	ks cruise auto plan      have the checks written by a model that is not on the job's
 //	                         ladder, and measured to fail on your files
@@ -56,6 +57,7 @@ type autoView struct {
 	Lane       string            `json:"lane"`
 	Brief      string            `json:"brief"`
 	DraftID    string            `json:"draft_id"`
+	NewProject bool              `json:"new_project"`
 	Hint       string            `json:"hint"`
 	Questions  []autoQuestion    `json:"questions"`
 	Answers    map[string]string `json:"answers"`
@@ -84,6 +86,13 @@ type autoView struct {
 		} `json:"checker"`
 		DataClass string `json:"data_classification"`
 		Delivery  string `json:"delivery"`
+		Outline   *struct {
+			Digest string `json:"digest"`
+			Files  []struct {
+				Path  string `json:"path"`
+				Bytes int    `json:"bytes"`
+			} `json:"files"`
+		} `json:"outline"`
 	} `json:"card"`
 	Planning struct {
 		Line string `json:"line"`
@@ -156,6 +165,39 @@ func autoBlock(m map[string]any) ([]autoCheck, string, []string, error) {
 	return checks, strings.ToLower(digest), nc, nil
 }
 
+type autoOutlineFile struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+}
+
+// autoSetDigest is the digest of a set of files by path and content digest:
+// sha256 over the files in path order, each its path, a NUL, its sha256 in hex
+// and a line feed (the formula the checks' set has).
+func autoSetDigest(files []autoOutlineFile) string {
+	rows := append([]autoOutlineFile(nil), files...)
+	sort.Slice(rows, func(i, j int) bool { return rows[i].Path < rows[j].Path })
+	h := sha256.New()
+	for _, r := range rows {
+		h.Write([]byte(r.Path + "\x00" + r.SHA256 + "\n"))
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// autoOutline reads the outline a plan with no files starts from out of the
+// manifest's autopilot block: the digest the manifest names and the digest of
+// the files it lists, computed here. Both empty when the block names none.
+func autoOutline(m map[string]any) (named, computed string, files []autoOutlineFile) {
+	ao, _ := m["autopilot"].(map[string]any)
+	ol, ok := ao["outline"].(map[string]any)
+	if !ok {
+		return "", "", nil
+	}
+	named, _ = ol["digest"].(string)
+	raw, _ := json.Marshal(ol["files"])
+	_ = json.Unmarshal(raw, &files)
+	return strings.ToLower(named), autoSetDigest(files), files
+}
+
 // autoTerms reads the spend limit and the ladder's models out of the manifest
 // whose digest an approval names.
 func autoTerms(m map[string]any) (int64, []string) {
@@ -182,7 +224,7 @@ func autoTerms(m map[string]any) (int64, []string) {
 // manifest's: what is shown is what the digest binds. It returns the manifest,
 // its digest, the sentences and what cannot be checked, all read from the
 // manifest itself.
-func autoCheckedCard(cr hostedCreds, v *autoView, nothing string) (m map[string]any, computed string, checks []autoCheck, notChecked []string) {
+func autoCheckedCard(cr hostedCreds, v *autoView, nothing string) (m map[string]any, computed string, checks []autoCheck, notChecked []string, outline string) {
 	d, _ := fetchDraft(cr, v.DraftID)
 	if !d.hasManifest() {
 		fail(&cliError{Code: exitConflict, Kind: "draft_no_manifest", Message: fmt.Sprintf("plan %s has no manifest; %s", v.ID, nothing), NextAction: "ks cruise auto status " + v.ID})
@@ -206,12 +248,21 @@ func autoCheckedCard(cr hostedCreds, v *autoView, nothing string) (m map[string]
 	if strings.ToLower(v.Card.ManifestSHA) != computed {
 		fail(integrity("manifest_digest_mismatch", fmt.Sprintf("the plan states manifest digest %s, but the manifest hashes to %s here; %s", short(v.Card.ManifestSHA), short(computed), nothing)))
 	}
+	// a plan with no files starts from an outline: it is in the manifest, its digest is computed here
+	// from the files the manifest lists, and the card shows the same one
+	named, got, _ := autoOutline(m)
+	if v.NewProject || v.Card.Outline != nil || named != "" {
+		if named == "" || named != got || v.Card.Outline == nil || strings.ToLower(v.Card.Outline.Digest) != got {
+			fail(integrity("outline_digest_mismatch", fmt.Sprintf("the manifest names outline digest %s, its files digest to %s here, and the card shows another or none; %s", short(named), short(got), nothing)))
+		}
+		outline = got
+	}
 	capMicro, ladder := autoTerms(m)
 	if capMicro != v.Card.Cost.Cap || strings.Join(ladder, ",") != strings.Join(v.Card.Ladder, ",") {
 		fail(integrity("card_terms_mismatch", fmt.Sprintf("the plan card shows a spend limit of %s and models %s, but the manifest it names says %s and %s; %s",
 			autoMoney(v.Card.Cost.Cap), strings.Join(v.Card.Ladder, ", "), autoMoney(capMicro), strings.Join(ladder, ", "), nothing)))
 	}
-	return m, computed, checks, notChecked
+	return m, computed, checks, notChecked, outline
 }
 
 func autoWords(w io.Writer, indent string, s string) {
@@ -261,6 +312,12 @@ func printAuto(w io.Writer, v *autoView, checks []autoCheck, notChecked []string
 		}
 		fmt.Fprintf(w, "  most it can spend: %s (it stops and asks rather than go past it)\n", autoMoney(c.Cost.Cap))
 		autoWords(w, "  ", c.Routing+".")
+		if c.Outline != nil {
+			fmt.Fprintf(w, "  a new project: you gave no files, so Autopilot wrote an outline, and the job starts from it (outline %s):\n", short(c.Outline.Digest))
+			for _, f := range c.Outline.Files {
+				autoWords(w, "    ", fmt.Sprintf("%s (%d bytes)", f.Path, f.Bytes))
+			}
+		}
 		autoWords(w, "  ", "checks written by "+sanitize(c.Checker.Model)+", which is not on the job's ladder. "+c.HeldOut+".")
 		autoWords(w, "  ", c.DataClass+".")
 		autoWords(w, "  ", "you get "+c.Delivery+".")
@@ -301,15 +358,20 @@ func finishAutoShow(v *autoView, raw json.RawMessage) {
 func hostedCruiseAutoBrief(cr hostedCreds, inv *Invocation) {
 	text := strings.TrimSpace(inv.Str("text"))
 	if text == "" {
-		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "say what you want in a few sentences with --text; nothing was started", NextAction: `ks cruise auto brief <draft> --text "..." --consent`})
+		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "say what you want in a few sentences with --text; nothing was started", NextAction: `ks cruise auto brief [<draft>] --text "..." [--consent]`})
 	}
-	if !inv.Bool("consent") {
+	draft := strings.TrimSpace(inv.Arg(0))
+	// choosing files is the agreement to keep them; with none there is nothing of yours to keep, a new project
+	if draft != "" && !inv.Bool("consent") {
 		fail(&cliError{Code: exitUsage, Kind: "consent_required",
 			Message:    "Autopilot keeps your files for this plan only, and the model that writes the checks reads them. Say you agree with --consent; nothing was started and nothing was sent",
-			NextAction: fmt.Sprintf("ks cruise auto brief %s --text %q --consent", inv.Arg(0), clip(text, 30))})
+			NextAction: fmt.Sprintf("ks cruise auto brief %s --text %q --consent", draft, clip(text, 30))})
 	}
 	var env draftEnvelope
-	body := map[string]any{"brief": text, "draft_id": inv.Arg(0), "storage_consent": true}
+	body := map[string]any{"brief": text}
+	if draft != "" {
+		body["draft_id"], body["storage_consent"] = draft, true
+	}
 	if err := hostedMutate(cr, "POST", inContext(cr, autoRoute), body, &env); err != nil {
 		die(cruiseCtxErr(cr, err))
 	}
@@ -373,7 +435,7 @@ func hostedCruiseAutoStatus(cr hostedCreds, inv *Invocation) {
 		}
 		emit(map[string]any{"plans": env.Data.Items, "count": len(env.Data.Items), "context": contextWord(cr)}, func() {
 			if len(env.Data.Items) == 0 {
-				fmt.Println(`no plans yet; start one with ks cruise auto brief <draft> --text "..." --consent`)
+				fmt.Println(`no plans yet; start one with ks cruise auto brief --text "..." (a new project), or ks cruise auto brief <draft> --text "..." --consent (on your files)`)
 				return
 			}
 			for _, it := range env.Data.Items {
@@ -388,7 +450,7 @@ func hostedCruiseAutoStatus(cr hostedCreds, inv *Invocation) {
 	}
 	v, raw := fetchAuto(cr, inv.Arg(0))
 	if v.State == "plan_ready" && v.Card != nil {
-		autoCheckedCard(cr, v, "nothing is shown as approvable")
+		_, _, _, _, _ = autoCheckedCard(cr, v, "nothing is shown as approvable")
 	}
 	finishAutoShow(v, raw)
 }
@@ -406,7 +468,7 @@ func hostedCruiseAutoApprove(cr hostedCreds, inv *Invocation) {
 			NextAction: "ks cruise auto status " + v.ID})
 	}
 	// the digests are computed here, from the manifest the service holds
-	_, computed, checks, notChecked := autoCheckedCard(cr, v, "nothing was approved")
+	_, computed, checks, notChecked, outline := autoCheckedCard(cr, v, "nothing was approved")
 	plain := autoPlainChecksDigest(checks)
 	keep := inv.Int("keep-days")
 	if keep < 0 || keep > 30 {
@@ -441,6 +503,9 @@ func hostedCruiseAutoApprove(cr hostedCreds, inv *Invocation) {
 		}
 	}
 	body := map[string]any{"manifest_sha": computed, "plain_checks_digest": plain}
+	if outline != "" {
+		body["outline_digest"] = outline // the outline read is the outline approved
+	}
 	if keep > 0 {
 		body["retention_days"] = keep
 	}
@@ -478,9 +543,11 @@ func hostedCruiseAutoReceipt(cr hostedCreds, inv *Invocation) {
 				Ref  string `json:"ref"`
 			} `json:"sources"`
 		} `json:"lines"`
-		Planning    string `json:"planning"`
-		ManifestSHA string `json:"manifest_sha"`
-		EventHead   string `json:"event_head"`
+		Planning      string `json:"planning"`
+		ManifestSHA   string `json:"manifest_sha"`
+		EventHead     string `json:"event_head"`
+		StartedFrom   string `json:"started_from"`
+		OutlineDigest string `json:"outline_digest"`
 	}
 	if err := json.Unmarshal(env.Data, &rc); err != nil || len(rc.Lines) != 5 {
 		die(fmt.Errorf("the control plane answered with a receipt this client could not read"))
@@ -501,6 +568,9 @@ func hostedCruiseAutoReceipt(cr hostedCreds, inv *Invocation) {
 				sort.Strings(refs)
 				autoWords(os.Stdout, "     from: ", strings.Join(refs, "; "))
 			}
+		}
+		if rc.StartedFrom != "" && rc.StartedFrom != "your files" {
+			autoWords(os.Stdout, "  ", "started from: "+rc.StartedFrom+".")
 		}
 		if rc.Planning != "" {
 			autoWords(os.Stdout, "  ", "planning: free. "+rc.Planning)
