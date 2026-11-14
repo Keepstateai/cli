@@ -4020,8 +4020,8 @@
   {
    "verb": "cruise auto brief",
    "aliases": [],
-   "usage": "ks cruise auto brief <draft> [--text TEXT] [--consent]",
-   "summary": "start a plan from what you want and a ready draft of your files: at most three questions come back, each already answered with its default",
+   "usage": "ks cruise auto brief [draft] [--text TEXT] [--consent]",
+   "summary": "start a plan from what you want, on a ready draft of your files or, with none, as a new project (Autopilot writes an outline to start from): at most three questions come back, each already answered with its default",
    "status": "available",
    "surface": "hosted",
    "flags": [
@@ -4031,7 +4031,7 @@
     },
     {
      "flag": "--consent",
-     "summary": "you agree the service keeps your files for this plan only and the model that writes the checks reads them; required"
+     "summary": "you agree the service keeps your files for this plan only and the model that writes the checks reads them; required when you name a draft, not for a new project"
     }
    ]
   },
@@ -4180,6 +4180,214 @@
     {
      "flag": "--before AGENT",
      "summary": "with --folder: place it just before this agent of the folder; without it, last"
+    }
+   ]
+  },
+  {
+   "verb": "import list",
+   "aliases": [],
+   "usage": "ks import list [--cursor] [--store FILE]",
+   "summary": "the Claude Code and Codex sessions on this machine, newest first: tool, id, project, date, size and message count (never a message)",
+   "status": "available",
+   "surface": "client",
+   "flags": [
+    {
+     "flag": "--cursor",
+     "summary": "also list Cursor chats (best effort; Cursor's store is copied first and the copy is read)"
+    },
+    {
+     "flag": "--store FILE",
+     "summary": "Cursor's chat store to list from (implies --cursor); default: Cursor's own folder for this system"
+    }
+   ]
+  },
+  {
+   "verb": "import claude-code",
+   "aliases": [],
+   "usage": "ks import claude-code [--latest] [--session ID] [--project DIR] [--with-files] [--name NAME] [--model MODEL] [--key KEY] [--budget DOLLARS] [--harness H] [--brief] [--plan] [--execute DIGEST] [--out FILE]",
+   "summary": "a Claude Code session on this machine as a new agent session that continues the same conversation (or, with --brief, a written summary of it)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--latest",
+     "summary": "the newest session for --project (default: the current folder), or the newest on this machine when none matches"
+    },
+    {
+     "flag": "--session ID",
+     "summary": "the session to import; a unique start of its id is accepted (ks import list shows them)"
+    },
+    {
+     "flag": "--project DIR",
+     "summary": "the project folder: which session --latest takes, and where --with-files reads the repository from"
+    },
+    {
+     "flag": "--with-files",
+     "summary": "bring the project's git repository at the session's folder (its files and history) into the new session's workspace, under the upload policy: .env files, credential-named files, node_modules and what .gitignore lists are left out"
+    },
+    {
+     "flag": "--name NAME",
+     "summary": "the new session's name; default the project's folder name and \"import\""
+    },
+    {
+     "flag": "--model MODEL",
+     "summary": "the model the new agent calls, one KeepState offers for its harness; default the service's"
+    },
+    {
+     "flag": "--key KEY",
+     "summary": "the key the agent calls with: a key's id or alias, own for your own key, or keepstate for KeepState's key; default your account's default for the provider"
+    },
+    {
+     "flag": "--budget DOLLARS (also --spend-limit)",
+     "summary": "the new session's spend limit on KeepState's key, in dollars (with --key keepstate)"
+    },
+    {
+     "flag": "--harness H",
+     "summary": "the agent the new session runs, claude-code or codex, for a written summary; default the session's own tool (Cursor: claude-code). A conversation is resumed only in its own tool; into the other one it goes across as a summary"
+    },
+    {
+     "flag": "--brief",
+     "summary": "send a written summary of the conversation instead of the conversation (always the case into another tool, and for a conversation over the size limit)"
+    },
+    {
+     "flag": "--plan",
+     "summary": "plan only: what would go up, what is replaced and what it costs; creates nothing and prints a digest"
+    },
+    {
+     "flag": "--execute DIGEST",
+     "summary": "do exactly the plan with this digest (the conversation is read again; if it changed since the plan, nothing is created)"
+    },
+    {
+     "flag": "--out FILE",
+     "summary": "write what would be sent (the sanitized conversation, or the summary) to this new file and stop; nothing is sent, no sign-in is needed"
+    }
+   ]
+  },
+  {
+   "verb": "import codex",
+   "aliases": [],
+   "usage": "ks import codex [--latest] [--session ID] [--project DIR] [--with-files] [--name NAME] [--model MODEL] [--key KEY] [--budget DOLLARS] [--harness H] [--brief] [--plan] [--execute DIGEST] [--out FILE]",
+   "summary": "a Codex CLI session on this machine as a new agent session that continues the same conversation (or, with --brief, a written summary of it)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--latest",
+     "summary": "the newest session for --project (default: the current folder), or the newest on this machine when none matches"
+    },
+    {
+     "flag": "--session ID",
+     "summary": "the session to import; a unique start of its id is accepted (ks import list shows them)"
+    },
+    {
+     "flag": "--project DIR",
+     "summary": "the project folder: which session --latest takes, and where --with-files reads the repository from"
+    },
+    {
+     "flag": "--with-files",
+     "summary": "bring the project's git repository at the session's folder (its files and history) into the new session's workspace, under the upload policy: .env files, credential-named files, node_modules and what .gitignore lists are left out"
+    },
+    {
+     "flag": "--name NAME",
+     "summary": "the new session's name; default the project's folder name and \"import\""
+    },
+    {
+     "flag": "--model MODEL",
+     "summary": "the model the new agent calls, one KeepState offers for its harness; default the service's"
+    },
+    {
+     "flag": "--key KEY",
+     "summary": "the key the agent calls with: a key's id or alias, own for your own key, or keepstate for KeepState's key; default your account's default for the provider"
+    },
+    {
+     "flag": "--budget DOLLARS (also --spend-limit)",
+     "summary": "the new session's spend limit on KeepState's key, in dollars (with --key keepstate)"
+    },
+    {
+     "flag": "--harness H",
+     "summary": "the agent the new session runs, claude-code or codex, for a written summary; default the session's own tool (Cursor: claude-code). A conversation is resumed only in its own tool; into the other one it goes across as a summary"
+    },
+    {
+     "flag": "--brief",
+     "summary": "send a written summary of the conversation instead of the conversation (always the case into another tool, and for a conversation over the size limit)"
+    },
+    {
+     "flag": "--plan",
+     "summary": "plan only: what would go up, what is replaced and what it costs; creates nothing and prints a digest"
+    },
+    {
+     "flag": "--execute DIGEST",
+     "summary": "do exactly the plan with this digest (the conversation is read again; if it changed since the plan, nothing is created)"
+    },
+    {
+     "flag": "--out FILE",
+     "summary": "write what would be sent (the sanitized conversation, or the summary) to this new file and stop; nothing is sent, no sign-in is needed"
+    }
+   ]
+  },
+  {
+   "verb": "import cursor",
+   "aliases": [],
+   "usage": "ks import cursor [--latest] [--chat ID] [--store FILE] [--project DIR] [--with-files] [--name NAME] [--model MODEL] [--key KEY] [--budget DOLLARS] [--harness H] [--brief] [--plan] [--execute DIGEST] [--out FILE]",
+   "summary": "a Cursor chat as a written summary for a new agent session (best effort: Cursor's chat store is not documented)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--latest",
+     "summary": "the newest Cursor chat that holds text"
+    },
+    {
+     "flag": "--chat ID",
+     "summary": "the Cursor chat to import; a unique start of its id is accepted"
+    },
+    {
+     "flag": "--store FILE",
+     "summary": "Cursor's chat store (state.vscdb); default: Cursor's own folder for this system. It is copied first and the copy is read; the original is never changed"
+    },
+    {
+     "flag": "--project DIR",
+     "summary": "the project folder: which session --latest takes, and where --with-files reads the repository from"
+    },
+    {
+     "flag": "--with-files",
+     "summary": "bring the project's git repository at the session's folder (its files and history) into the new session's workspace, under the upload policy: .env files, credential-named files, node_modules and what .gitignore lists are left out"
+    },
+    {
+     "flag": "--name NAME",
+     "summary": "the new session's name; default the project's folder name and \"import\""
+    },
+    {
+     "flag": "--model MODEL",
+     "summary": "the model the new agent calls, one KeepState offers for its harness; default the service's"
+    },
+    {
+     "flag": "--key KEY",
+     "summary": "the key the agent calls with: a key's id or alias, own for your own key, or keepstate for KeepState's key; default your account's default for the provider"
+    },
+    {
+     "flag": "--budget DOLLARS (also --spend-limit)",
+     "summary": "the new session's spend limit on KeepState's key, in dollars (with --key keepstate)"
+    },
+    {
+     "flag": "--harness H",
+     "summary": "the agent the new session runs, claude-code or codex, for a written summary; default the session's own tool (Cursor: claude-code). A conversation is resumed only in its own tool; into the other one it goes across as a summary"
+    },
+    {
+     "flag": "--brief",
+     "summary": "a Cursor chat is always sent as a written summary; accepted so the same arguments work for every tool"
+    },
+    {
+     "flag": "--plan",
+     "summary": "plan only: what would go up, what is replaced and what it costs; creates nothing and prints a digest"
+    },
+    {
+     "flag": "--execute DIGEST",
+     "summary": "do exactly the plan with this digest (the conversation is read again; if it changed since the plan, nothing is created)"
+    },
+    {
+     "flag": "--out FILE",
+     "summary": "write what would be sent (the sanitized conversation, or the summary) to this new file and stop; nothing is sent, no sign-in is needed"
     }
    ]
   },

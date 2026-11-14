@@ -1,0 +1,25 @@
+{
+ "version": 1,
+ "comment": "The credential shapes a session import redacts on the person's machine and refuses on arrival. One list for the service (Go, internal/importscan), the guest program (Python re, sent by the engine) and the client (vendored byte for byte, with the vectors in docs/upgrade/vectors/import-redaction-v1.json). A pattern is RE2 syntax that Python's re reads the same. A rule with keep keeps that many leading groups and replaces the rest of its match; the replacement is [redacted:KIND].",
+ "replacement": "[redacted:%s]",
+ "rules": [
+  {"kind": "private_key_block", "pattern": "-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----[\\s\\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----|$)"},
+  {"kind": "anthropic_key", "pattern": "\\bsk-ant-[A-Za-z0-9_\\-]{16,}"},
+  {"kind": "openrouter_key", "pattern": "\\bsk-or-[A-Za-z0-9_\\-]{16,}"},
+  {"kind": "openai_key", "pattern": "\\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_\\-]{20,}"},
+  {"kind": "keepstate_key", "pattern": "\\bks_sk_[A-Za-z0-9._\\-]{12,}"},
+  {"kind": "keepstate_key", "pattern": "\\bksk_[A-Za-z0-9]{16,}"},
+  {"kind": "github_token", "pattern": "\\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{30,}"},
+  {"kind": "github_token", "pattern": "\\bgithub_pat_[A-Za-z0-9_]{30,}"},
+  {"kind": "aws_access_key", "pattern": "\\b(?:AKIA|ASIA|AGPA|AIDA|AROA)[0-9A-Z]{16}\\b"},
+  {"kind": "google_api_key", "pattern": "\\bAIza[0-9A-Za-z_\\-]{35}"},
+  {"kind": "telegram_bot_token", "pattern": "\\b[0-9]{8,10}:[A-Za-z0-9_\\-]{35}"},
+  {"kind": "slack_token", "pattern": "\\bxox[abprs]-[A-Za-z0-9\\-]{10,}"},
+  {"kind": "jwt", "pattern": "\\beyJ[A-Za-z0-9_\\-]{8,}\\.eyJ[A-Za-z0-9_\\-]{8,}\\.[A-Za-z0-9_\\-]{8,}"},
+  {"kind": "connection_string", "pattern": "(?i)\\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\\+srv)?|redis|rediss|amqps?)://[^\\s:/@\"'\\\\]+:[^\\s/@\"'\\\\]+@"},
+  {"kind": "azure_account_key", "pattern": "(?i)\\b(?:AccountKey|SharedAccessKey)=[A-Za-z0-9+/=]{20,}"},
+  {"kind": "authorization_header", "pattern": "(?i)\\b(?:proxy-)?authorization(?:\\\\?[\"'])?\\s*[:=]\\s*(?:\\\\?[\"'])?(?:bearer|basic|token)\\s+[A-Za-z0-9._~+/\\-]{12,}=*"},
+  {"kind": "bearer_token", "pattern": "(?i)\\bbearer\\s+[A-Za-z0-9._~+/\\-]{20,}=*"},
+  {"kind": "assignment", "keep": 2, "pattern": "(?i)\\b([A-Za-z0-9_]*(?:api[_-]?key|secret|token|password|passwd|credential|private[_-]?key)(?:_[A-Za-z0-9_]*)?)((?:\\\\?[\"'])?\\s*[:=]\\s*(?:\\\\?[\"'])?)[^\\s\"'\\\\\\[<>{}()][^\\s\"'\\\\]{11,}"}
+ ]
+}

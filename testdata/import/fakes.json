@@ -1,0 +1,20 @@
+{
+ "comment": "Throwaway credential-shaped strings for the session-import tests, in parts that are joined at run time so that no part (and no line of this file) is a complete credential: a secret scanner on the repository must find nothing here. Every value is invented; none was ever issued.",
+ "fakes": {
+  "anthropic_key": ["sk-ant", "-api03-", "Zk3Qm9Vb7TnL2xWc8RfY4Hd6JpA1sGe5UoBi0Nt"],
+  "openrouter_key": ["sk-or", "-v1-", "4f9a7c1e2b8d3a6f0c5e9b7d1a3f8c2e6b4d0a9f"],
+  "openai_key": ["sk-pro", "j-", "T3bK9wQ2mZx7LpR4vNc8YdF1sHgJ6aUe5oBiW0tX"],
+  "keepstate_key": ["ks_s", "k_", "sess0123456789ab.1.d3adb33fcafe"],
+  "github_token": ["gh", "p_", "Q8wE3rT7yU1iO5pA9sD2fG6hJ4kL0zXcVbNm"],
+  "aws_access_key": ["AK", "IA", "Q7ZX2M5N9B4C8V1K"],
+  "google_api_key": ["AI", "za", "SyD3x9Qm7LpR2vNc8YdF1sHgJ6aUe5oBiW0"],
+  "telegram_bot_token": ["6123", "456789", ":", "AAF3x9Qm7LpR2vNc8YdF1sHgJ6aUe5oBiW0"],
+  "slack_token": ["xo", "xb-", "1234567890-abcdefghijKLMN"],
+  "jwt": ["ey", "JhbGciOiJIUzI1NiJ9", ".", "ey", "JzdWIiOiJ0ZXN0LXVzZXIifQ", ".", "c2lnbmF0dXJlMTIzNDU2Nzg5MA"],
+  "connection_string": ["postgres", "://", "app_user", ":", "Tr0ub4dor9xQ2", "@db.internal:5432/app"],
+  "azure_account_key": ["Account", "Key=", "dGhpc2lzYW5pbnZlbnRlZGtleWZvcnRlc3Rpbmc0NTY3ODk="],
+  "bearer_token": ["Bearer", " ", "q8Wz3Xc7Vb1Nm5Lk9Jh2Gf6Ds4Aa0Pp8Oo3Ii"],
+  "private_key_block": ["-----BEGIN ", "RSA PRIVATE KEY", "-----\nMIIBOgIBAAJBAKfakefakefakefakefakefake\nZmFrZWZha2VmYWtlZmFrZWZha2U=\n-----END ", "RSA PRIVATE KEY", "-----"],
+  "assignment": ["API_", "KEY=", "v9Tq2Lz8Xc4Wn7Rb3Hd6"]
+ }
+}

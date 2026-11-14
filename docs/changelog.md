@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- `ks import list | claude-code | codex | cursor` brings a conversation from
+  your machine into a new agent session. A Claude Code or Codex CLI session
+  continues the same conversation (`ks import claude-code --latest --plan`,
+  then `--execute DIGEST`); a Cursor chat, or a conversation going into the
+  other tool, goes across as a written summary built on your machine by fixed
+  rules, with no model. The session file is read locally; what must not travel
+  is taken out, old project paths are said as the new workspace's and anything
+  shaped like a secret is replaced before anything is sent, with the counts by
+  kind in the plan. `--with-files` brings the project's git repository under
+  the upload policy. A conversation over 50 MB is refused. `ks import list`
+  never prints a message. The same import is the MCP tool `ks_import_session`,
+  which plans first and acts only on a confirm value.
 - `ks organization domain ORG` shows an organization's work domain, its mode,
   the requests waiting and the members without a seat. `ks organization domain
   set ORG --mode auto|approve` and `ks organization domain remove ORG` (owner),
@@ -13,6 +25,17 @@
   whose account already existed, and `ks organization offer join` or `dismiss`
   answers it. The service answers these only once it has turned work domains on.
 - The Claude Code plugin now runs `@keepstateai/cli@0.1.44`.
+- `ks cruise auto brief` no longer needs files. `ks cruise auto brief --text
+  "..."` with no draft starts a new project: nothing of yours is kept, so there
+  is no `--consent` to give, and Autopilot writes an outline of the project (its
+  files and the signatures the checks call, each doing nothing useful yet) along
+  with the checks. `ks cruise auto status` lists the outline's files; the plan's
+  approval names the outline's digest, computed here from the manifest like the
+  checks' digest, so a plan whose outline is not the one the manifest holds is
+  refused before anything is sent. `ks cruise auto receipt` says the job started
+  from that outline and not from your files. On files nothing changes: name a
+  draft and give `--consent`. Needs a service that has the change (the
+  console's Autopilot page uses the same routes).
 
 ## v0.1.44 (2026-11-14)
 
