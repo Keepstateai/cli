@@ -497,6 +497,9 @@ func (s *mcpServer) applyHumanAnswer(t mcpTool, args map[string]any, action stri
 		if how == "" {
 			how = "not answered"
 		}
+		if strings.HasPrefix(t.Name, "ks_agent_copy_to_org") {
+			return toolText("The person "+how+" the question, so nothing was copied.", false)
+		}
 		return toolText("The person "+how+" the question, so nothing was approved and nothing was denied.", false)
 	}
 	switch content["decision"] {
