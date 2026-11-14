@@ -14,6 +14,27 @@
   the upload policy. A conversation over 50 MB is refused. `ks import list`
   never prints a message. The same import is the MCP tool `ks_import_session`,
   which plans first and acts only on a confirm value.
+- `ks agent copy-to-org AGENT --organization ORG` copies one of your personal
+  agents into an organization you belong to. It plans first and creates
+  nothing: the saved point it would copy and how old it is, what is copied
+  (the workspace, the conversation, the purpose, the harness, model and effort),
+  what is not (your key bindings, approvals, connections, pending work, your
+  history and your spend limits), who can read the copy, what it costs and that
+  the organization pays, and the warning that everything in the agent's files
+  becomes the organization's. `--yes` copies exactly the plan it has just
+  shown; `--execute DIGEST` copies the plan with that digest (with `--plan-id`
+  that exact plan, without it a fresh plan that must have the same digest, so a
+  plan that changed since it was read is refused). `--share --handle H --title T`
+  also adds the copy to the organization's pool as its first version; if that
+  second step stops, the copy still exists and the command says which step
+  stopped. `ks agent copies AGENT` lists the copies you made. Your agent is not
+  changed, and an organization's agent is never copied out.
+- `ks mcp` has `ks_agent_copy_to_org_plan` (plans only) and
+  `ks_agent_copy_to_org`, which asks the person in the host app: it takes no
+  confirm value, shows the plan and the warning, and only the person's Approve
+  copies, exactly the plan with the digest the plan tool gave. A host that
+  cannot ask copies nothing, and a test holds that nothing the model writes into
+  a call copies an agent.
 - The Claude Code plugin now runs `@keepstateai/cli@0.1.44`.
 - `ks cruise auto brief` no longer needs files. `ks cruise auto brief --text
   "..."` with no draft starts a new project: nothing of yours is kept, so there
