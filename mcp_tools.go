@@ -189,10 +189,13 @@ var mcpTools = []mcpTool{
 	// spends, so only a person's answer in the host app approves; deleting a
 	// plan's files is confirmed by a plan and a confirm value.
 	{Name: "ks_cruise_auto_brief", Title: "Start a Cruise Autopilot plan (asks a person)", Kind: "confirm", Human: true, Nothing: "nothing was started", Verb: []string{"cruise", "auto", "brief"}, Fixed: []string{"--consent"},
-		Desc: "Ask your person to start a Cruise Autopilot plan from what they want and a ready draft of their files. Starting needs their agreement that the service keeps the files for this plan only and that the model writing the checks reads them, so this tool cannot start on its own and neither can you: it takes no confirm value and no consent. The call shows the person the brief and that note and asks Approve or Deny; only their Approve starts it, once. It spends nothing: planning is free up to a small limit and nothing runs or is charged until a person approves the plan." + dataNote,
-		Props: []mcpProp{{Name: "draft", Type: "string", Required: true, Desc: "the ready draft's id (ks cruise draft create)"},
+		Desc: "Ask your person to start a Cruise Autopilot plan from what they want, on a ready draft of their files or, with no draft, as a new project (Autopilot then writes an outline of the project to start from, and keeps nothing of theirs). Starting on files needs their agreement that the service keeps the files for this plan only and that the model writing the checks reads them, so this tool cannot start on its own and neither can you: it takes no confirm value and no consent. The call shows the person the brief and that note and asks Approve or Deny; only their Approve starts it, once. It spends nothing: planning is free up to a small limit and nothing runs or is charged until a person approves the plan." + dataNote,
+		Props: []mcpProp{{Name: "draft", Type: "string", Desc: "the ready draft's id (ks cruise draft create); leave it out for a new project, where Autopilot writes an outline of the project to start from"},
 			{Name: "text", Type: "string", Flag: "text", Required: true, Desc: "what the person wants, in a few sentences"}},
 		Plan: func(a map[string]any) string {
+			if strArg(a, "draft") == "" {
+				return fmt.Sprintf("Start an Autopilot plan with no files, as a new project, for this brief: %q. Autopilot writes an outline of the project and the checks, and shows them to you before anything runs. Planning is free to you up to a small limit; nothing runs or is charged until you approve the plan.", clipText(strArg(a, "text"), 400))
+			}
 			return fmt.Sprintf("Start an Autopilot plan on draft %s for this brief: %q. The service keeps the draft's files for this plan only, and the model that writes the checks reads them. Planning is free to you up to a small limit; nothing runs or is charged until you approve the plan.", strArg(a, "draft"), clipText(strArg(a, "text"), 400))
 		}},
 	{Name: "ks_cruise_auto_answer", Title: "Answer an Autopilot plan's questions", Kind: "act", Verb: []string{"cruise", "auto", "answer"},

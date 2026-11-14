@@ -4020,8 +4020,8 @@
   {
    "verb": "cruise auto brief",
    "aliases": [],
-   "usage": "ks cruise auto brief <draft> [--text TEXT] [--consent]",
-   "summary": "start a plan from what you want and a ready draft of your files: at most three questions come back, each already answered with its default",
+   "usage": "ks cruise auto brief [draft] [--text TEXT] [--consent]",
+   "summary": "start a plan from what you want, on a ready draft of your files or, with none, as a new project (Autopilot writes an outline to start from): at most three questions come back, each already answered with its default",
    "status": "available",
    "surface": "hosted",
    "flags": [
@@ -4031,7 +4031,7 @@
     },
     {
      "flag": "--consent",
-     "summary": "you agree the service keeps your files for this plan only and the model that writes the checks reads them; required"
+     "summary": "you agree the service keeps your files for this plan only and the model that writes the checks reads them; required when you name a draft, not for a new project"
     }
    ]
   },
