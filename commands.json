@@ -4182,6 +4182,62 @@
      "summary": "with --folder: place it just before this agent of the folder; without it, last"
     }
    ]
+  },
+  {
+   "verb": "profile show",
+   "aliases": [],
+   "usage": "ks profile show",
+   "summary": "your name, title, email and whether your sign-in picture shows",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "profile set",
+   "aliases": [],
+   "usage": "ks profile set [--name NAME] [--title TITLE] [--picture on|off]",
+   "summary": "change your name, your title or whether your sign-in picture shows",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--name NAME",
+     "summary": "your name, 1 to 80 characters"
+    },
+    {
+     "flag": "--title TITLE",
+     "summary": "your title, up to 80 characters; an empty title (--title \"\") clears it"
+    },
+    {
+     "flag": "--picture on|off",
+     "summary": "show your sign-in picture, or your initials instead"
+    }
+   ]
+  },
+  {
+   "verb": "email show",
+   "aliases": [],
+   "usage": "ks email show",
+   "summary": "your two email choices in plain words; mail about your account always arrives",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "email set",
+   "aliases": [],
+   "usage": "ks email set [--onboarding on|off] [--changelog on|off]",
+   "summary": "turn the onboarding emails or the changelog email on or off",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--onboarding on|off",
+     "summary": "up to 3 onboarding emails in the first 14 days after you sign up (on unless you turn it off)"
+    },
+    {
+     "flag": "--changelog on|off",
+     "summary": "a changelog email (off unless you turn it on)"
+    }
+   ]
   }
  ]
 }
