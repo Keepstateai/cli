@@ -1,0 +1,76 @@
+{
+ "what": "the shared session-import files: the credential rules and their vectors, the throwaway fakes, and the synthetic transcripts and Cursor stores the tests read, vendored unchanged from the service repository",
+ "server_commit": "main of Keepstateai/ks at the time of this change",
+ "files": {
+  "import_rules.json": {
+   "path": "import_rules.json",
+   "from": "internal/importscan/rules.json",
+   "sha256": "f581a497c0934dd4232f1bdf8bb0167e3725c304f58c5c94f4bfe29ba082f78d",
+   "vendored_sha256": "f581a497c0934dd4232f1bdf8bb0167e3725c304f58c5c94f4bfe29ba082f78d",
+   "transform": "none: the service file carries no private governance id, so the public scrub leaves it unchanged"
+  },
+  "import-redaction-v1.json": {
+   "path": "testdata/import/import-redaction-v1.json",
+   "from": "docs/upgrade/vectors/import-redaction-v1.json",
+   "sha256": "7f7272c49ae42eaa4a4d59dfba4cdf7bc3f35b9d810f48da6a097a957271133c",
+   "vendored_sha256": "7f7272c49ae42eaa4a4d59dfba4cdf7bc3f35b9d810f48da6a097a957271133c",
+   "transform": "none: the service file carries no private governance id, so the public scrub leaves it unchanged"
+  },
+  "fakes.json": {
+   "path": "testdata/import/fakes.json",
+   "from": "fixtures/import/fakes.json",
+   "sha256": "57b60dbd26884a6e3578aa6a81fcfb1ce5649b7c71bcf13e453fe1e2fa1d891a",
+   "vendored_sha256": "57b60dbd26884a6e3578aa6a81fcfb1ce5649b7c71bcf13e453fe1e2fa1d891a",
+   "transform": "none: the service file carries no private governance id, so the public scrub leaves it unchanged"
+  },
+  "claude-code-2.1.296.jsonl": {
+   "path": "testdata/import/claude-code-2.1.296.jsonl",
+   "from": "fixtures/import/claude-code-2.1.296.jsonl",
+   "sha256": "7c0c0798e98beaea32ac08720ce1f904e4ae93b48642ec2b843fffca74c101e2",
+   "vendored_sha256": "7c0c0798e98beaea32ac08720ce1f904e4ae93b48642ec2b843fffca74c101e2",
+   "transform": "none: the service file carries no private governance id, so the public scrub leaves it unchanged"
+  },
+  "claude-code-2.1.312.jsonl": {
+   "path": "testdata/import/claude-code-2.1.312.jsonl",
+   "from": "fixtures/import/claude-code-2.1.312.jsonl",
+   "sha256": "749659203fc7d091de0ef66376dc6815b4e4417da3237e87d708a9e73b7b27bc",
+   "vendored_sha256": "749659203fc7d091de0ef66376dc6815b4e4417da3237e87d708a9e73b7b27bc",
+   "transform": "none: the service file carries no private governance id, so the public scrub leaves it unchanged"
+  },
+  "codex-0.162.1.jsonl": {
+   "path": "testdata/import/codex-0.162.1.jsonl",
+   "from": "fixtures/import/codex-0.162.1.jsonl",
+   "sha256": "00da09b5758deb4fe88cb91c04f1a40f0f8ccd89d98b4fd6dbb1afece381473a",
+   "vendored_sha256": "00da09b5758deb4fe88cb91c04f1a40f0f8ccd89d98b4fd6dbb1afece381473a",
+   "transform": "none: the service file carries no private governance id, so the public scrub leaves it unchanged"
+  },
+  "codex-0.167.0-alpha.3.jsonl": {
+   "path": "testdata/import/codex-0.167.0-alpha.3.jsonl",
+   "from": "fixtures/import/codex-0.167.0-alpha.3.jsonl",
+   "sha256": "9d0cceca5421f812e79ff0109488dbd3fcc83b73ee7e5a60655606e2809a3fcc",
+   "vendored_sha256": "9d0cceca5421f812e79ff0109488dbd3fcc83b73ee7e5a60655606e2809a3fcc",
+   "transform": "none: the service file carries no private governance id, so the public scrub leaves it unchanged"
+  },
+  "cursor/state.vscdb": {
+   "path": "testdata/import/cursor/state.vscdb",
+   "from": "fixtures/import/cursor/state.vscdb",
+   "sha256": "93d1616e83a1f91ce16c704cb67abf77c3efa36e0f9d59034c72ee4df6a8b4ed",
+   "vendored_sha256": "93d1616e83a1f91ce16c704cb67abf77c3efa36e0f9d59034c72ee4df6a8b4ed",
+   "transform": "none: the service file carries no private governance id, so the public scrub leaves it unchanged"
+  },
+  "cursor/wal/state.vscdb": {
+   "path": "testdata/import/cursor/wal/state.vscdb",
+   "from": "fixtures/import/cursor/wal/state.vscdb",
+   "sha256": "dca41d75cd4441d71f6595f795356b395de67d85aa12a55ccef6b82d27736092",
+   "vendored_sha256": "dca41d75cd4441d71f6595f795356b395de67d85aa12a55ccef6b82d27736092",
+   "transform": "none: the service file carries no private governance id, so the public scrub leaves it unchanged"
+  },
+  "cursor/wal/state.vscdb-wal": {
+   "path": "testdata/import/cursor/wal/state.vscdb-wal",
+   "from": "fixtures/import/cursor/wal/state.vscdb-wal",
+   "sha256": "4b6a1dd09e12da3b679f3809943062139e91ca4ad882ac9ddf4d083d020650ec",
+   "vendored_sha256": "4b6a1dd09e12da3b679f3809943062139e91ca4ad882ac9ddf4d083d020650ec",
+   "transform": "none: the service file carries no private governance id, so the public scrub leaves it unchanged"
+  }
+ }
+}
