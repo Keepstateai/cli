@@ -14,6 +14,16 @@
   the upload policy. A conversation over 50 MB is refused. `ks import list`
   never prints a message. The same import is the MCP tool `ks_import_session`,
   which plans first and acts only on a confirm value.
+- `ks organization domain ORG` shows an organization's work domain, its mode,
+  the requests waiting and the members without a seat. `ks organization domain
+  set ORG --mode auto|approve` and `ks organization domain remove ORG` (owner),
+  `ks organization domain requests ORG`, `approve ORG REQUEST` and `decline ORG
+  REQUEST` (owner or admin) manage it. A person who signs in with a verified
+  work email lands in the organization of that domain; in `auto` mode they join
+  as a member, in `approve` mode an owner or admin approves each one first.
+  `ks organization offer` shows the organization a work address offers a person
+  whose account already existed, and `ks organization offer join` or `dismiss`
+  answers it. The service answers these only once it has turned work domains on.
 - `ks agent copy-to-org AGENT --organization ORG` copies one of your personal
   agents into an organization you belong to. It plans first and creates
   nothing: the saved point it would copy and how old it is, what is copied
