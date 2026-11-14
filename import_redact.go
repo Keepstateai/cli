@@ -89,15 +89,89 @@ func (c redactCounts) words() string {
 	return strings.Join(parts, ", ")
 }
 
+// couldMatch is a cheap necessary condition for a rule: a text that fails it
+// cannot match the rule, so the pattern is not run over it. Transcripts reach
+// hundreds of megabytes, and a pattern run over every string would take
+// minutes. A rule of a kind this does not know is always run.
+func couldMatch(kind, s string, lower *string) bool {
+	low := func() string {
+		if *lower == "" {
+			*lower = strings.ToLower(s)
+		}
+		return *lower
+	}
+	anyOf := func(hay string, needles ...string) bool {
+		for _, n := range needles {
+			if strings.Contains(hay, n) {
+				return true
+			}
+		}
+		return false
+	}
+	switch kind {
+	case "private_key_block":
+		return strings.Contains(s, "PRIVATE KEY")
+	case "anthropic_key":
+		return strings.Contains(s, "sk-ant-")
+	case "openrouter_key":
+		return strings.Contains(s, "sk-or-")
+	case "openai_key":
+		return strings.Contains(s, "sk-")
+	case "keepstate_key":
+		return anyOf(s, "ks_sk_", "ksk_")
+	case "github_token":
+		return anyOf(s, "ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_")
+	case "aws_access_key":
+		return anyOf(s, "AKIA", "ASIA", "AGPA", "AIDA", "AROA")
+	case "google_api_key":
+		return strings.Contains(s, "AIza")
+	case "telegram_bot_token":
+		for i := 8; i < len(s); i++ {
+			if s[i] != ':' {
+				continue
+			}
+			ok := true
+			for _, c := range []byte(s[i-8 : i]) {
+				if c < '0' || c > '9' {
+					ok = false
+					break
+				}
+			}
+			if ok {
+				return true
+			}
+		}
+		return false
+	case "slack_token":
+		return strings.Contains(s, "xox")
+	case "jwt":
+		return strings.Contains(s, "eyJ")
+	case "connection_string":
+		return strings.Contains(s, "://")
+	case "azure_account_key":
+		return anyOf(low(), "accountkey", "sharedaccesskey")
+	case "authorization_header":
+		return strings.Contains(low(), "authorization")
+	case "bearer_token":
+		return strings.Contains(low(), "bearer")
+	case "assignment":
+		return (strings.Contains(s, "=") || strings.Contains(s, ":")) &&
+			anyOf(low(), "api_key", "api-key", "apikey", "secret", "token", "password", "passwd", "credential", "private_key", "private-key", "privatekey")
+	}
+	return true
+}
+
 // redactImportText replaces every credential-shaped match in s, rule by rule
 // in the list's order, and counts them by kind.
 func redactImportText(s string, counts redactCounts) string {
 	rs := loadImportRules()
+	lower := ""
 	for i := range rs.Rules {
 		r := &rs.Rules[i]
-		if !r.re.MatchString(s) {
+		if len(s) < 8 || !couldMatch(r.Kind, s, &lower) || !r.re.MatchString(s) {
 			continue
 		}
+		lower = "" // the text may change
 		s = r.re.ReplaceAllStringFunc(s, func(m string) string {
 			counts[r.Kind]++
 			head := ""

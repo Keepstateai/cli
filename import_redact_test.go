@@ -226,3 +226,25 @@ func TestImportVectorsVendoredMatchTheServer(t *testing.T) {
 		}
 	}
 }
+
+// The cheap pre-check that keeps a 300 MB transcript fast must never say no
+// to a text its rule would match.
+func TestImportRedactionPrefilterNeverHidesAMatch(t *testing.T) {
+	rs := loadImportRules()
+	var texts []string
+	for _, c := range loadRedactVectors(t).Cases {
+		texts = append(texts, joinVectorInput(t, c.In))
+	}
+	for k := range fakesMap {
+		texts = append(texts, fakeValue(t, k), "x "+fakeValue(t, k)+" y", "{\"a\":\""+fakeValue(t, k)+"\"}")
+	}
+	for _, in := range texts {
+		for i := range rs.Rules {
+			r := &rs.Rules[i]
+			lower := ""
+			if r.re.MatchString(in) && !couldMatch(r.Kind, in, &lower) {
+				t.Errorf("rule %s matches %q but the pre-check says no", r.Kind, in)
+			}
+		}
+	}
+}

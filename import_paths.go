@@ -62,6 +62,16 @@ func (w *pathRewriter) apply(s string) string {
 	if w == nil || w.re == nil || !strings.Contains(s, "/") && !strings.Contains(s, "~") {
 		return s
 	}
+	found := false
+	for _, r := range w.roots {
+		if strings.Contains(s, r.From) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return s
+	}
 	locs := w.re.FindAllStringIndex(s, -1)
 	if len(locs) == 0 {
 		return s
