@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The Claude Code plugin now runs `@keepstateai/cli@0.1.44`.
+
 ## v0.1.44 (2026-11-14)
 
 - `ks agent folder list | create | rename | order | delete` and `ks agent move
