@@ -4182,6 +4182,86 @@
      "summary": "with --folder: place it just before this agent of the folder; without it, last"
     }
    ]
+  },
+  {
+   "verb": "agent copy-to-org",
+   "aliases": [],
+   "usage": "ks agent copy-to-org <agent> [--session ID] [--organization ID] [--point ID] [--name NAME] [--project ID] [--managed PROVIDER] [--share] [--handle HANDLE] [--title TEXT] [--description TEXT] [--tag TAG] [--show-instructions] [--execute DIGEST] [--plan-id ID]",
+   "summary": "copy one of your personal agents into an organization (planned first, then copied exactly as shown)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session of the agent; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    },
+    {
+     "flag": "--organization ID",
+     "summary": "the organization to copy into (ks organization list shows yours); default the one this client works in (ks context use)"
+    },
+    {
+     "flag": "--point ID",
+     "summary": "the saved point to copy (ks session checkpoints lists them); default the agent's newest"
+    },
+    {
+     "flag": "--name NAME",
+     "summary": "the copy's session name; default the agent's session name"
+    },
+    {
+     "flag": "--project ID",
+     "summary": "an organization project to put the copy in"
+    },
+    {
+     "flag": "--managed PROVIDER",
+     "summary": "a provider whose calls go on KeepState's key; repeat for several; default the organization's own choice"
+    },
+    {
+     "flag": "--share",
+     "summary": "also add the copy to the organization's pool as its first version (needs --handle and --title)"
+    },
+    {
+     "flag": "--handle HANDLE",
+     "summary": "with --share: the entry's handle, 3 to 32 letters, digits and hyphens"
+    },
+    {
+     "flag": "--title TEXT",
+     "summary": "with --share: the entry's title"
+    },
+    {
+     "flag": "--description TEXT",
+     "summary": "with --share: what it is for"
+    },
+    {
+     "flag": "--tag TAG",
+     "summary": "with --share: a tag; repeat for several"
+    },
+    {
+     "flag": "--show-instructions",
+     "summary": "with --share: show its instructions on each version"
+    },
+    {
+     "flag": "--execute DIGEST",
+     "summary": "copy the plan with this digest (with --plan-id that exact plan; without it a fresh plan that must have this digest)"
+    },
+    {
+     "flag": "--plan-id ID",
+     "summary": "the plan the digest belongs to"
+    }
+   ]
+  },
+  {
+   "verb": "agent copies",
+   "aliases": [],
+   "usage": "ks agent copies <agent> [--session ID]",
+   "summary": "the copies you made of one of your personal agents into organizations",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--session ID",
+     "summary": "the session of the agent; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
+    }
+   ]
   }
  ]
 }

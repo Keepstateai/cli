@@ -17,6 +17,12 @@
 // and what deciding lets it do, and only that request at that revision is
 // decided, once.
 //
+// Copying a personal agent into an organization is a person's answer too
+// (BACKLOG-740): ks_agent_copy_to_org_plan only plans, and ks_agent_copy_to_org
+// asks the person, shows the plan and the warning that everything in the
+// agent's files becomes the organization's, and copies exactly that plan on
+// their Approve.
+//
 // Left out of this release on purpose, so no tool can do them: every
 // deletion (kill, session delete, agent remove), keys, billing,
 // organizations, adviser grants, Cruise approve and
@@ -76,6 +82,9 @@ type mcpTool struct {
 // noHuman is the refusal of a step only a person may answer: why nothing
 // was approved, and where a person can decide instead.
 func (t mcpTool) noHuman(a map[string]any, why string) string {
+	if t.Name == "ks_agent_copy_to_org" {
+		return sanitize(fmt.Sprintf("Copying an agent into an organization needs a person's answer, and %s, so nothing was copied. A person can do it in a terminal with ks agent copy-to-org (it shows the plan first), or ask for the plan with ks_agent_copy_to_org_plan and decide there.", why))
+	}
 	if strings.HasPrefix(t.Name, "ks_cruise_auto_") {
 		return sanitize(fmt.Sprintf("%s needs a person's answer, and %s, so %s. A person can do it in a terminal with ks cruise auto, or in the KeepState console.", t.Title, why, firstNonEmpty(t.Nothing, "nothing was done")))
 	}
@@ -222,6 +231,19 @@ var mcpTools = []mcpTool{
 			return "Discard Autopilot plan " + strArg(a, "plan") + ": its copy of the files is deleted now and nothing runs."
 		},
 		Target: autoStatusTarget},
+	// Copy a personal agent into an organization (BACKLOG-740, ADR-065): the
+	// plan is safe to ask for; the copy itself is a person's decision, because
+	// everything in the agent's files becomes the organization's.
+	{Name: "ks_agent_copy_to_org_plan", Title: "Plan copying an agent into an organization", Kind: "act", Verb: []string{"agent", "copy-to-org"},
+		Desc:  "Plan copying one of your person's PERSONAL agents into an organization they belong to: the saved point, what is copied and what is not, who can read the copy, the warning that everything in the agent's files becomes the organization's, what it costs and who pays, and a plan digest. It acts at once but only plans: nothing is copied, nothing is spent, and only a plan record is made. To copy, call ks_agent_copy_to_org with this digest; that asks your person." + dataNote,
+		Props: copyProps(false)},
+	{Name: "ks_agent_copy_to_org", Title: "Copy an agent into an organization (asks a person)", Kind: "confirm", Human: true, Nothing: "nothing was copied", Verb: []string{"agent", "copy-to-org"},
+		Desc:  "Ask your person to copy one of their PERSONAL agents into an organization. Everything in the agent's files becomes the organization's and cannot be taken back out, so this tool cannot copy on its own and neither can you: it takes no confirm value, and copying needs a person's answer in the host app. The call shows the person the plan (the saved point, what is copied and not, who can read it, the cost and who pays) and asks Approve or Deny; only their Approve copies, exactly the plan with the digest you pass from ks_agent_copy_to_org_plan, once. A host app that cannot ask its person copies nothing; the person can copy in a terminal with ks agent copy-to-org. The agent itself is not changed." + dataNote,
+		Props: copyProps(true),
+		Plan: func(a map[string]any) string {
+			return "Copy agent " + strArg(a, "agent") + " into organization " + strArg(a, "organization") + "."
+		},
+		Target: copyPlanTarget, Inspect: copyInspect},
 	{Name: "ks_task_cancel", Title: "Cancel an instruction", Kind: "confirm", Verb: []string{"task", "cancel"}, Destructive: true,
 		Desc:  "Cancel one instruction; a running one is asked to stop at a safe boundary. The first call does nothing and answers a plan and a confirm value; call again with confirm." + dataNote,
 		Props: []mcpProp{{Name: "instruction", Type: "string", Required: true, Desc: "the instruction's id"}, pSession, {Name: "reason", Type: "string", Flag: "reason", Desc: "why, recorded with the cancel"}},
@@ -536,4 +558,57 @@ func autoApproveInspect(s *mcpServer, a map[string]any, doc []byte) (string, str
 		v.ID, len(v.Card.Checks), strings.Join(checks, " "), strings.Join(v.Card.NotChecked, " "), autoMoney(v.Card.Cost.Cap), v.Card.Checker.Model, digest)
 	rev := fmt.Sprintf("plan=%s,manifest=%s,plain=%s,state=%s", v.ID, v.Card.ManifestSHA, v.Card.PlainChecksDigest, v.State)
 	return rev, sanitize(plan), ""
+}
+
+// copyProps are the properties of the two copy tools: the agent, where it is,
+// the organization and the options a plan takes; the confirm tool also takes
+// the plan's digest, the way ks_cruise_auto_approve does.
+func copyProps(withDigest bool) []mcpProp {
+	p := []mcpProp{{Name: "agent", Type: "string", Required: true, Desc: "the personal agent's name or id"},
+		{Name: "session", Type: "string", Flag: "session", Desc: "the session the agent lives in; without it, a child this caller started by its name, else the name across your sessions"},
+		{Name: "organization", Type: "string", Flag: "organization", Required: true, Desc: "the organization's id (ks organization list shows them)"},
+		{Name: "point", Type: "string", Flag: "point", Desc: "the saved point to copy; default the agent's newest"},
+		{Name: "name", Type: "string", Flag: "name", Desc: "the copy's session name"},
+		{Name: "project", Type: "string", Flag: "project", Desc: "an organization project to put the copy in"},
+		{Name: "share", Type: "boolean", Flag: "share", Desc: "also add the copy to the organization's pool (needs handle and title)"},
+		{Name: "handle", Type: "string", Flag: "handle", Desc: "with share: the pool entry's handle"},
+		{Name: "title", Type: "string", Flag: "title", Desc: "with share: the pool entry's title"},
+		{Name: "description", Type: "string", Flag: "description", Desc: "with share: what it is for"}}
+	if withDigest {
+		p = append(p, mcpProp{Name: "digest", Type: "string", Flag: "execute", Required: true, Desc: "the plan digest ks_agent_copy_to_org_plan answered; a plan that is not this one now is refused"})
+	}
+	return p
+}
+
+// copyPlanTarget is the read the confirm step makes: the same plan, again,
+// so the person is asked about what the service would copy now.
+func copyPlanTarget(a map[string]any) []string {
+	return mcpTool{Verb: []string{"agent", "copy-to-org"}, Props: copyProps(false)}.argv(a, false)
+}
+
+// copyInspect turns the fresh plan into the person's question and the
+// revision the confirm digest binds: the plan's own digest. A digest the
+// caller holds that is not the plan's now is refused with no question.
+func copyInspect(s *mcpServer, a map[string]any, doc []byte) (string, string, string) {
+	var env struct {
+		Data agentCopyPlanView `json:"data"`
+	}
+	if err := json.Unmarshal(doc, &env); err != nil || env.Data.PlanDigest == "" {
+		return "", "", "The copy plan could not be read, so nothing was planned and nothing was copied."
+	}
+	d := env.Data
+	if strArg(a, "digest") != d.PlanDigest {
+		return "", "", sanitize(fmt.Sprintf("The plan now has digest %s, not the %s you were given, so what would be copied changed since it was planned and nothing was copied. Plan again with ks_agent_copy_to_org_plan.", d.PlanDigest, strArg(a, "digest")))
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Copy agent %s into %s, from its saved point %s. ", firstNonEmpty(d.AgentName, strArg(a, "agent")), firstNonEmpty(d.OrgName, strArg(a, "organization")), d.Point.Words)
+	b.WriteString("Copied: " + strings.Join(d.Copies, "; ") + ". ")
+	b.WriteString("Not copied: " + strings.Join(d.DoesNotCopy, "; ") + ". ")
+	b.WriteString("Who can read the copy: " + d.WhoCanSee + ". ")
+	b.WriteString(d.Storage.Words + ". " + d.Billing + ". " + d.ShareWords + " ")
+	for _, w := range d.Warnings {
+		b.WriteString("WARNING: " + w + " ")
+	}
+	b.WriteString("Your agent stays yours and is not changed.")
+	return d.PlanDigest, sanitize(b.String()), ""
 }
