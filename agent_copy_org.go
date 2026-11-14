@@ -1,5 +1,4 @@
-// agent_copy_org.go: copy a personal agent into an organization (BACKLOG-740,
-// ADR-065), from the terminal.
+// agent_copy_org.go: copy a personal agent into an organization , from the terminal.
 //
 //	ks agent copy-to-org AGENT --organization ORG [--session ID] [--point ID]
 //	    [--name NAME] [--project ID] [--managed PROVIDER] [--share --handle H --title T ...]

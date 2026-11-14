@@ -1,4 +1,4 @@
-// BACKLOG-740: ks agent copy-to-org against a fake control plane, and the two
+// ks agent copy-to-org against a fake control plane, and the two
 // ks mcp tools beside it. The command plans first and creates nothing; --yes or
 // --execute carries out exactly a plan; every refusal the service gives is
 // shown with what did NOT happen; the MCP copy tool needs a person's answer
