@@ -4182,6 +4182,84 @@
      "summary": "with --folder: place it just before this agent of the folder; without it, last"
     }
    ]
+  },
+  {
+   "verb": "organization domain",
+   "aliases": [],
+   "usage": "ks organization domain <organization>",
+   "summary": "an organization's work domain: its mode, the requests waiting, and the members without a seat; a person who signs in with a verified work email lands in the organization of that domain",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "organization domain set",
+   "aliases": [],
+   "usage": "ks organization domain set <organization> [--mode auto|approve]",
+   "summary": "choose how people who sign up with an address at the work domain join: auto as members, or approve for an owner or admin to approve each one first (owner)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--mode auto|approve",
+     "summary": "auto: they join as members; approve: an owner or admin approves each one first"
+    }
+   ]
+  },
+  {
+   "verb": "organization domain remove",
+   "aliases": [],
+   "usage": "ks organization domain remove <organization>",
+   "summary": "release the work domain: nobody new joins by their address (owner)",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "organization domain requests",
+   "aliases": [],
+   "usage": "ks organization domain requests <organization>",
+   "summary": "the people waiting to join through the work domain, for an owner or admin to approve or decline",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "organization domain approve",
+   "aliases": [],
+   "usage": "ks organization domain approve <organization> <request>",
+   "summary": "approve one person waiting to join through the work domain: they join as a member (owner or admin)",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "organization domain decline",
+   "aliases": [],
+   "usage": "ks organization domain decline <organization> <request>",
+   "summary": "decline one person waiting to join through the work domain (owner or admin)",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "organization offer",
+   "aliases": [],
+   "usage": "ks organization offer",
+   "summary": "the organization your work address offers you, once, when your account already existed: what it is and how to answer",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "organization offer join",
+   "aliases": [],
+   "usage": "ks organization offer join",
+   "summary": "accept the organization your work address offers you",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "organization offer dismiss",
+   "aliases": [],
+   "usage": "ks organization offer dismiss",
+   "summary": "turn down the organization your work address offers you",
+   "status": "available",
+   "surface": "hosted"
   }
  ]
 }
