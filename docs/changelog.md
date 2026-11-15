@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The Claude Code plugin now runs `@keepstateai/cli@0.1.45`.
+
 ## v0.1.45 (2026-11-15)
 
 - `ks import list | claude-code | codex | cursor` brings a conversation from
