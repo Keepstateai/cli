@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.45 (2026-11-15)
 
 - `ks import list | claude-code | codex | cursor` brings a conversation from
   your machine into a new agent session. A Claude Code or Codex CLI session
