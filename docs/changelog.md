@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The Claude Code plugin now runs `@keepstateai/cli@0.1.46`.
+
 ## v0.1.46 (2026-11-16)
 
 - `ks organization logo set FILE [--tile light|dark] [--organization ID]` sets an
