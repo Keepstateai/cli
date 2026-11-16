@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `ks organization logo set FILE [--tile light|dark] [--organization ID]` sets an
+  organization's logo from a PNG, JPEG or WebP file of 1 MB at most and 64 to
+  4096 pixels a side (owner or admin), and `ks organization logo remove` takes
+  it off, so its initials show again. Members see the logo in the console's
+  header. The service reads the type from the file's first bytes, resizes the
+  picture to 256 px, keeps no other copy and refuses SVG, GIF and animated
+  pictures.
 - The Claude Code plugin now runs `@keepstateai/cli@0.1.45`.
 
 ## v0.1.45 (2026-11-15)
