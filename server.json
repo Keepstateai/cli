@@ -25,13 +25,13 @@
       ]
     }
   ],
-  "version": "0.1.45",
+  "version": "0.1.46",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@keepstateai/cli",
-      "version": "0.1.45",
+      "version": "0.1.46",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"

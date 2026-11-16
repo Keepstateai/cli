@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.46 (2026-11-16)
 
 - `ks organization logo set FILE [--tile light|dark] [--organization ID]` sets an
   organization's logo from a PNG, JPEG or WebP file of 1 MB at most and 64 to
