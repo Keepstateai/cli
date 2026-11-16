@@ -4604,6 +4604,38 @@
      "summary": "the session of the agent; a short id is accepted when it is unique among yours; without it, this project's binding (ks session use)"
     }
    ]
+  },
+  {
+   "verb": "organization logo set",
+   "aliases": [],
+   "usage": "ks organization logo set <file> [--organization ID] [--tile light|dark]",
+   "summary": "set the organization's logo from a PNG, JPEG or WebP file of 1 MB at most and 64 to 4096 pixels a side (owner or admin); the service resizes it to 256 px and keeps no other copy",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization; your context's when absent"
+    },
+    {
+     "flag": "--tile light|dark",
+     "summary": "the background behind the picture; chosen from the picture when absent"
+    }
+   ]
+  },
+  {
+   "verb": "organization logo remove",
+   "aliases": [],
+   "usage": "ks organization logo remove [--organization ID]",
+   "summary": "remove the organization's logo: its initials show instead (owner or admin)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--organization ID",
+     "summary": "the organization; your context's when absent"
+    }
+   ]
   }
  ]
 }
