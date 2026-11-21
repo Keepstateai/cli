@@ -74,7 +74,7 @@ func importInspect(s *mcpServer, a map[string]any, doc []byte) (string, string, 
 	if env.Data.Mode == "brief" {
 		what = "a written summary of it"
 	}
-	plan := fmt.Sprintf("Import %s from this machine into a NEW KeepState agent session; %s goes up. Plan (digest %s): %s Confirming creates the session and uploads; no instruction is sent, so no model is called by the import.",
+	plan := fmt.Sprintf("Import %s from this machine into a new KeepState agent session; %s goes up. Plan (digest %s): %s Confirming creates the session and uploads; no instruction is sent, so no model is called by the import.",
 		strArg(a, "harness"), what, env.Data.Digest[:12], strings.Join(env.Data.Lines, " "))
 	return "import=" + env.Data.Digest, sanitize(plan), ""
 }

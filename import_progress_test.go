@@ -22,144 +22,7 @@ import (
 	"time"
 )
 
-// ---- the bar itself, on a clock the test holds -------------------------------------
-
-type fakeClock struct{ t time.Time }
-
-func (c *fakeClock) now() time.Time { return c.t }
-
-func testBar(total, already int64, mode string) (*xferBar, *bytes.Buffer, *fakeClock, *[]barEvent) {
-	var buf bytes.Buffer
-	clk := &fakeClock{t: time.Unix(1_000_000, 0)}
-	ev := &[]barEvent{}
-	b := &xferBar{label: "Uploading", noun: "uploading", total: total, mode: mode, w: &buf, now: clk.now, lastDec: -1, scale: 1, events: ev}
-	b.begin(already)
-	return b, &buf, clk, ev
-}
-
-func TestBarLineHasTheSpecsShape(t *testing.T) {
-	b, _, clk, _ := testBar(1_370_000_000, 0, "tty")
-	for i := 0; i < 10; i++ { // 12 MB a second for ten seconds, then a look
-		clk.t = clk.t.Add(time.Second)
-		b.update(int64(i+1) * 12_000_000)
-	}
-	b.done = 880_000_000 // the count the line is asked about
-	b.window = []barSample{{clk.t.Add(-10 * time.Second), 760_000_000}, {clk.t, 880_000_000}}
-	line := b.line(false)
-	for _, want := range []string{"Uploading ", "██████████", "░", " 64%", "880 MB of 1.37 GB", "12 MB/s", "left"} {
-		if !strings.Contains(line, want) {
-			t.Errorf("the line %q lacks %q", line, want)
-		}
-	}
-	if !strings.Contains(line, "41s left") { // (1.37 GB - 880 MB) / 12 MB/s
-		t.Errorf("the time left is not what the rate says: %q", line)
-	}
-}
-
-func TestBarNumbersAreTrue(t *testing.T) {
-	const total = 100_000_000
-	b, _, clk, ev := testBar(total, 0, "off")
-	for done := int64(0); done < total; done += 3_000_000 {
-		clk.t = clk.t.Add(250 * time.Millisecond)
-		b.update(done)
-		b.update(done / 2) // going backwards is ignored
-	}
-	if b.percent() >= 100 {
-		t.Fatalf("100%% before the last byte was acknowledged: %d", b.percent())
-	}
-	b.update(total - 1)
-	if b.percent() != 99 {
-		t.Fatalf("one byte short is %d%%, not 99", b.percent())
-	}
-	b.finish()
-	last := -1
-	var prev int64
-	for i, e := range *ev {
-		if e.Percent < last || e.Done < prev || e.Percent > 100 || e.Done > e.Total {
-			t.Fatalf("event %d is not monotonic or is over 100: %+v", i, e)
-		}
-		if e.Percent == 100 && !e.Final {
-			t.Fatalf("100%% shown before the end: %+v", e)
-		}
-		if e.Rate < 0 || e.ETA < 0 {
-			t.Fatalf("event %d: %+v", i, e)
-		}
-		last, prev = e.Percent, e.Done
-	}
-	if f := (*ev)[len(*ev)-1]; !f.Final || f.Percent != 100 || f.Done != total {
-		t.Fatalf("the last event is %+v", f)
-	}
-}
-
-func TestBarResumeStartsAtTheAcknowledgedOffset(t *testing.T) {
-	b, buf, clk, _ := testBar(1000, 400, "plain")
-	if b.percent() != 40 {
-		t.Fatalf("a resume at 400 of 1000 starts at %d%%", b.percent())
-	}
-	clk.t = clk.t.Add(time.Second)
-	b.update(450)
-	b.update(1000)
-	b.finish()
-	if got := buf.String(); strings.Contains(got, "0%") && !strings.Contains(got, "100%") || strings.Contains(got, "uploading: 10%") || strings.Contains(got, "uploading: 30%") {
-		t.Fatalf("a resumed bar shows what is already there as new:\n%s", got)
-	}
-}
-
-func TestBarPlainPrintsOneLinePerTenPercent(t *testing.T) {
-	b, buf, clk, _ := testBar(1000, 0, "plain")
-	for d := int64(1); d <= 1000; d++ {
-		clk.t = clk.t.Add(10 * time.Millisecond)
-		b.update(d)
-	}
-	b.finish()
-	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
-	if len(lines) != 10 {
-		t.Fatalf("%d lines, want 10:\n%s", len(lines), buf.String())
-	}
-	for i, l := range lines {
-		want := fmt.Sprintf("uploading: %d%% (", (i+1)*10)
-		if !strings.HasPrefix(l, want) {
-			t.Fatalf("line %d is %q, want it to start %q", i, l, want)
-		}
-	}
-	if strings.ContainsAny(buf.String(), "\r\x1b") {
-		t.Fatal("a plain bar redraws")
-	}
-	if !strings.HasSuffix(lines[9], "(1 KB of 1 KB)") {
-		t.Fatalf("the last line: %q", lines[9])
-	}
-}
-
-func TestBarIsSilentForJSONAndQuiet(t *testing.T) {
-	save := out
-	defer func() { out = save }()
-	for _, o := range []outputSettings{{json: true}, {quiet: true}} {
-		out = o
-		if barMode() != "off" {
-			t.Fatalf("%+v: mode %s", o, barMode())
-		}
-	}
-	out = outputSettings{plain: true}
-	if barMode() != "plain" {
-		t.Fatalf("--plain: %s", barMode())
-	}
-}
-
-func TestBarTTYLeavesItsLastLineOnScreen(t *testing.T) {
-	b, buf, clk, _ := testBar(2_000_000, 0, "tty")
-	clk.t = clk.t.Add(2 * time.Second)
-	b.update(1_000_000)
-	clk.t = clk.t.Add(2 * time.Second)
-	b.update(2_000_000)
-	b.finish()
-	s := buf.String()
-	if !strings.HasSuffix(s, "\n") || !strings.Contains(s, "100%") || !strings.Contains(s, "2.0 MB of 2.0 MB") {
-		t.Fatalf("the last line is erased or wrong: %q", s)
-	}
-	if strings.HasSuffix(strings.TrimSuffix(s, "\n"), "\r\x1b[K") {
-		t.Fatalf("the screen ends on an erase: %q", s)
-	}
-}
+var ansiRe = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]`)
 
 // ---- an upload server that is slow, counts, and can be made to fail ---------------------
 
@@ -213,7 +76,7 @@ func (s *slowUploads) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // uploadSparse sends a file of the given size (a sparse file: nothing is held
 // in memory or on disk) through the real uploader and answers what the bar
 // showed and what the server was told.
-func uploadSparse(t *testing.T, size int64, delay time.Duration) ([]barEvent, *slowUploads, time.Duration) {
+func uploadSparse(t *testing.T, size int64, delay time.Duration, quiet bool) ([]int64, *slowUploads, time.Duration) {
 	t.Helper()
 	srv := &slowUploads{size: size, acked: map[int64]bool{}, delay: delay, chunk: 16 << 20, state: "receiving"}
 	ts := httptest.NewServer(srv)
@@ -234,11 +97,11 @@ func uploadSparse(t *testing.T, size int64, delay time.Duration) ([]barEvent, *s
 	}
 	rf.Close()
 	save := out
-	out = outputSettings{quiet: true}
+	out = outputSettings{quiet: quiet}
 	defer func() { out = save }()
-	ev := &[]barEvent{}
+	ev := &[]int64{}
 	u := &uploader{ctx: context.Background(), cr: hostedCreds{CTL: ts.URL, Token: "t"}, inv: &Invocation{set: map[string]bool{}, strs: map[string]string{}},
-		sess: inventoryRow{ID: "s", RecordID: "s"}, agent: "main", ackBar: true, barEvents: ev,
+		sess: inventoryRow{ID: "s", RecordID: "s"}, agent: "main", ackBar: true, barSeen: ev,
 		plan: &uploadPlan{Kind: "file", Wire: "conversation", Name: "the conversation", Local: p, To: "claude-code/7c1d2e3f-4a5b-4c6d-8e7f-0a1b2c3d4e5f", Mode: "0644", Content: size, Size: size, SHA256: hex.EncodeToString(h.Sum(nil))}}
 	start := time.Now()
 	u.declare(false)
@@ -249,43 +112,38 @@ func uploadSparse(t *testing.T, size int64, delay time.Duration) ([]barEvent, *s
 	return *ev, srv, took
 }
 
-func checkBarRun(t *testing.T, name string, size int64, ev []barEvent, srv *slowUploads) {
+func checkBarRun(t *testing.T, name string, size int64, seen []int64, srv *slowUploads) {
 	t.Helper()
 	if srv.received != size {
 		t.Fatalf("%s: the server holds %d of %d bytes", name, srv.received, size)
 	}
-	if len(ev) == 0 {
-		t.Fatalf("%s: the bar showed nothing", name)
+	if len(seen) == 0 {
+		t.Fatalf("%s: the bar was told nothing", name)
 	}
 	var prev int64
-	last := -1
-	for i, e := range ev {
-		if e.Total != size {
-			t.Fatalf("%s: event %d total %d, the file is %d", name, i, e.Total, size)
+	lastPct := -1
+	for i, d := range seen {
+		pct := int(d * 100 / size)
+		if d < prev || d > size || pct < lastPct || pct > 100 {
+			t.Fatalf("%s: step %d (%d bytes) is not monotonic or is over 100%%", name, i, d)
 		}
-		if e.Percent > 100 || e.Percent < last || e.Done < prev || e.Done > size {
-			t.Fatalf("%s: event %d is not monotonic or is over 100: %+v", name, i, e)
+		if !srv.acked[d] {
+			t.Fatalf("%s: the bar was told %d bytes, which the server never acknowledged", name, d)
 		}
-		if e.Done != 0 && !srv.acked[e.Done] {
-			t.Fatalf("%s: event %d shows %d bytes, which the server never acknowledged", name, i, e.Done)
+		if pct == 100 && (d != size || !srv.acked[size]) {
+			t.Fatalf("%s: 100%% before the server acknowledged the last byte (%d)", name, d)
 		}
-		if e.Percent == 100 && !(e.Final && e.Done == size && srv.acked[size]) {
-			t.Fatalf("%s: 100%% before the server acknowledged the last byte: %+v", name, e)
-		}
-		if e.Rate < 0 || e.ETA < 0 || e.ETA > 400*time.Hour {
-			t.Fatalf("%s: event %d rate or time left is not sane: %+v", name, i, e)
-		}
-		last, prev = e.Percent, e.Done
+		prev, lastPct = d, pct
 	}
-	if f := ev[len(ev)-1]; !f.Final || f.Done != size || f.Percent != 100 || f.ETA != 0 {
-		t.Fatalf("%s: the last event is %+v", name, f)
+	if seen[len(seen)-1] != size {
+		t.Fatalf("%s: the last count is %d, the file is %d", name, seen[len(seen)-1], size)
 	}
 }
 
 func TestUploadBarAtTheBoundaries(t *testing.T) {
 	const chunk = 16 << 20
 	for _, size := range []int64{1, chunk - 1, chunk, chunk + 1, 2*chunk - 1, 2 * chunk, 2*chunk + 1} {
-		ev, srv, _ := uploadSparse(t, size, 0)
+		ev, srv, _ := uploadSparse(t, size, 0, true)
 		checkBarRun(t, fmt.Sprintf("%d bytes", size), size, ev, srv)
 		want := int((size + chunk - 1) / chunk)
 		if srv.puts != want {
@@ -296,27 +154,32 @@ func TestUploadBarAtTheBoundaries(t *testing.T) {
 
 func TestUploadBarThrottled300MB(t *testing.T) {
 	const size = 300_000_000
-	ev, srv, took := uploadSparse(t, size, 150*time.Millisecond)
+	var screen bytes.Buffer
+	save1, save2 := uiOut, uiErr
+	defer func() { uiOut, uiErr = save1, save2 }()
+	th := detectTheme(func(string) string { return "" }, true, true)
+	uiOut, uiErr = newUI(io.Discard, th, 100, true), newUI(&screen, th, 100, true)
+	ev, srv, took := uploadSparse(t, size, 150*time.Millisecond, false)
 	checkBarRun(t, "300 MB", size, ev, srv)
-	// the rate the bar showed is near the rate that was true
+	text := ansiRe.ReplaceAllString(screen.String(), "")
+	if !strings.Contains(text, "Uploaded the conversation") && !strings.Contains(text, "Uploading") {
+		t.Fatalf("nothing drawn:\n%s", text)
+	}
+	// the rate and the time left on screen are near the true ones
 	truth := float64(size) / took.Seconds()
-	var seen bool
-	for _, e := range ev {
-		if e.Rate > 0 {
-			seen = true
-			if e.Rate < truth/4 || e.Rate > truth*4 {
-				t.Fatalf("the bar says %.0f B/s, the transfer ran at %.0f B/s", e.Rate, truth)
-			}
-			if e.ETA > 0 {
-				left := float64(size-e.Done) / e.Rate
-				if d := e.ETA.Seconds() - left; d > 1.5 || d < -1.5 {
-					t.Fatalf("time left %v does not follow the rate (%.1fs)", e.ETA, left)
-				}
-			}
+	rates := regexp.MustCompile(`([0-9.]+) (KB|MB|GB)/s`).FindAllStringSubmatch(text, -1)
+	if len(rates) == 0 {
+		t.Fatalf("no rate was shown on a three second transfer:\n%s", text)
+	}
+	for _, m := range rates {
+		v, _ := strconv.ParseFloat(m[1], 64)
+		v *= map[string]float64{"KB": 1e3, "MB": 1e6, "GB": 1e9}[m[2]]
+		if v < truth/4 || v > truth*4 {
+			t.Fatalf("the screen says %s %s/s, the transfer ran at %.0f B/s", m[1], m[2], truth)
 		}
 	}
-	if !seen {
-		t.Fatal("no rate was ever shown on a three second transfer")
+	if !strings.Contains(text, "300 MB of 300 MB") && !strings.Contains(text, "300 MB in") {
+		t.Fatalf("the bytes shown are not the file's size:\n%s", text)
 	}
 }
 
@@ -329,7 +192,7 @@ func TestUploadBarAtTheTwoGBLimit(t *testing.T) {
 	if err := syscall.Statfs(os.TempDir(), &fs); err != nil || int64(fs.Bavail)*int64(fs.Bsize) < 15<<30 {
 		t.Skip("less than 15 GiB free")
 	}
-	ev, srv, _ := uploadSparse(t, importMaxBytes, 0)
+	ev, srv, _ := uploadSparse(t, importMaxBytes, 0, true)
 	checkBarRun(t, "2 GB", importMaxBytes, ev, srv)
 	if srv.puts != 120 { // 2,000,000,000 / 16 MiB, rounded up
 		t.Fatalf("%d chunks", srv.puts)
@@ -355,7 +218,7 @@ func (e *importEnv) bigSession(mb int) string {
 	return p
 }
 
-var pctLine = regexp.MustCompile(`(?m)^(cleaning|uploading): (\d+)% \(([^)]*)\)$`)
+var pctLine = regexp.MustCompile(`(?m)^\s*(cleaning|uploading)[a-z' ]*: (\d+)% \(([^)]*)\)\s*$`)
 
 func percents(errs, noun string) []int {
 	var out []int
@@ -389,22 +252,20 @@ func TestImportShowsTrueProgressInPlainLines(t *testing.T) {
 	}
 	// the bytes in the last uploading line are the bytes the service holds
 	u := e.c.upload("conversation")
-	want := bytesTextForBar(int64(len(u.Got)))
-	if !strings.Contains(errs, "uploading: 100% ("+want+" of "+want+")") {
+	want := kitBytes(int64(len(u.Got)))
+	if !strings.Contains(errs, "100% ("+want+" of "+want+")") {
 		t.Fatalf("the last line does not say %s, the bytes the service holds:\n%s", want, errs)
 	}
-	if !strings.Contains(errs, "placing on the service") {
+	if !strings.Contains(errs, "Placing the conversation on KeepState") || !strings.Contains(errs, "Placed the conversation") {
 		t.Fatalf("placing is not said:\n%s", errs)
 	}
 }
-
-func bytesTextForBar(n int64) string { return barBytes(n) }
 
 func TestImportJSONShowsNoProgress(t *testing.T) {
 	e := newImportEnv(t)
 	e.bigSession(1)
 	_, errs, code := e.run("import", "claude-code", "--latest", "--yes", "--json")
-	if code != 0 || strings.Contains(errs, "%") || strings.Contains(errs, "cleaning") || strings.Contains(errs, "uploading:") {
+	if code != 0 || strings.Contains(errs, "%") || strings.Contains(errs, "cleaning") || strings.Contains(errs, "uploading") {
 		t.Fatalf("--json prints progress: %d\n%s", code, errs)
 	}
 }
@@ -426,8 +287,8 @@ func TestImportResumeRestartsTheBarAtTheAcknowledgedOffset(t *testing.T) {
 	if len(first) == 0 || first[len(first)-1] >= 100 {
 		t.Fatalf("lines before the failure: %v", first)
 	}
-	if !strings.Contains(errs, barBytes(acked)+" of ") {
-		t.Fatalf("the stop does not say what arrived (%s):\n%s", barBytes(acked), errs)
+	if !strings.Contains(errs, bytesText(acked)+" of ") {
+		t.Fatalf("the stop does not say what arrived (%s):\n%s", bytesText(acked), errs)
 	}
 	e.c.failAfter = 0
 	before := e.c.count("PUT ")
@@ -470,12 +331,12 @@ func TestImportCtrlCLeavesAResumableUpload(t *testing.T) {
 	}
 	got := se.String()
 	held := int64(len(e.c.upload("conversation").Got))
-	if !strings.Contains(got, "the upload was stopped") || !strings.Contains(got, barBytes(held)+" of ") || !strings.Contains(got, "run the same command again") || !strings.Contains(got, "Next: ks import") {
+	if !strings.Contains(got, "the upload was stopped") || !strings.Contains(got, bytesText(held)+" of ") || !strings.Contains(got, "run the same command again") || !strings.Contains(got, "Next: ks import") {
 		t.Fatalf("the message (the service holds %d bytes):\n%s", held, got)
 	}
 	e.c.putDelay = 0
 	out, errs, code := e.run("import", "claude-code", "--latest", "--yes")
-	if code != 0 || !strings.Contains(out, "Imported") || !strings.Contains(errs, "uploading: 100%") {
+	if code != 0 || !strings.Contains(out, "Imported") || !strings.Contains(errs, "100% (") {
 		t.Fatalf("after Ctrl-C: %d\n%s\n%s", code, out, errs)
 	}
 }

@@ -501,9 +501,11 @@ type uploader struct {
 	againCmd string
 	// ackBar, when set, shows the upload as a bar counted in the bytes the
 	// service acknowledged (barEvents keeps what it showed, for a test)
-	ackBar    bool
-	bar       *xferBar
-	barEvents *[]barEvent
+	ackBar   bool
+	bar      *importBar
+	barSeen  *[]int64
+	barLabel string // the bar's words while it runs ("Uploading the conversation")
+	barDone  string // the line it leaves on the screen ("Uploaded the conversation")
 }
 
 // again is the command that continues (or repeats) this upload.
@@ -680,9 +682,6 @@ func (u *uploader) progressLine(done int64) {
 }
 
 func (u *uploader) endProgress() {
-	if u.bar != nil {
-		u.bar.leave()
-	}
 	if u.tty && !out.quiet && !out.json && !u.lastAt.IsZero() {
 		fmt.Fprint(os.Stderr, "\r\x1b[K")
 	}
@@ -723,8 +722,7 @@ func (u *uploader) send() {
 	buf := make([]byte, chunk)
 	offset := u.view.Received
 	if u.ackBar && u.plan.Size > 0 {
-		u.bar = newXferBar("Uploading", "uploading", u.plan.Size, offset)
-		u.bar.events = u.barEvents
+		u.bar = newImportBar(firstNonEmptyStr(u.barLabel, "Uploading"), u.plan.Size, offset, u.barSeen)
 	}
 	var src io.ReadCloser
 	reopen := func() {
@@ -793,7 +791,7 @@ func (u *uploader) send() {
 			} else {
 				u.view.Received, offset = v.Received, v.Received
 				if u.bar != nil {
-					u.bar.reset(v.Received)
+					u.bar.Set(v.Received)
 				}
 				reopen()
 				continue
@@ -825,13 +823,13 @@ func (u *uploader) send() {
 			reopen()
 		}
 		if u.bar != nil {
-			u.bar.update(v.Received)
+			u.bar.Set(v.Received)
 		} else {
 			u.progressLine(offset)
 		}
 	}
 	if u.bar != nil && u.view.Received >= u.plan.Size {
-		u.bar.finish()
+		u.bar.Done(firstNonEmptyStr(u.barDone, "Uploaded"))
 	}
 	u.endProgress()
 }

@@ -142,7 +142,7 @@ func importList(inv *Invocation) {
 			fmt.Println(cursorNote)
 		}
 		if len(rows) > 0 {
-			fmt.Println("import one with: ks import claude-code --latest   (or codex, or cursor; --session ID names one)")
+			fmt.Println("Next: ks import claude-code --latest   (or codex, or cursor; --session ID names one)")
 		}
 	})
 }
@@ -199,6 +199,9 @@ func chooseTranscript(tool string, inv *Invocation) transcriptInfo {
 
 // ---- the preparation: everything the plan says ----------------------------------
 
+// importCleanSeen, when a test sets it, keeps what the cleaning bar was told.
+var importCleanSeen *[]int64
+
 type importPrep struct {
 	Tool         string
 	Mode         string // conversation | brief
@@ -218,6 +221,7 @@ type importPrep struct {
 	Head         string
 	Dirty        bool
 	Turns        int
+	SummaryChars int64 // what a written summary of it would be, in characters
 	EstTokens    int64 // see import_estimate.go
 	EstCompacted bool
 	Dest         string
@@ -350,18 +354,14 @@ func prepareImport(inv *Invocation, tool string) *importPrep {
 		if tool == "claude-code" {
 			passes = 2 // the first pass pairs tool calls with their results, the second writes
 		}
-		bar := newXferBar("Cleaning", "cleaning", p.Info.Size*passes, 0)
-		bar.scale = passes
+		bar := newImportBar("Cleaning the conversation", p.Info.Size, 0, importCleanSeen)
 		var read int64
-		if p.Info.Size > 0 {
-			importReadProg = func(n int64) { read += n; bar.update(read) }
-		}
+		importReadProg = func(n int64) { read += n; bar.Set(min(read/passes, p.Info.Size)) }
 		res, err := sanitizeTranscript(p.Info, rw, sb, filepath.Join(tmp, "transcript.jsonl"))
 		importReadProg = nil
-		if err == nil && p.Info.Size > 0 {
-			bar.finish()
-		} else {
-			bar.leave()
+		if err == nil {
+			bar.Set(p.Info.Size)
+			bar.Done("Cleaned the conversation")
 		}
 		if err != nil {
 			fail(&cliError{Code: exitFailed, Kind: "transcript_unreadable", Message: fmt.Sprintf("the %s session %s could not be read: %s. Nothing was sent", tool, p.Info.ID, sanitize(err.Error()))})
@@ -371,6 +371,7 @@ func prepareImport(inv *Invocation, tool string) *importPrep {
 		p.Redactions.add(res.Redactions)
 		p.Out = res.OutPath
 		p.EstTokens, p.EstCompacted = res.EstTokens, res.EstCompacted
+		p.SummaryChars = int64(len([]rune(sb.build(importToolLabel(tool), redactCounts{}))))
 		if set.mode == "conversation" && p.Bytes == 0 {
 			fail(&cliError{Code: exitFailed, Kind: "import_empty", Message: "this session holds no messages to carry once what must not travel is taken out. Nothing was sent. Pick another session",
 				NextAction: "ks import list"})

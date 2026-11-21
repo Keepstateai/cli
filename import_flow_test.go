@@ -48,7 +48,7 @@ func TestImportBareCommandShowsThePlanAndSaysWhichCommandToRun(t *testing.T) {
 	e := newImportEnv(t)
 	e.ready()
 	out, errs, code := e.run("import", "claude-code", "--latest", "--no-input")
-	if code != exitUsage || strings.Contains(errs, "planned first") || !strings.Contains(out, "Import plan") || !strings.Contains(errs, "--yes") {
+	if code != exitUsage || strings.Contains(errs, "planned first") || !strings.Contains(out, "Import from Claude Code") || !strings.Contains(errs, "--yes") {
 		t.Fatalf("bare, no input: %d\n%s\n%s", code, out, errs)
 	}
 	if !strings.Contains(errs, "Nothing was created") || e.c.index("POST /api/v2/sessions") >= 0 {
@@ -69,13 +69,13 @@ func TestImportBareYesPlansAndExecutes(t *testing.T) {
 	e := newImportEnv(t)
 	e.ready()
 	out, errs, code := e.run("import", "claude-code", "--latest", "--yes")
-	if code != 0 || !strings.Contains(out, "Imported Claude Code session") {
+	if code != 0 || !strings.Contains(out, "Imported into session") {
 		t.Fatalf("--yes: %d\n%s\n%s", code, out, errs)
 	}
 	if len(e.c.creations) != 1 || len(e.c.applies) != 1 || e.c.count("POST /api/v2/imports") != 2 { // the plan, then the apply
 		t.Fatalf("creations %d applies %d log %v", len(e.c.creations), len(e.c.applies), e.c.seenLog())
 	}
-	if !strings.Contains(out, "Import plan") {
+	if !strings.Contains(out, "Import from Claude Code") {
 		t.Fatalf("the plan is shown before it runs:\n%s", out)
 	}
 }
@@ -161,7 +161,7 @@ func TestImportSaysWhenTheConversationIsOpenRightNow(t *testing.T) {
 	e := newImportEnv(t)
 	p := e.session("claude-code", "claude-code-2.1.312.jsonl", "")
 	out, _, code := e.run("import", "claude-code", "--latest", "--plan")
-	if code != 0 || !strings.Contains(out, note) {
+	if code != 0 || !strings.Contains(flat(out), note) {
 		t.Fatalf("a file just written: %d\n%s", code, out)
 	}
 	old := time.Now().Add(-time.Hour)
@@ -169,7 +169,7 @@ func TestImportSaysWhenTheConversationIsOpenRightNow(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, _, code = e.run("import", "claude-code", "--latest", "--plan")
-	if code != 0 || strings.Contains(out, "open in Claude Code right now") {
+	if code != 0 || strings.Contains(flat(out), "open in Claude Code right now") {
 		t.Fatalf("a file an hour old: %d\n%s", code, out)
 	}
 	_ = filepath.Join

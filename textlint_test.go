@@ -93,13 +93,9 @@ var lintExempt = map[string]string{
 	"completion.go":   "shell scripts: their variables are capitals",
 }
 
-// importFiles are being rewritten in their own change; they join the lint
-// when that lands.
 func lintSkips(name string) bool {
-	if _, ok := lintExempt[name]; ok {
-		return true
-	}
-	return strings.HasPrefix(name, "import_") || name == "import.go"
+	_, ok := lintExempt[name]
+	return ok
 }
 
 const lintBaselineFile = "testdata/text-lint-baseline.txt"

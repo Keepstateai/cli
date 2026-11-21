@@ -83,7 +83,8 @@ a written summary.
 
 ```sh
 ks import list                                   # the sessions on this machine: id, project, date, size, messages
-ks import claude-code --latest                   # shows the plan, asks "Import this conversation? [y/N]", then imports it
+ks import                                        # at a terminal: pick a session, review the plan, import
+ks import claude-code --latest                   # shows the plan, asks, then imports it
 ks import claude-code --latest --yes             # the same without the question
 ks import claude-code --latest --plan            # what would go up, and a digest; nothing is created
 ks import claude-code --latest --execute <digest>   # exactly that plan
@@ -97,7 +98,7 @@ signed thinking, encrypted reasoning), the old project paths are said as the
 new workspace's, and anything shaped like a secret (API keys, tokens, private
 keys, connection strings) is replaced before anything is sent; the plan counts
 the replacements by kind and never shows a secret. The plan is shown first. At a
-terminal you are asked before anything is created; `--yes` skips the question,
+terminal you are guided and asked before anything is created (pick, files or not, review); `--yes` skips the question,
 and without a terminal (or with `--no-input`) the command stops after the plan
 and names the command to run. `--plan` creates nothing and prints a digest,
 and `--execute` names it (a conversation that changed since is refused). A

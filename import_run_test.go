@@ -33,10 +33,11 @@ type importCtl struct {
 	ups       map[string]*fakeImportUpload
 	failApply int // the next N applies answer a server error
 	applied   map[string]bool
-	refuse    string        // when set, the plan route refuses with this message
-	putDelay  time.Duration // each chunk is slow by this much (a slow link)
-	failAfter int           // when > 0, chunks after this many have been taken answer 503
-	taken     int           // chunks taken so far
+	refuse    string         // when set, the plan route refuses with this message
+	putDelay  time.Duration  // each chunk is slow by this much (a slow link)
+	failAfter int            // when > 0, chunks after this many have been taken answer 503
+	taken     int            // chunks taken so far
+	estimate  map[string]any // the plan route answers this estimate when set
 }
 
 type fakeImportUpload struct {
@@ -136,8 +137,13 @@ func (c *importCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		sum := sha256.Sum256([]byte("acct_t\n" + canonicalDecl(d)))
-		env(200, map[string]any{"digest": hex.EncodeToString(sum[:]), "mode": d["mode"],
-			"plan": map[string]any{"lines": []string{"The service accepts this import: the conversation is placed before the agent's first instruction.", "Model use is billed as for any session."}, "max_bytes": 50000000}})
+		plan := map[string]any{"lines": []string{"The service accepts this import: the conversation is placed before the agent's first instruction.", "Model use is billed as for any session."}, "max_bytes": 2000000000}
+		c.imu.Lock()
+		if c.estimate != nil && d["mode"] == "conversation" {
+			plan["estimate"] = c.estimate
+		}
+		c.imu.Unlock()
+		env(200, map[string]any{"digest": hex.EncodeToString(sum[:]), "mode": d["mode"], "plan": plan})
 	case r.Method == "POST" && r.URL.Path == "/api/v2/imports/apply":
 		var a map[string]any
 		_ = json.Unmarshal(body, &a)
@@ -355,6 +361,9 @@ func decodeJSONOut(t *testing.T, out string) map[string]any {
 
 // ---- the plan -------------------------------------------------------------------
 
+// flat joins what a screen wrapped, so a sentence is found whole.
+func flat(s string) string { return strings.Join(strings.Fields(s), " ") }
+
 func TestImportPlanShowsEverythingAndCreatesNothing(t *testing.T) {
 	e := newImportEnv(t)
 	e.session("claude-code", "claude-code-2.1.312.jsonl", "")
@@ -362,9 +371,9 @@ func TestImportPlanShowsEverythingAndCreatesNothing(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("plan: %d\n%s\n%s", code, out, errs)
 	}
-	for _, want := range []string{"nothing has been created", "plan digest: ", "Claude Code 2.1.312", "Secrets replaced on this machine", "1 anthropic_key", "1 connection_string", "after taking out what must not travel", "attachment",
-		"No files go along", "first reply re-reads the whole imported conversation", "Approvals you gave in the old session carry nothing", "The service accepts this import", "ks import claude-code --latest --execute "} {
-		if !strings.Contains(out, want) {
+	for _, want := range []string{"nothing has been created", "Plan digest: ", "Claude Code 2.1.312", "replaced on this machine", "1 anthropic_key", "1 connection_string", "to upload", "attachment",
+		"none (add --with-files", "first reply re-reads the whole conversation", "Approvals you gave in the old session do not carry over", "The service accepts this import", "ks import claude-code --latest --execute "} {
+		if !strings.Contains(flat(out), want) {
 			t.Errorf("the plan does not say %q:\n%s", want, out)
 		}
 	}
@@ -407,8 +416,8 @@ func TestImportPlanNamesFilesAndWhatIsLeftOut(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("plan: %d\n%s\n%s", code, out, errs)
 	}
-	for _, want := range []string{"the git repository shop goes to /home/specimen/workspace/shop", ".env files", "node_modules", ".gitignore", "(.git) is carried", "uncommitted changes: "} {
-		if !strings.Contains(out, want) {
+	for _, want := range []string{"the git repository", "shop", ".env", "node_modules", ".gitignore", "(.git) is carried", "uncommitted changes: "} {
+		if !strings.Contains(flat(out), want) {
 			t.Errorf("the plan does not say %q:\n%s", want, out)
 		}
 	}
@@ -543,7 +552,7 @@ func TestImportExecuteRunsInOrderAndTheServiceNeverSeesASecret(t *testing.T) {
 	if ap["digest"] != digest || ap["agent_id"] != "agent_main1" || ap["upload_id"] != conv.ID || canonicalDecl(asMap(ap["declaration"])) != canonicalDecl(e.c.plans[len(e.c.plans)-1]) {
 		t.Fatalf("apply: %v", ap)
 	}
-	for _, want := range []string{"Imported Claude Code session " + claudeSID, "session session_abc123", "ks agent send main", "ks agent open main"} {
+	for _, want := range []string{"Imported into session session_abc1", "Claude Code session " + claudeSID, "ks agent open main --session session_abc123"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the result does not say %q:\n%s", want, out)
 		}
@@ -635,7 +644,7 @@ func TestImportExecuteContinuesWhereItStoppedAndCreatesNoSecondSession(t *testin
 	}
 	uploads := e.c.count("PUT ")
 	out, errs, code := e.run(append(args, "--execute", digest)...)
-	if code != 0 || !strings.Contains(out, "Imported Claude Code session") {
+	if code != 0 || !strings.Contains(out, "Imported into session") {
 		t.Fatalf("second run: %d\n%s\n%s", code, out, errs)
 	}
 	if n := e.c.count("POST /api/v2/sessions/session_abc123/provision"); n != 1 || len(e.c.creations) != 1 {
@@ -689,7 +698,7 @@ func TestImportBriefSendsASummaryAndNoTranscript(t *testing.T) {
 	// into the other tool: a summary, whatever the flags
 	args := []string{"import", "claude-code", "--latest", "--harness", "codex"}
 	out, errs, code := e.run(append(args, "--plan")...)
-	if code != 0 || !strings.Contains(out, "written summary") || !strings.Contains(out, "not resumed in another agent") {
+	if code != 0 || !strings.Contains(flat(out), "written summary") || !strings.Contains(flat(out), "not resumed in another agent") {
 		t.Fatalf("plan: %d\n%s\n%s", code, out, errs)
 	}
 	d := e.c.plans[0]
@@ -718,7 +727,7 @@ func TestImportBriefSendsASummaryAndNoTranscript(t *testing.T) {
 	if _, has := ap["upload_id"]; has || ap["agent_id"] != "agent_main1" {
 		t.Fatalf("apply: %v", ap)
 	}
-	if !strings.Contains(out, "a written summary of it") || !strings.Contains(out, "with this first instruction") {
+	if !strings.Contains(flat(out), "a written summary of the conversation") || !strings.Contains(out, "ks agent send main") {
 		t.Fatalf("result words:\n%s", out)
 	}
 	if len(e.c.creations) != 1 || e.c.creations[0]["harness"] != "codex" {
@@ -735,7 +744,7 @@ func TestImportCursorIsAlwaysASummaryFromACopyOfTheStore(t *testing.T) {
 		e.c.imu.Unlock()
 		args := append([]string{"import", "cursor", "--store", store}, mode...)
 		out, errs, code := e.run(append(args, "--plan")...)
-		if code != 0 || !strings.Contains(out, "best effort") || !strings.Contains(out, "nothing is resumed") {
+		if code != 0 || !strings.Contains(flat(out), "best effort") || !strings.Contains(flat(out), "Nothing is resumed") {
 			t.Fatalf("plan %v: %d\n%s\n%s", mode, code, out, errs)
 		}
 		d := e.c.plans[0]
@@ -754,7 +763,7 @@ func TestImportCursorIsAlwaysASummaryFromACopyOfTheStore(t *testing.T) {
 	if code != 0 || e.c.count("PUT ") != 0 || e.c.upload("conversation") != nil {
 		t.Fatalf("execute: %d\n%s\n%s", code, out, errs)
 	}
-	if len(e.c.creations) != 1 || !strings.Contains(out, "Imported Cursor session "+cursorCheckout) {
+	if len(e.c.creations) != 1 || !strings.Contains(out, "Cursor session "+cursorCheckout) {
 		t.Fatalf("creations %v\n%s", e.c.creations, out)
 	}
 }

@@ -191,12 +191,6 @@ func igChoose(title string, items []string, def int) int {
 	}
 }
 
-// askYesNo asks a yes/no question, No unless the person answers y.
-func askYesNo(question string) bool {
-	i := igChoose(question, []string{"No", "Yes"}, 0)
-	return i == 1
-}
-
 // ---- the list ------------------------------------------------------------------------
 
 type guidedRow struct {
@@ -355,9 +349,9 @@ func (r guidedRow) line(width int) string {
 	size := "summary"
 	switch {
 	case r.Over:
-		size = barBytes(r.Size) + " too big"
+		size = kitBytes(r.Size) + " too big"
 	case r.Size >= 0:
-		size = barBytes(r.Size)
+		size = kitBytes(r.Size)
 	case r.Size == -2 || r.Chat:
 		size = "summary"
 	}
@@ -451,8 +445,14 @@ func importGuided(inv *Invocation, tool string) {
 			inv.set["session"], inv.strs["session"] = true, row.ID
 		}
 		if row.Over && tool != "cursor" {
-			if !askYesNo(fmt.Sprintf("This conversation is %s after cleaning and the limit is %s. Import a written summary of it instead?", barBytes(row.Size), barBytes(importLimit()))) {
-				igDeclined()
+			_, er := cmdUI()
+			er.Warn("This conversation is too big to carry whole", fmt.Sprintf("It is %s after cleaning and the limit is %s. Nothing was sent or created.", kitBytes(row.Size), kitBytes(importLimit())))
+			if ok, err := er.Confirm("Import a written summary of it instead?", false, "--yes", "Nothing was created."); !ok {
+				if ce, isCE := err.(*cliError); isCE && ce.Kind == "confirmation_declined" {
+					runExitHooks() // the kit has said it
+					os.Exit(exitUsage)
+				}
+				fail(err)
 			}
 			inv.set["brief"] = true
 		}
@@ -465,8 +465,8 @@ func importGuided(inv *Invocation, tool string) {
 	if !inv.Bool("with-files") && !inv.Bool("no-files") {
 		if top, plan, ok := guidedFilesProbe(inv, p); ok {
 			total := p.Bytes
-			conv := fmt.Sprintf("conversation only %s", barBytes(total))
-			withf := fmt.Sprintf("with the files %s (the repository %s, %s)", barBytes(total+plan.Content), barBytes(plan.Content), nounCount(len(plan.Entries), "file", "files"))
+			conv := fmt.Sprintf("conversation only %s", kitBytes(total))
+			withf := fmt.Sprintf("with the files %s (the repository %s, %s)", kitBytes(total+plan.Content), kitBytes(plan.Content), nounCount(len(plan.Entries), "file", "files"))
 			i := igChoose(fmt.Sprintf("Bring the project files too? The git repository at %s.", igShortHome(top)), []string{conv, withf}, 0)
 			if i < 0 {
 				igDeclined()
@@ -482,22 +482,47 @@ func importGuided(inv *Invocation, tool string) {
 	// 3. review
 	set := importSettingsOf(inv, tool)
 	svc := serverImportPlan(cr, p.Decl)
-	doc := importPlanDoc(p, set, svc)
-	printImportPlan(doc)
-	sent := p.Bytes
-	detail := ""
-	if p.Files != nil {
-		sent += p.Files.Content
-		detail = fmt.Sprintf(" (the conversation %s and the files %s)", barBytes(p.Bytes), barBytes(p.Files.Content))
+	showReview := func() {
+		printImportPlan(p, set, svc)
+		o, _ := cmdUI()
+		sent := p.Bytes
+		detail := ""
+		if p.Files != nil {
+			sent += p.Files.Content
+			detail = fmt.Sprintf(" (the conversation %s and the files %s)", kitBytes(p.Bytes), kitBytes(p.Files.Content))
+		}
+		o.Blank()
+		o.Facts([2]string{"Total to send", kitBytes(sent) + detail},
+			[2]string{"Stays behind", "what you say in the old session after this point"})
+		o.Blank()
 	}
-	fmt.Printf("  Total to send: %s%s. It creates a new %s session named %q. What you say in the old session after this point stays behind.\n", barBytes(sent), detail, set.harness, firstNonEmptyStr(set.name, importSessionName(p)))
+	showReview()
 	if !out.yes {
+		// a big conversation: the notice and its choices come before the review
+		if e := svc.Plan.Estimate; e != nil && e.Notice && p.Mode == "conversation" {
+			switch igBigChoice(inv, tool, p, e) {
+			case "compact":
+				return
+			case "brief":
+				inv.set["brief"] = true
+				p.Close()
+				p = prepareImport(inv, tool)
+				svc = serverImportPlan(cr, p.Decl)
+				set = importSettingsOf(inv, tool)
+				showReview()
+			case "go":
+			default:
+				igDeclined()
+			}
+		}
 		i := igChoose("Review the plan above.", []string{"Import now", "Save the plan only (prints the digest and the command to run it later)", "Cancel"}, 0)
 		switch i {
 		case 0:
 		case 1:
-			fmt.Printf("plan digest: %s\n", svc.Digest)
-			fmt.Printf("Next: ks import %s %s\n", tool, importReplayArgs(inv, "--execute "+svc.Digest))
+			o, _ := cmdUI()
+			o.Facts([2]string{"Plan digest", svc.Digest})
+			o.Blank()
+			o.NextWhy("ks import "+tool+" "+importReplayArgs(inv, "--execute "+svc.Digest), "Does exactly this plan.")
 			return
 		default:
 			igDeclined()
@@ -506,6 +531,90 @@ func importGuided(inv *Invocation, tool string) {
 
 	// 4. the import
 	importExecute(cr, inv, p, set, svc)
+}
+
+// importChoice is one line of the big-conversation notice: what it says and
+// what choosing it means. A later option (compacting on KeepState with a
+// cheaper model) is one more entry in igBigChoices, with its own id.
+type importChoice struct {
+	ID   string
+	Text string
+}
+
+// igBigChoices are the choices, in the order they are shown. Compacting in
+// Claude Code (or Codex) first comes first because it is the recommended one
+// and costs nothing here; Cursor has no compact, so that choice is left out.
+func igBigChoices(tool string, p *importPrep, e *importEstimateAnswer) []importChoice {
+	var cs []importChoice
+	if tool != "cursor" {
+		cs = append(cs, importChoice{"compact", "Compact it in " + importToolLabel(tool) + " first (recommended, costs nothing here)"})
+	}
+	cs = append(cs, importChoice{"brief", fmt.Sprintf("Bring a written summary instead (--brief), about %s characters", commas(p.SummaryChars))})
+	// the place for "Compact it on KeepState with <model> (about $X)": not built yet
+	cs = append(cs, importChoice{"go", "Go without compacting (" + igFirstReads(e) + ")"})
+	cs = append(cs, importChoice{"cancel", "Cancel"})
+	return cs
+}
+
+func igFirstReads(e *importEstimateAnswer) string {
+	var parts []string
+	for _, m := range e.Models {
+		parts = append(parts, fmt.Sprintf("first reply about $%s on %s", microsShown(m.FirstReadMicroUSD), m.Name))
+	}
+	return strings.Join(parts, ", ") + ", estimates"
+}
+
+// igBigChoice shows the notice and the choices and answers the id chosen.
+func igBigChoice(inv *Invocation, tool string, p *importPrep, e *importEstimateAnswer) string {
+	cs := igBigChoices(tool, p, e)
+	items := make([]string, len(cs))
+	for i, c := range cs {
+		items[i] = c.Text
+	}
+	i := igChoose("What now?", items, 0)
+	if i < 0 {
+		return "cancel"
+	}
+	id := cs[i].ID
+	if id == "compact" {
+		o, _ := cmdUI()
+		o.Blank()
+		o.Title("", toneOK, "Compact it in "+importToolLabel(tool)+", then import again")
+		for _, l := range compactInstruction(tool) {
+			o.lines("  " + l)
+		}
+		o.Blank()
+		o.NextWhy("ks import "+tool+" "+importFlagsWith(inv, p.Info.ID), "Run this after the compaction has finished.")
+	}
+	return id
+}
+
+// importFlagsWith is the flags of the command again, naming the session by id.
+func importFlagsWith(inv *Invocation, id string) string {
+	return strings.Join(append(importFlagParts(inv, map[string]bool{"latest": true, "session": true, "chat": true}), "--session", id), " ")
+}
+
+// compactInstruction is what to paste into the original session so that its
+// compaction keeps what matters. Claude Code's /compact takes instructions;
+// Codex's takes none, so there they are sent as a message first.
+func compactInstruction(tool string) []string {
+	keep := "Keep: every decision and the reason for it; the open tasks and where each stands; the file paths, function names and settings that matter; the commands that were run and what they printed when it mattered; every error and how it was fixed; and my standing rules and preferences, word for word. Leave out: greetings, repeated attempts that went nowhere, and long tool output that was already acted on."
+	if tool == "codex" {
+		return []string{
+			"In the Codex session you want to import, send this message first:",
+			"",
+			"  Before we compact: write down, in your next reply, " + strings.ToLower(keep[:1]) + keep[1:],
+			"",
+			"Then type /compact (Codex's /compact takes no instructions, so the message above is what it keeps in view). Wait for it to finish.",
+		}
+	}
+	return []string{
+		"In the Claude Code session you want to import, paste this and press Enter:",
+		"",
+		"  /compact " + keep,
+		"",
+		"Wait for it to finish.",
+	}
 }
 
 // guidedFilesProbe finds the project's git repository and its upload size,

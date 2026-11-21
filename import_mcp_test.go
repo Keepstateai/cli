@@ -53,7 +53,7 @@ func TestMCPImportSessionPlansThenCreatesOnlyOnConfirm(t *testing.T) {
 	if err := json.Unmarshal([]byte(textOf(r)), &plan); err != nil || !plan.Needs || len(plan.Confirm) != 16 {
 		t.Fatalf("the first call is a plan: %v %v", r, err)
 	}
-	for _, want := range []string{"NEW KeepState agent session", "its conversation goes up", "Secrets replaced on this machine", "1 connection_string", "re-reads the whole imported conversation", "digest "} {
+	for _, want := range []string{"new KeepState agent session", "its conversation goes up", "Secrets replaced on this machine", "1 connection_string", "re-reads the whole imported conversation", "digest "} {
 		if !strings.Contains(plan.Plan, want) {
 			t.Errorf("the plan does not say %q:\n%s", want, plan.Plan)
 		}

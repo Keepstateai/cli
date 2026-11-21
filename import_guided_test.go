@@ -94,10 +94,12 @@ func (e *importEnv) ptyImport(steps []keyStep, args ...string) (string, int) {
 		code = ee.ExitCode()
 	}
 	got := buf.String()
+	raw := got
+	got = ansiRe.ReplaceAllString(got, "")
 	if dir := os.Getenv("KS_IMPORT_RENDER_DIR"); dir != "" {
 		_ = os.MkdirAll(dir, 0o755)
 		name := strings.NewReplacer("/", "_", " ", "_").Replace(e.t.Name())
-		_ = os.WriteFile(filepath.Join(dir, name+".raw"), []byte(got), 0o644)
+		_ = os.WriteFile(filepath.Join(dir, name+".raw"), []byte(raw), 0o644)
 	}
 	return got, code
 }
@@ -120,7 +122,7 @@ func TestGuidedListShowsWhatEachWouldSend(t *testing.T) {
 	got, _ := e.ptyImport([]keyStep{{"Pick a session", keyEscSeq}}, "import", "claude-code")
 	// the size after cleaning, not the size on disk
 	res, _, _ := e.run("import", "claude-code", "--latest", "--plan", "--json")
-	sent := barBytes(int64(decodeJSONOut(t, res)["bytes"].(float64)))
+	sent := kitBytes(int64(decodeJSONOut(t, res)["bytes"].(float64)))
 	if !strings.Contains(got, sent) {
 		t.Fatalf("the row does not show %s, what would go up:\n%s", sent, got)
 	}
@@ -133,10 +135,10 @@ func TestGuidedPlanOnlyWithNoProjectFolder(t *testing.T) {
 	if code != 0 || strings.Contains(got, "Bring the project files too?") {
 		t.Fatalf("no project folder, so no question about files: %d\n%s", code, got)
 	}
-	if !strings.Contains(got, "plan digest: ") || !strings.Contains(got, "Next: ks import claude-code --latest --execute ") || len(e.c.creations) != 0 {
+	if !strings.Contains(got, "Plan digest") || !strings.Contains(flat(got), "Next: ks import claude-code --latest --execute ") || len(e.c.creations) != 0 {
 		t.Fatalf("save the plan only: %d\n%s", code, got)
 	}
-	if !strings.Contains(got, "Total to send:") {
+	if !strings.Contains(got, "Total to send") {
 		t.Fatalf("the plan card lacks the total:\n%s", got)
 	}
 }
@@ -148,7 +150,7 @@ func TestGuidedImportNow(t *testing.T) {
 	if code != 0 || len(e.c.creations) != 1 || len(e.c.applies) != 1 {
 		t.Fatalf("import now: %d (%d sessions)\n%s", code, len(e.c.creations), got)
 	}
-	for _, want := range []string{"Cleaning", "Uploading", "100%", "Placing", "Imported Claude Code session", "console: ", "ks agent open main --session session_abc123"} {
+	for _, want := range []string{"Cleaning", "Uploading", "100%", "Placing", "Imported into session", "Console", "ks agent open main --session session_abc123"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the screen lacks %q:\n%s", want, got)
 		}
@@ -171,7 +173,7 @@ func TestGuidedOverTheLimitOffersTheSummary(t *testing.T) {
 	e := newImportEnv(t)
 	e.ready()
 	e.env = append(e.env, "KS_IMPORT_MAX_BYTES=1000")
-	got, code := e.ptyImport([]keyStep{{"Pick a session", "\r"}, {"Import a written summary of it instead?", "2\r"}, {"Review the plan", "\r"}}, "import", "claude-code")
+	got, code := e.ptyImport([]keyStep{{"Pick a session", "\r"}, {"Import a written summary of it instead?", "y\r"}, {"Review the plan", "\r"}}, "import", "claude-code")
 	if !strings.Contains(got, "too big") {
 		t.Fatalf("the row is not marked:\n%s", got)
 	}
@@ -194,7 +196,7 @@ func TestGuidedAsksAboutFilesWithBothSizes(t *testing.T) {
 	e.session("claude-code", "claude-code-2.1.312.jsonl", repo)
 	e.c.runCtl.record = map[string]any{"id": "session_abc123", "runtime_state": "running"}
 	got, code := e.ptyImport([]keyStep{{"Bring the project files too?", "2\r"}, {"Review the plan", "\r"}}, "import", "claude-code", "--latest")
-	if code != 0 || !strings.Contains(got, "conversation only") || !strings.Contains(got, "with the files") || !strings.Contains(got, "Files: the git repository") {
+	if code != 0 || !strings.Contains(got, "conversation only") || !strings.Contains(got, "with the files") || !strings.Contains(flat(got), "the git repository") {
 		t.Fatalf("with the files: %d\n%s", code, got)
 	}
 	if e.c.upload("folder") == nil {
@@ -230,5 +232,157 @@ func TestGuidedNeverAsksWithoutATerminalOrWithNoInput(t *testing.T) {
 	got, code := e.ptyImport(nil, "import", "claude-code", "--no-input")
 	if code != exitUsage || strings.Contains(got, "Pick a session") || !strings.Contains(got, "--latest") {
 		t.Fatalf("--no-input at a terminal: %d\n%s", code, got)
+	}
+}
+
+// ---- the first-read estimate and the big-conversation choices --------------------------
+
+func fakeEstimate(notice bool) map[string]any {
+	return map[string]any{"is_estimate": true, "method": "m", "tokens": 812345, "compacted": false, "basis": "b", "notice_bytes": 30000000, "notice_opus_microusd": 5000000,
+		"notice": notice, "notice_reason": "the estimated first read on the dearest model is $6.50, over $5",
+		"models": []any{
+			map[string]any{"id": "claude-sonnet-5-5", "name": "Claude Sonnet 5.5", "context_tokens": 1000000, "first_read_microusd": 3249380, "later_reply_microusd": 81235},
+			map[string]any{"id": "claude-opus-5-5", "name": "Claude Opus 5.5", "context_tokens": 1000000, "first_read_microusd": 6498760, "later_reply_microusd": 162469},
+		}}
+}
+
+func TestPlanShowsTheServicesEstimateAndTheClientDeclaresACount(t *testing.T) {
+	e := newImportEnv(t)
+	e.ready()
+	e.c.estimate = fakeEstimate(false)
+	out, _, code := e.run("import", "claude-code", "--latest", "--plan")
+	text := flat(out)
+	// every dollar figure is the service's: this client holds no price
+	for _, want := range []string{"Estimate", "812,345 tokens", "$3.25 on Claude Sonnet 5.5", "$6.50 on Claude Opus 5.5", "each later reply about $0.081", "Estimates, not quotes"} {
+		if code != 0 || !strings.Contains(text, want) {
+			t.Fatalf("the plan lacks %q (%d):\n%s", want, code, out)
+		}
+	}
+	if strings.Contains(text, "What now?") || strings.Contains(text, "big conversation") {
+		t.Fatalf("under the threshold there is no notice:\n%s", out)
+	}
+	src := asMap(e.c.plans[0]["source"])
+	if jsonInt(src["est_tokens"]) < 15000 {
+		t.Fatalf("the declaration carries no count: %v", src)
+	}
+	// a written summary carries no count
+	e.c.imu.Lock()
+	e.c.plans = nil
+	e.c.imu.Unlock()
+	_, _, _ = e.run("import", "claude-code", "--latest", "--brief", "--plan")
+	if _, has := asMap(e.c.plans[0]["source"])["est_tokens"]; has {
+		t.Fatal("a summary declares a token count")
+	}
+}
+
+func TestBigConversationChoicesInOrder(t *testing.T) {
+	for _, tool := range []string{"claude-code", "codex"} {
+		cs := igBigChoices(tool, &importPrep{SummaryChars: 5321}, &importEstimateAnswer{Models: []struct {
+			ID                 string `json:"id"`
+			Name               string `json:"name"`
+			ContextTokens      int64  `json:"context_tokens"`
+			FirstReadMicroUSD  int64  `json:"first_read_microusd"`
+			LaterReplyMicroUSD int64  `json:"later_reply_microusd"`
+			OverContext        bool   `json:"over_context"`
+			Note               string `json:"note"`
+		}{{Name: "Claude Sonnet 5.5", FirstReadMicroUSD: 3_000_000}}})
+		var ids []string
+		for _, c := range cs {
+			ids = append(ids, c.ID)
+		}
+		if strings.Join(ids, ",") != "compact,brief,go,cancel" || !strings.Contains(cs[0].Text, "recommended, costs nothing here") || !strings.Contains(cs[1].Text, "5,321") || !strings.Contains(cs[2].Text, "$3.00 on Claude Sonnet 5.5") {
+			t.Fatalf("%s: %v", tool, cs)
+		}
+	}
+	// Cursor has no compact
+	for _, c := range igBigChoices("cursor", &importPrep{}, &importEstimateAnswer{}) {
+		if c.ID == "compact" {
+			t.Fatal("Cursor is offered a compaction it does not have")
+		}
+	}
+	for _, tool := range []string{"claude-code", "codex"} {
+		text := flat(strings.Join(compactInstruction(tool), " "))
+		for _, want := range []string{"/compact", "decision", "open tasks", "file paths", "commands", "error", "standing rules"} {
+			if !strings.Contains(strings.ToLower(text), want) {
+				t.Errorf("%s: the instruction lacks %q:\n%s", tool, want, text)
+			}
+		}
+	}
+	if !strings.Contains(strings.Join(compactInstruction("codex"), " "), "takes no instructions") {
+		t.Error("the Codex variant does not say its /compact takes none")
+	}
+}
+
+func bigEnv(t *testing.T) *importEnv {
+	e := newImportEnv(t)
+	e.ready()
+	e.c.estimate = fakeEstimate(true)
+	return e
+}
+
+func TestBigConversationCompactFirst(t *testing.T) {
+	e := bigEnv(t)
+	got, code := e.ptyImport([]keyStep{{"What now?", "\r"}}, "import", "claude-code", "--latest")
+	text := flat(got)
+	if code != 0 || len(e.c.creations) != 0 || !strings.Contains(text, "/compact Keep: every decision") || !strings.Contains(text, "Next: ks import claude-code --session "+claudeSID) {
+		t.Fatalf("compact first: %d\n%s", code, got)
+	}
+	for _, want := range []string{"This is a big conversation", "Compact it in Claude Code first (recommended, costs nothing here)", "Bring a written summary instead (--brief)", "Go without compacting (first reply about $3.25 on Claude Sonnet 5.5, first reply about $6.50 on Claude Opus 5.5", "Cancel"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the notice lacks %q:\n%s", want, got)
+		}
+	}
+	if i, j := strings.Index(text, "Compact it in"), strings.Index(text, "Bring a written summary"); i < 0 || j < i {
+		t.Fatal("the choices are not in order")
+	}
+}
+
+func TestBigConversationBriefInstead(t *testing.T) {
+	e := bigEnv(t)
+	got, code := e.ptyImport([]keyStep{{"What now?", "2\r"}, {"Review the plan", "\r"}}, "import", "claude-code", "--latest")
+	if code != 0 || len(e.c.applies) != 1 || asStr(asMap(e.c.applies[0]["declaration"])["mode"]) != "brief" {
+		t.Fatalf("a summary instead: %d\n%s", code, got)
+	}
+}
+
+func TestBigConversationGoWithoutCompactingAndCancel(t *testing.T) {
+	e := bigEnv(t)
+	got, code := e.ptyImport([]keyStep{{"What now?", "3\r"}, {"Review the plan", "\r"}}, "import", "claude-code", "--latest")
+	if code != 0 || len(e.c.applies) != 1 || asStr(asMap(e.c.applies[0]["declaration"])["mode"]) != "conversation" {
+		t.Fatalf("go without compacting: %d\n%s", code, got)
+	}
+	e2 := bigEnv(t)
+	got, code = e2.ptyImport([]keyStep{{"What now?", "4\r"}}, "import", "claude-code", "--latest")
+	if code != exitUsage || len(e2.c.creations) != 0 || !strings.Contains(got, "Nothing was created") {
+		t.Fatalf("cancel: %d\n%s", code, got)
+	}
+}
+
+func TestBigConversationNoticeIsOnlyAWarningWithoutAQuestion(t *testing.T) {
+	e := bigEnv(t)
+	out, _, code := e.run("import", "claude-code", "--latest", "--plan")
+	if code != 0 || !strings.Contains(flat(out), "This is a big conversation") || strings.Contains(out, "What now?") {
+		t.Fatalf("--plan: %d\n%s", code, out)
+	}
+}
+
+// A real terminal, a slow link: the bar moves, shows the rate and the time
+// left, and the last line stays on the screen.
+func TestPtyProgressBarShowsRateAndTimeLeft(t *testing.T) {
+	e := newImportEnv(t)
+	e.bigSession(4)
+	e.c.putDelay = 350 * time.Millisecond
+	got, code := e.ptyImport(nil, "import", "claude-code", "--latest", "--no-files", "--yes")
+	if code != 0 {
+		t.Fatalf("%d\n%s", code, got)
+	}
+	for _, want := range []string{"Cleaning the conversation", "Uploading the conversation", "/s", "left", "100%", "Uploaded the conversation", "Placing the conversation on KeepState", "Placed the conversation", "Imported into session"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the terminal never showed %q:\n%s", want, got)
+		}
+	}
+	// the screen's last words are the done card, and the bar's closing line is in the scrollback
+	if i, j := strings.LastIndex(got, "Uploaded the conversation"), strings.LastIndex(got, "Imported into session"); i < 0 || j < i {
+		t.Fatalf("order:\n%s", got)
 	}
 }

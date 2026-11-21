@@ -2,15 +2,29 @@
 
 ## Unreleased
 
-- `ks import claude-code|codex|cursor --latest` (or `--session ID`) now just
-  works: it shows the plan, asks "Import this conversation? [y/N]" at a
-  terminal and imports from the same reading of the file. `--yes` skips the
-  question; without a terminal, or with `--no-input` and no `--yes`, it stops
-  after the plan and names the command to run. `--plan`, `--execute DIGEST`
-  and `--json` keep their forms (`--json` without `--yes` is the plan). The
-  size limit is 2 GB (was 50 MB), the file is read as a stream, and the
+- `ks import` is now one guided step at a terminal. With no tool, or a tool and
+  no `--latest` or `--session`, it lists your sessions (tool, folder, first
+  prompt, when, and what each would send after cleaning; arrow keys or a
+  number), asks whether to bring the project files (with both sizes), shows the
+  plan and asks: Import now, Save the plan only, or Cancel. `--latest` and
+  `--session` skip the list, `--with-files` and `--no-files` skip the files
+  question, `--yes` skips the review. Without a terminal, or with `--no-input`,
+  nothing is asked: the plan is shown and the command says which flags to pass.
+  `--plan`, `--execute DIGEST` and `--json` keep their forms (`--json` without
+  `--yes` is the plan).
+- A progress bar covers the import: cleaning (bytes read), uploading (bytes
+  KeepState has acknowledged, so it reaches 100% only when the last byte is
+  safe) and placing. One line per 10% without a terminal; none with `--json`.
+  Ctrl-C stops at a chunk and says what was kept; running the same command
+  continues.
+- The size limit is 2 GB (was 50 MB), the file is read as a stream, and the
   "Next:" command of an over-limit refusal now runs as given. The plan says
   when the conversation is open in the tool right now.
+- The plan estimates what the first reply will cost (Sonnet 5.5 and Opus 5.5
+  for Claude Code), counting only what the harness sends after its last
+  compaction. Over 30 MB, or over USD 5 on Opus, it offers to compact in
+  Claude Code or Codex first (with the text to paste), to send a written
+  summary instead, or to go on.
 - The Claude Code plugin now runs `@keepstateai/cli@0.1.46`.
 
 ## v0.1.46 (2026-11-16)
