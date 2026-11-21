@@ -293,6 +293,8 @@ type sanitizeResult struct {
 	Stripped       map[string]int
 	Redactions     redactCounts
 	PathsRewritten int
+	EstTokens      int64 // the first reply reads about this many (see import_estimate.go)
+	EstCompacted   bool  // a compaction boundary cut what the harness sends
 }
 
 type sanitizer struct {
@@ -304,6 +306,7 @@ type sanitizer struct {
 	out      *bufio.Writer
 	written  int64
 	lastUUID any
+	est      *tokenEstimator
 }
 
 func (s *sanitizer) mapStrings(v any) any {
@@ -329,6 +332,7 @@ func (s *sanitizer) write(rec map[string]any) error {
 	if err != nil {
 		return err
 	}
+	s.est.add(rec) // the record as it is written: what the harness will read
 	n, err := s.out.Write(b)
 	s.written += int64(n)
 	return err
@@ -410,7 +414,7 @@ func sanitizeTranscript(info transcriptInfo, rw *pathRewriter, sb *summaryBuilde
 	}
 	h := sha256.New()
 	bw := bufio.NewWriterSize(io.MultiWriter(fh, h), 1<<20)
-	s := &sanitizer{rw: rw, red: redactCounts{}, strip: map[string]int{}, summary: sb, id: info.ID, out: bw}
+	s := &sanitizer{rw: rw, red: redactCounts{}, strip: map[string]int{}, summary: sb, id: info.ID, out: bw, est: newTokenEstimator(info.Tool)}
 	switch info.Tool {
 	case "claude-code":
 		err = s.claude(info.Path)
@@ -430,7 +434,7 @@ func sanitizeTranscript(info transcriptInfo, rw *pathRewriter, sb *summaryBuilde
 		return nil, err
 	}
 	res := &sanitizeResult{Info: info, OutPath: outPath, Bytes: s.written, SHA256: hex.EncodeToString(h.Sum(nil)),
-		Stripped: s.strip, Redactions: s.red}
+		Stripped: s.strip, Redactions: s.red, EstTokens: s.est.Tokens(), EstCompacted: s.est.compacted}
 	if rw != nil {
 		res.PathsRewritten = rw.Count
 	}

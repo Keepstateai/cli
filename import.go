@@ -200,27 +200,29 @@ func chooseTranscript(tool string, inv *Invocation) transcriptInfo {
 // ---- the preparation: everything the plan says ----------------------------------
 
 type importPrep struct {
-	Tool       string
-	Mode       string // conversation | brief
-	Harness    string
-	Info       transcriptInfo
-	ConvID     string
-	Decl       map[string]any
-	Brief      string
-	Out        string // the sanitized transcript (conversation mode)
-	Bytes      int64
-	SHA256     string
-	Redactions redactCounts
-	Stripped   map[string]int
-	Rewritten  int
-	Files      *uploadPlan
-	Root       string
-	Head       string
-	Dirty      bool
-	Turns      int
-	Dest       string
-	CursorNote string
-	cleanup    []func()
+	Tool         string
+	Mode         string // conversation | brief
+	Harness      string
+	Info         transcriptInfo
+	ConvID       string
+	Decl         map[string]any
+	Brief        string
+	Out          string // the sanitized transcript (conversation mode)
+	Bytes        int64
+	SHA256       string
+	Redactions   redactCounts
+	Stripped     map[string]int
+	Rewritten    int
+	Files        *uploadPlan
+	Root         string
+	Head         string
+	Dirty        bool
+	Turns        int
+	EstTokens    int64 // see import_estimate.go
+	EstCompacted bool
+	Dest         string
+	CursorNote   string
+	cleanup      []func()
 }
 
 func (p *importPrep) Close() {
@@ -368,6 +370,7 @@ func prepareImport(inv *Invocation, tool string) *importPrep {
 		p.Bytes, p.SHA256, p.Stripped, p.Rewritten = res.Bytes, res.SHA256, res.Stripped, res.PathsRewritten
 		p.Redactions.add(res.Redactions)
 		p.Out = res.OutPath
+		p.EstTokens, p.EstCompacted = res.EstTokens, res.EstCompacted
 		if set.mode == "conversation" && p.Bytes == 0 {
 			fail(&cliError{Code: exitFailed, Kind: "import_empty", Message: "this session holds no messages to carry once what must not travel is taken out. Nothing was sent. Pick another session",
 				NextAction: "ks import list"})
@@ -439,6 +442,12 @@ func importDeclaration(p *importPrep, set importSettings) map[string]any {
 		"redactions": map[string]int(p.Redactions), "stripped": map[string]int(p.Stripped), "paths_rewritten": p.Rewritten}
 	if p.Tool == "codex" || p.Tool == "cursor" {
 		src["started_at"] = utcStamp(p.Info.StartedAt)
+	}
+	if p.Mode == "conversation" && p.EstTokens > 0 {
+		src["est_tokens"] = p.EstTokens // what the first reply reads, by the documented estimate
+		if p.EstCompacted {
+			src["est_compacted"] = true
+		}
 	}
 	target := map[string]any{"harness": set.harness, "model": set.model, "key": set.key, "name": set.name, "budget_usd": 0.0}
 	if set.spend != nil {
