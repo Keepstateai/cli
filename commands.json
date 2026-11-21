@@ -12,7 +12,7 @@
   },
   {
    "flag": "--no-color",
-   "summary": "no colour codes (this release prints none; accepted so scripts can pass it)"
+   "summary": "no colour codes; colour is also off in a pipe, in a file, in CI and when the terminal asks for none"
   },
   {
    "flag": "--quiet",
