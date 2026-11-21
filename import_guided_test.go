@@ -55,7 +55,9 @@ func (e *importEnv) ptyImport(steps []keyStep, args ...string) (string, int) {
 		cmd = exec.Command("script", "-q", "-e", "-c", e.bin+" "+strings.Join(args, " "), "/dev/null")
 	}
 	cmd.Dir = e.dir
+	// a real terminal as a person has it: not CI, colour and motion on
 	cmd.Env = append(append(os.Environ(), "XDG_CONFIG_HOME="+e.cfg, "COLUMNS=110"), e.env...)
+	cmd.Env = append(cmd.Env, "CI=", "NO_COLOR=", "KS_COLOR=", "FORCE_COLOR=1", "TERM=xterm-256color")
 	in, _ := cmd.StdinPipe()
 	buf := &ptyBuf{}
 	cmd.Stdout, cmd.Stderr = buf, buf
