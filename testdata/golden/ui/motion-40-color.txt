@@ -1,0 +1,12 @@
+    uploading the conversation: 10%
+    (13.7 MB of 137 MB)
+    uploading the conversation: 20%
+    (27.4 MB of 137 MB)
+    uploading the conversation: 30%
+    (41.1 MB of 137 MB)
+    uploading the conversation: 40%
+    (54.8 MB of 137 MB)
+  <ESC>[38;2;215;95;120m✢<ESC>[0m Uploading the conversation  <ESC>[38;2;215;95;120m━━━━<ESC>[0m<ESC>[38;2;88;88;88m──────<ESC>[0m  44%
+    <ESC>[38;2;138;138;138m61.2 MB of 137 MB<ESC>[0m
+  <ESC>[38;2;215;95;120m✶<ESC>[0m Starting the machine… <ESC>[38;2;138;138;138m12s<ESC>[0m
+  <ESC>[38;2;215;95;120m✶<ESC>[0m Starting the machine…

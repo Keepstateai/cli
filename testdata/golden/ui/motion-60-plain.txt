@@ -1,0 +1,8 @@
+    uploading the conversation: 10% (13.7 MB of 137 MB)
+    uploading the conversation: 20% (27.4 MB of 137 MB)
+    uploading the conversation: 30% (41.1 MB of 137 MB)
+    uploading the conversation: 40% (54.8 MB of 137 MB)
+  ✢ Uploading the conversation  ━━━━━━━━━─────────────  44%
+    61.2 MB of 137 MB
+  ✶ Starting the machine… 12s
+  ✶ Starting the machine…
