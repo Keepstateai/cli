@@ -18,6 +18,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -130,11 +131,30 @@ func nounCount(n int, one, many string) string {
 	return fmt.Sprintf("%s %s", commas(int64(n)), noun(n, one, many))
 }
 
+// unknownFieldRefusal: the service refused the request body for a field it does not take.
+func unknownFieldRefusal(err error) bool {
+	var he *hostedErr
+	if !errors.As(err, &he) {
+		return false
+	}
+	return he.Type == "ks_body_unknown_field" || strings.Contains(he.Message, "unknown field")
+}
+
 func serverImportPlan(cr hostedCreds, decl map[string]any) importServicePlan {
 	var env struct {
 		Data importServicePlan `json:"data"`
 	}
-	if err := hostedCall(cr, "POST", "/api/v2/imports", decl, &env); err != nil {
+	err := hostedCall(cr, "POST", "/api/v2/imports", decl, &env)
+	// deploy order: a service that knows no est_tokens refuses the field. Ask once
+	// more without the count (and so with no estimate): the declaration is
+	// changed in place, so the apply carries the one that was planned.
+	if src := asMap(decl["source"]); err != nil && src != nil && src["est_tokens"] != nil && unknownFieldRefusal(err) {
+		delete(src, "est_tokens")
+		delete(src, "est_compacted")
+		env.Data = importServicePlan{}
+		err = hostedCall(cr, "POST", "/api/v2/imports", decl, &env)
+	}
+	if err != nil {
 		die(err)
 	}
 	if len(env.Data.Digest) != 64 {
@@ -286,11 +306,15 @@ func importPlanDoc(p *importPrep, set importSettings, svc importServicePlan) map
 	if p.Files != nil {
 		files = map[string]any{"included": true, "folder": p.Files.To, "files": len(p.Files.Entries), "bytes": p.Files.Content, "head": p.Head, "dirty": p.Dirty, "left_out": len(p.Files.Skipped)}
 	}
-	return map[string]any{"digest": svc.Digest, "mode": p.Mode, "tool": p.Tool, "session_id": p.Info.ID, "turns": p.Turns,
+	doc := map[string]any{"digest": svc.Digest, "mode": p.Mode, "tool": p.Tool, "session_id": p.Info.ID, "turns": p.Turns,
 		"bytes_before": p.Info.Size, "bytes": p.Bytes, "redactions": map[string]int(p.Redactions), "stripped": map[string]int(p.Stripped),
 		"paths_rewritten": p.Rewritten, "files": files, "best_effort": p.Tool == "cursor",
 		"target": map[string]any{"harness": set.harness, "model": set.model, "key": set.key, "name": set.name},
 		"lines":  lines}
+	if svc.Plan.Estimate != nil {
+		doc["estimate"] = svc.Plan.Estimate // additive: the service's estimate of the first reply's cost
+	}
+	return doc
 }
 
 func importShowPlan(p *importPrep, set importSettings, svc importServicePlan, inv *Invocation) {
@@ -444,7 +468,7 @@ func importExecute(cr hostedCreds, inv *Invocation, p *importPrep, set importSet
 	}
 	// apply is idempotent on the service (the same digest and upload place
 	// once), so a lost answer is asked again by running the command again
-	err := hostedCallWith(longClient(55*time.Minute), cr, "POST", "/api/v2/imports/apply", body, &env)
+	err := hostedCallWith(ctx, longClient(55*time.Minute), cr, "POST", "/api/v2/imports/apply", body, &env)
 	if placing {
 		failPrelude = nil
 		if err == nil {
@@ -452,6 +476,10 @@ func importExecute(cr hostedCreds, inv *Invocation, p *importPrep, set importSet
 		} else {
 			steps.Fail("Could not place the conversation", "")
 		}
+	}
+	if err != nil && ctx.Err() != nil { // Ctrl-C: stop at once, and say what is true
+		fail(&cliError{Code: exitInterrupt, Kind: "interrupted", WorkStarted: workYes,
+			Message: "The placement may still finish on KeepState. Run the same command again to see it.", NextAction: again})
 	}
 	if err != nil {
 		fail(&cliError{Code: exitFailed, Kind: "import_not_applied", WorkStarted: workYes,

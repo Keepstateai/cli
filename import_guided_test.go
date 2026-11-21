@@ -67,6 +67,7 @@ func (e *importEnv) ptyImport(steps []keyStep, args ...string) (string, int) {
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	seen := 0
+	lastKey := time.Now()
 	for _, st := range steps {
 		deadline := time.Now().Add(60 * time.Second)
 		for {
@@ -88,8 +89,16 @@ func (e *importEnv) ptyImport(steps []keyStep, args ...string) (string, int) {
 		}
 		time.Sleep(150 * time.Millisecond) // the screen is up and the program is reading keys
 		_, _ = in.Write([]byte(st.keys))
+		lastKey = time.Now()
 	}
-	err := <-done
+	var err error
+	select {
+	case err = <-done:
+	case <-time.After(30 * time.Second): // its own deadline: a hang fails here, not at -timeout
+		_ = cmd.Process.Kill()
+		e.t.Fatalf("the command did not end within 30 s:\n%s", buf.String())
+	}
+	e.lastExit = time.Since(lastKey)
 	in.Close()
 	code := 0
 	if ee, ok := err.(*exec.ExitError); ok {

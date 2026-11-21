@@ -38,6 +38,11 @@ type importCtl struct {
 	failAfter int            // when > 0, chunks after this many have been taken answer 503
 	taken     int            // chunks taken so far
 	estimate  map[string]any // the plan route answers this estimate when set
+	// an older service: it refuses a declaration that carries est_tokens, as a
+	// service that knows no such field does
+	rejectEst     bool
+	applyDelay    time.Duration // the apply answers this late (a slow placement)
+	completeDelay time.Duration // the upload's complete answers this late
 }
 
 type fakeImportUpload struct {
@@ -109,6 +114,22 @@ func (c *importCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"schema_version": 2, "error": map[string]any{"code": typ, "type": typ, "message": msg, "work_started": "no"}})
 	}
 	base := "/api/v2/sessions/session_abc123/uploads"
+	if r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/complete") && c.completeDelay > 0 {
+		select { // a caller that gave up ends the wait
+		case <-time.After(c.completeDelay):
+		case <-r.Context().Done():
+		}
+	}
+	if r.Method == "POST" && r.URL.Path == "/api/v2/imports/apply" && c.applyDelay > 0 {
+		select {
+		case <-time.After(c.applyDelay):
+		case <-r.Context().Done():
+		}
+	}
+	if r.Method == "POST" && (r.URL.Path == "/api/v2/imports" || r.URL.Path == "/api/v2/imports/apply") && c.rejectEst && bytes.Contains(body, []byte(`"est_tokens"`)) {
+		refuse(400, "ks_body_unknown_field", "the request body carries a field this route does not take: json: unknown field \"est_tokens\"")
+		return
+	}
 	if r.Method == "PUT" && strings.HasPrefix(r.URL.Path, base) {
 		c.imu.Lock()
 		delay, failAfter, taken := c.putDelay, c.failAfter, c.taken
@@ -271,13 +292,14 @@ func (c *importCtl) upload(kind string) *fakeImportUpload {
 }
 
 type importEnv struct {
-	t    *testing.T
-	c    *importCtl
-	bin  string
-	cfg  string
-	home string
-	dir  string
-	env  []string
+	t        *testing.T
+	c        *importCtl
+	bin      string
+	cfg      string
+	home     string
+	dir      string
+	env      []string
+	lastExit time.Duration // how long the command took to end after the last key a pty test typed
 }
 
 func (e *importEnv) run(args ...string) (string, string, int) {

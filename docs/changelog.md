@@ -17,6 +17,11 @@
   safe) and placing. One line per 10% without a terminal; none with `--json`.
   Ctrl-C stops at a chunk and says what was kept; running the same command
   continues.
+- Against a service that does not know the token-count field yet, the plan
+  asks again without it and shows no estimate. Ctrl-C while the conversation
+  is being placed now stops at once (exit 130) and says the placement may still
+  finish on KeepState and to run the same command again. `--yes` at a terminal
+  takes the conversation only for the files question instead of asking.
 - The size limit is 1 GB (was 50 MB), the file is read as a stream, and the
   "Next:" command of an over-limit refusal now runs as given. The plan says
   when the conversation is open in the tool right now.

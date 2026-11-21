@@ -863,9 +863,13 @@ func (u *uploader) complete() uploadView {
 		}
 		time.Sleep(uploadBackoff(round))
 	}
+	if u.ctx.Err() != nil { // Ctrl-C while the session checks and places it
+		die(&cliError{Code: exitInterrupt, Kind: "interrupted", WorkStarted: workYes,
+			Message: "The placement may still finish on KeepState. Run the same command again to see it.", NextAction: u.again()})
+	}
 	if transient(err) {
 		die(&cliError{Code: exitTemporary, Kind: "upload_unconfirmed", WorkStarted: workUnknown,
-			Message:    fmt.Sprintf("every byte arrived, but whether the session placed the upload is not known (%s)", sanitize(err.Error())),
+			Message:    fmt.Sprintf("every byte arrived, but the session's answer to the final check did not come (%s), so whether it verified or placed the upload is not known", sanitize(err.Error())),
 			NextAction: u.again()})
 	}
 	die(u.refusal(err, "Every byte arrived and nothing was placed."))

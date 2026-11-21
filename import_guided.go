@@ -138,7 +138,10 @@ func igChoose(title string, items []string, def int) int {
 			fmt.Fprintf(w, "  %d  %s\n", i+1, it)
 		}
 		fmt.Fprintf(w, "Choose 1-%d [%d]: ", len(items), def+1)
-		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+		line, rerr := bufio.NewReader(os.Stdin).ReadString('\n')
+		if rerr != nil && strings.TrimSpace(line) == "" { // end of input (Ctrl-D) is a cancel, never an Enter
+			return -1
+		}
 		line = strings.TrimSpace(line)
 		if line == "" {
 			return def
@@ -462,7 +465,7 @@ func importGuided(inv *Invocation, tool string) {
 	p := prepareImport(inv, tool)
 	closeP := func() { p.Close() }
 	defer func() { closeP() }()
-	if !inv.Bool("with-files") && !inv.Bool("no-files") {
+	if !inv.Bool("with-files") && !inv.Bool("no-files") && !out.yes { // --yes takes the default: the conversation only
 		if top, plan, ok := guidedFilesProbe(inv, p); ok {
 			total := p.Bytes
 			conv := fmt.Sprintf("conversation only %s", kitBytes(total))

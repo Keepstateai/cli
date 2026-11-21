@@ -6,6 +6,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -138,7 +139,7 @@ func hostedError(method, path string, resp *http.Response, raw []byte) error {
 // "/api/sessions" or "/api/sessions/<id>/meter". body is marshalled as
 // JSON, except a []byte, which is sent as the JSON it already is.
 func hostedCall(cr hostedCreds, method, path string, body any, out any) error {
-	return hostedCallWith(ordinaryClient(), cr, method, path, body, out)
+	return hostedCallWith(context.Background(), ordinaryClient(), cr, method, path, body, out)
 }
 
 // longClient waits up to wait for the answer (a placement that reads a large
@@ -160,7 +161,7 @@ func longClient(wait time.Duration) *http.Client {
 	}
 }
 
-func hostedCallWith(client *http.Client, cr hostedCreds, method, path string, body any, out any) error {
+func hostedCallWith(ctx context.Context, client *http.Client, cr hostedCreds, method, path string, body any, out any) error {
 	var r io.Reader
 	switch b := body.(type) {
 	case nil:
@@ -170,7 +171,7 @@ func hostedCallWith(client *http.Client, cr hostedCreds, method, path string, bo
 		enc, _ := json.Marshal(b)
 		r = bytes.NewReader(enc)
 	}
-	req, err := http.NewRequest(method, strings.TrimRight(cr.CTL, "/")+path, r)
+	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(cr.CTL, "/")+path, r)
 	if err != nil {
 		return err
 	}
