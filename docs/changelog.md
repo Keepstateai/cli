@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- `ks import claude-code|codex|cursor --latest` (or `--session ID`) now just
+  works: it shows the plan, asks "Import this conversation? [y/N]" at a
+  terminal and imports from the same reading of the file. `--yes` skips the
+  question; without a terminal, or with `--no-input` and no `--yes`, it stops
+  after the plan and names the command to run. `--plan`, `--execute DIGEST`
+  and `--json` keep their forms (`--json` without `--yes` is the plan). The
+  size limit is 2 GB (was 50 MB), the file is read as a stream, and the
+  "Next:" command of an over-limit refusal now runs as given. The plan says
+  when the conversation is open in the tool right now.
 - The Claude Code plugin now runs `@keepstateai/cli@0.1.46`.
 
 ## v0.1.46 (2026-11-16)

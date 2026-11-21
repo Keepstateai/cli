@@ -816,7 +816,7 @@ func (u *uploader) complete() uploadView {
 	long := &http.Client{Transport: &http.Transport{
 		DialContext:           (&net.Dialer{Timeout: 30 * time.Second}).DialContext,
 		TLSHandshakeTimeout:   30 * time.Second,
-		ResponseHeaderTimeout: 15 * time.Minute, // checking and unpacking 1 GB
+		ResponseHeaderTimeout: 30 * time.Minute, // checking and unpacking 1 GB, or reading a 2 GB conversation
 		Proxy:                 http.ProxyFromEnvironment,
 	}}
 	route := uploadsBase(u.sess) + "/" + url.PathEscape(u.view.UploadID) + "/complete"

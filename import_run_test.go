@@ -422,6 +422,7 @@ func TestImportPlanRefusesAtTheSizeLimitBeforeAskingTheService(t *testing.T) {
 	p := filepath.Join(e.home, ".claude", "projects", "-p", claudeSID+".jsonl")
 	_ = os.MkdirAll(filepath.Dir(p), 0o755)
 	_ = os.WriteFile(p, []byte(b.String()), 0o600)
+	e.env = append(e.env, "KS_IMPORT_MAX_BYTES=50000000") // the limit is 2 GB; a lower one makes a small file enough
 	_, errs, code := e.run("import", "claude-code", "--latest", "--plan")
 	if code != exitConflict || !strings.Contains(errs, "the limit is 50 MB (50,000,000 bytes)") || !strings.Contains(errs, "Nothing was sent") || !strings.Contains(errs, "--brief") {
 		t.Fatalf("over the limit: %d\n%s", code, errs)
@@ -595,8 +596,9 @@ func TestImportExecuteRefusesAWrongOrStaleDigestAndCreatesNothing(t *testing.T) 
 	if code != exitUsage {
 		t.Fatalf("both: %d\n%s", code, errs)
 	}
+	// neither: the plan is shown and, with no terminal, it stops and says what to run
 	_, errs, code = e.run(args...)
-	if code != exitUsage || !strings.Contains(errs, "planned first") {
+	if code != exitUsage || strings.Contains(errs, "planned first") || !strings.Contains(errs, "--yes") {
 		t.Fatalf("neither: %d\n%s", code, errs)
 	}
 }

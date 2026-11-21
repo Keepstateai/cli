@@ -16,14 +16,17 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 type importServicePlan struct {
@@ -39,6 +42,9 @@ func (p *importPrep) localLines(set importSettings) []string {
 	var l []string
 	label := importToolLabel(p.Tool)
 	add := func(f string, a ...any) { l = append(l, sanitize(fmt.Sprintf(f, a...))) }
+	if p.Tool != "cursor" && !p.Info.ModTime.IsZero() && time.Since(p.Info.ModTime) < 2*time.Minute {
+		add("This conversation is open in %s right now; what you say after this point stays behind.", label)
+	}
 	switch p.Tool {
 	case "cursor":
 		add("Cursor chat %s%s: %d turns of text. Cursor's storage is not documented, so reading it is best effort. Cursor is not an agent KeepState runs, so nothing is resumed: the chat goes across as a written summary.", p.Info.ID, nameWords(p.Info.Model, ", model "), p.Turns)
@@ -168,9 +174,6 @@ func importSessionName(p *importPrep) string {
 func importTool(tool string) func(*Invocation) {
 	return func(inv *Invocation) {
 		write := inv.Set("out")
-		if !write && inv.Bool("plan") == (inv.Str("execute") != "") {
-			importUsage("an import is planned first (--plan) and executed by naming that plan's digest (--execute DIGEST): one of the two. Nothing was created", "ks import "+tool+" --latest --plan")
-		}
 		if inv.Bool("plan") && inv.Set("execute") {
 			importUsage("--plan and --execute are two steps: one of them. Nothing was created", "")
 		}
@@ -191,6 +194,10 @@ func importTool(tool string) func(*Invocation) {
 			importShowPlan(p, set, svc, inv)
 			return
 		}
+		if !inv.Set("execute") {
+			importBare(cr, inv, p, set, svc)
+			return
+		}
 		want := strings.ToLower(strings.TrimSpace(inv.Str("execute")))
 		if !digestSafe.MatchString(want) || want != svc.Digest {
 			fail(&cliError{Code: exitFailed, Kind: "plan_changed", Message: "the session changed since the plan was made (or this is not that plan's digest), so nothing was created. Plan again and execute the new digest",
@@ -202,18 +209,36 @@ func importTool(tool string) func(*Invocation) {
 
 // importReplayArgs is the command line's flags again with one added.
 func importReplayArgs(inv *Invocation, extra string) string {
+	return strings.Join(append(importFlagParts(inv, nil), extra), " ")
+}
+
+// importFlagParts is the command line's flags again, leaving out the named ones.
+func importFlagParts(inv *Invocation, skip map[string]bool) []string {
 	var parts []string
 	for _, f := range []string{"latest", "with-files", "brief"} {
-		if inv.Bool(f) {
+		if inv.Bool(f) && !skip[f] {
 			parts = append(parts, "--"+f)
 		}
 	}
 	for _, f := range []string{"session", "chat", "project", "store", "name", "model", "key", "budget", "harness"} {
-		if inv.Set(f) {
+		if inv.Set(f) && !skip[f] {
 			parts = append(parts, "--"+f, shellWord(inv.Str(f)))
 		}
 	}
-	return strings.Join(append(parts, extra), " ")
+	return parts
+}
+
+// importSessionCommand is the command that imports this one session, with the
+// same other flags and one added: what a "Next:" line names when the session
+// itself, not the newest one, is what it is about.
+func importSessionCommand(inv *Invocation, tool, id, extra string) string {
+	parts := importFlagParts(inv, map[string]bool{"latest": true, "session": true, "chat": true, "brief": true})
+	if tool == "cursor" {
+		parts = append(parts, "--chat", id)
+	} else {
+		parts = append(parts, "--session", id)
+	}
+	return strings.TrimSpace("ks import " + tool + " " + strings.Join(append(parts, extra), " "))
 }
 
 func importPlanDoc(p *importPrep, set importSettings, svc importServicePlan) map[string]any {
@@ -232,13 +257,47 @@ func importPlanDoc(p *importPrep, set importSettings, svc importServicePlan) map
 func importShowPlan(p *importPrep, set importSettings, svc importServicePlan, inv *Invocation) {
 	doc := importPlanDoc(p, set, svc)
 	emit(doc, func() {
-		fmt.Println("Import plan (nothing has been created):")
-		for _, l := range doc["lines"].([]string) {
-			fmt.Println("  " + l)
-		}
+		printImportPlan(doc)
 		fmt.Printf("plan digest: %s\n", svc.Digest)
 		fmt.Printf("to do it: ks import %s %s\n", p.Tool, importReplayArgs(inv, "--execute "+svc.Digest))
 	})
+}
+
+func printImportPlan(doc map[string]any) {
+	fmt.Println("Import plan (nothing has been created):")
+	for _, l := range doc["lines"].([]string) {
+		fmt.Println("  " + l)
+	}
+}
+
+// importBare is the command with neither --plan nor --execute: it plans, shows
+// the plan, asks (at a terminal) and executes from the same reading of the
+// conversation, so a session that is still being written cannot make the
+// plan's digest stale. --json without --yes is the plan's document.
+func importBare(cr hostedCreds, inv *Invocation, p *importPrep, set importSettings, svc importServicePlan) {
+	if out.json && !out.yes {
+		importShowPlan(p, set, svc, inv)
+		return
+	}
+	if !out.json {
+		printImportPlan(importPlanDoc(p, set, svc))
+	}
+	yes := "ks import " + p.Tool + " " + importReplayArgs(inv, "--yes")
+	switch {
+	case out.yes:
+	case out.noInput || !stdinIsTerminal():
+		fail(&cliError{Code: exitUsage, Kind: "confirmation_required",
+			Message:    "this import needs your yes and this terminal cannot ask for it. Nothing was created. Read the plan above, then run the command below to do it",
+			NextAction: yes})
+	default:
+		fmt.Fprint(os.Stderr, "Import this conversation? [y/N] ")
+		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+		if a := strings.ToLower(strings.TrimSpace(line)); a != "y" && a != "yes" {
+			fmt.Println("Nothing was created.")
+			return
+		}
+	}
+	importExecute(cr, inv, p, set, svc)
 }
 
 func importWriteOut(p *importPrep, dst string) {
@@ -246,25 +305,27 @@ func importWriteOut(p *importPrep, dst string) {
 	if err != nil {
 		fail(&cliError{Code: exitUsage, Kind: "usage", Message: fmt.Sprintf("%s cannot be written (%v); an existing file is never replaced. Nothing else was done", visible(sanitize(dst)), sanitize(err.Error()))})
 	}
-	var data []byte
+	// a conversation can be 2 GB: it is copied as a stream, never held whole
+	var n int64
 	if p.Mode == "brief" {
-		data = []byte(p.Brief)
+		k, werr := f.WriteString(p.Brief)
+		n, err = int64(k), werr
 	} else {
-		data, err = os.ReadFile(p.Out)
-		if err != nil {
-			f.Close()
-			die(err)
+		var src *os.File
+		if src, err = os.Open(p.Out); err == nil {
+			n, err = io.Copy(f, src)
+			src.Close()
 		}
 	}
-	if _, err := f.Write(data); err != nil {
+	if err != nil {
 		f.Close()
 		die(err)
 	}
 	if err := f.Close(); err != nil {
 		die(err)
 	}
-	emit(map[string]any{"out": dst, "mode": p.Mode, "bytes": len(data), "sha256": p.SHA256, "redactions": map[string]int(p.Redactions), "stripped": map[string]int(p.Stripped), "paths_rewritten": p.Rewritten}, func() {
-		fmt.Printf("wrote %s (%s, sha256 %s); nothing was sent and nothing was created. Secrets replaced: %s.\n", visible(sanitize(dst)), bytesText(int64(len(data))), short64(p.SHA256), p.Redactions.words())
+	emit(map[string]any{"out": dst, "mode": p.Mode, "bytes": n, "sha256": p.SHA256, "redactions": map[string]int(p.Redactions), "stripped": map[string]int(p.Stripped), "paths_rewritten": p.Rewritten}, func() {
+		fmt.Printf("wrote %s (%s, sha256 %s); nothing was sent and nothing was created. Secrets replaced: %s.\n", visible(sanitize(dst)), bytesText(n), short64(p.SHA256), p.Redactions.words())
 	})
 }
 
@@ -345,7 +406,7 @@ func importExecute(cr hostedCreds, inv *Invocation, p *importPrep, set importSet
 	}
 	// apply is idempotent on the service (the same digest and upload place
 	// once), so a lost answer is asked again by running the command again
-	if err := hostedCall(cr, "POST", "/api/v2/imports/apply", body, &env); err != nil {
+	if err := hostedCallWith(longClient(100*time.Minute), cr, "POST", "/api/v2/imports/apply", body, &env); err != nil {
 		fail(&cliError{Code: exitFailed, Kind: "import_not_applied", WorkStarted: workYes,
 			Message:    "the session and the uploads are in place, but the service did not apply the import: " + sanitize(errText(err)),
 			NextAction: again + " (it continues from here and creates nothing new)"})

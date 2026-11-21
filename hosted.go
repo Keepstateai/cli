@@ -10,9 +10,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 type hostedCreds struct {
@@ -136,6 +138,29 @@ func hostedError(method, path string, resp *http.Response, raw []byte) error {
 // "/api/sessions" or "/api/sessions/<id>/meter". body is marshalled as
 // JSON, except a []byte, which is sent as the JSON it already is.
 func hostedCall(cr hostedCreds, method, path string, body any, out any) error {
+	return hostedCallWith(ordinaryClient(), cr, method, path, body, out)
+}
+
+// longClient waits up to wait for the answer (a placement that reads a large
+// file on the service's side), however long the ordinary bound is; a shorter
+// KS_HTTP_TIMEOUT_MS still wins, so a test is never slowed by it.
+func longClient(wait time.Duration) *http.Client {
+	connect, response := scaledTimeouts()
+	if response < wait && response != responseTimeout {
+		wait = response
+	}
+	return &http.Client{
+		Timeout: wait,
+		Transport: &http.Transport{
+			DialContext:           (&net.Dialer{Timeout: connect}).DialContext,
+			TLSHandshakeTimeout:   connect,
+			ResponseHeaderTimeout: wait,
+			Proxy:                 http.ProxyFromEnvironment,
+		},
+	}
+}
+
+func hostedCallWith(client *http.Client, cr hostedCreds, method, path string, body any, out any) error {
 	var r io.Reader
 	switch b := body.(type) {
 	case nil:
@@ -152,7 +177,7 @@ func hostedCall(cr hostedCreds, method, path string, body any, out any) error {
 	req.Header.Set("Authorization", "Bearer "+cr.Token)
 	req.Header.Set(protocolHeader, clientProtocolText)
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := ordinaryClient().Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return transportErr{err: err, mutation: method != "GET"}
 	}

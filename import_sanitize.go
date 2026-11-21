@@ -29,11 +29,23 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
 
-const importMaxBytes = 50_000_000
+// importMaxBytes is the most a conversation may be once what must not travel
+// is taken out: 2 GB (2,000,000,000 bytes, the decimal gigabyte).
+const importMaxBytes = 2_000_000_000
+
+// importLimit is the limit in force. KS_IMPORT_MAX_BYTES may only lower it,
+// so a test needs no 2 GB file.
+func importLimit() int64 {
+	if v, err := strconv.ParseInt(os.Getenv("KS_IMPORT_MAX_BYTES"), 10, 64); err == nil && v > 0 && v < importMaxBytes {
+		return v
+	}
+	return importMaxBytes
+}
 
 // transcriptInfo is what a light read of a transcript says about it: no
 // message text, only identity and counts.

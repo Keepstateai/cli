@@ -352,11 +352,11 @@ func prepareImport(inv *Invocation, tool string) *importPrep {
 		p.Bytes, p.SHA256, p.Stripped, p.Rewritten = res.Bytes, res.SHA256, res.Stripped, res.PathsRewritten
 		p.Redactions.add(res.Redactions)
 		p.Out = res.OutPath
-		if set.mode == "conversation" && p.Bytes > importMaxBytes {
+		if limit := importLimit(); set.mode == "conversation" && p.Bytes > limit {
 			fail(&cliError{Code: exitConflict, Kind: "import_too_large",
-				Message: fmt.Sprintf("this session is %s (%s bytes) once what must not travel is taken out; the limit is %s (%s bytes). Nothing was sent. Start a new session in %s from a shorter one, or import it as a written summary with --brief",
-					bytesText(p.Bytes), commas(p.Bytes), bytesText(importMaxBytes), commas(importMaxBytes), tool),
-				NextAction: "ks import " + tool + " --session " + p.Info.ID + " --brief"})
+				Message: fmt.Sprintf("this session is %s (%s bytes) once what must not travel is taken out, and the limit is %s (%s bytes). Nothing was sent. Import a written summary of it instead, or start from a shorter session",
+					bytesText(p.Bytes), commas(p.Bytes), bytesText(limit), commas(limit)),
+				NextAction: importSessionCommand(inv, tool, p.Info.ID, "--brief")})
 		}
 	}
 	if set.mode == "brief" {
