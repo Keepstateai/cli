@@ -36,7 +36,7 @@ const (
 var globalFlags = []Flag{
 	{Name: "json", Kind: flagBool, Summary: "stable JSON on stdout: schema_version, request_id, data or error; progress stays on stderr"},
 	{Name: "plain", Kind: flagBool, Summary: "one fact per line, no alignment or colour (the human output is already plain; this pins it)"},
-	{Name: "no-color", Kind: flagBool, Summary: "no colour codes (this release prints none; accepted so scripts can pass it)"},
+	{Name: "no-color", Kind: flagBool, Summary: "no colour codes; colour is also off in a pipe, in a file, in CI and when the terminal asks for none"},
 	{Name: "quiet", Kind: flagBool, Summary: "no progress lines on stderr; results and errors still print"},
 	{Name: "no-input", Kind: flagBool, Summary: "never prompt or open a browser; a decision that needs you fails with exit 2 and the flag to pass"},
 	{Name: "yes", Kind: flagBool, Summary: "skip a displayed confirmation when every input is already exact; never a grant, budget, approval or trust, and of the deletion plans only ks key delete's, which it shows first"},
@@ -44,15 +44,15 @@ var globalFlags = []Flag{
 }
 
 type outputSettings struct {
-	json, plain, quiet, noInput, yes bool
-	requestID                        string
+	json, plain, noColor, quiet, noInput, yes bool
+	requestID                                 string
 }
 
 var out outputSettings
 
 // applyGlobals reads the global flags of a parsed invocation once.
 func applyGlobals(inv *Invocation) error {
-	out = outputSettings{json: inv.Bool("json"), plain: inv.Bool("plain"), quiet: inv.Bool("quiet"), noInput: inv.Bool("no-input"), yes: inv.Bool("yes"), requestID: "req_" + newIdempotencyKey()[5:17]}
+	out = outputSettings{json: inv.Bool("json"), plain: inv.Bool("plain"), noColor: inv.Bool("no-color"), quiet: inv.Bool("quiet"), noInput: inv.Bool("no-input"), yes: inv.Bool("yes"), requestID: "req_" + newIdempotencyKey()[5:17]}
 	if inv.Set("wait-timeout") {
 		d, err := time.ParseDuration(inv.Str("wait-timeout"))
 		if err != nil || d <= 0 {
@@ -121,6 +121,12 @@ type cliError struct {
 	// message above is the summary of it rather than the only copy of it.
 	// Errors that have no such facts carry none and read exactly as before.
 	Detail any `json:"detail,omitempty"`
+	// Title and Why are the words of the designed error block a person sees
+	// at a terminal: "Can't X" and one or two short sentences. Both are
+	// optional and never part of --json; when they are empty the block
+	// splits Message at its first "; " or ". ".
+	Title string   `json:"-"`
+	Why   []string `json:"-"`
 }
 
 // errorDetail is a Detail that can also state itself to a person. The block
@@ -270,6 +276,11 @@ func fail(err error) {
 		_ = enc.Encode(map[string]any{"schema_version": 2, "request_id": out.requestID, "error": ce})
 	} else if appChild() {
 		failInApp(ce)
+	} else if _, eu := cmdUI(); eu.tty && eu.t.on() {
+		// a person at a terminal with colour on: the designed block. Every
+		// other stream (--plain, NO_COLOR, a pipe, a file) gets the contract
+		// lines below, byte for byte.
+		renderError(eu, ce)
 	} else {
 		if d, ok := ce.Detail.(errorDetail); ok {
 			for _, line := range d.detailLines() {

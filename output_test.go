@@ -172,8 +172,9 @@ func TestExitTableAndNoInput(t *testing.T) {
 
 // VER-007-1: golden outputs for the states a script must recognise. The
 // snapshots live in testdata/golden; KS_UPDATE_GOLDEN=1 rewrites them.
-func TestGoldenOutputs(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// goldenServer is the fake control plane the golden outputs are read from.
+func goldenServer() *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.Method == "POST" && r.URL.Path == "/api/sessions":
@@ -190,6 +191,10 @@ func TestGoldenOutputs(t *testing.T) {
 			fmt.Fprint(w, `{"message":"not found"}`)
 		}
 	}))
+}
+
+func TestGoldenOutputs(t *testing.T) {
+	srv := goldenServer()
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)
 	cases := map[string][]string{
@@ -201,6 +206,8 @@ func TestGoldenOutputs(t *testing.T) {
 		"cruise-review-human": {"cruise", "status", "job_review"},
 		"usage-error-human":   {"run", "--buget", "1"},
 		"version-json":        {"version", "--json"},
+		"meter-missing-json":  {"meter", "nope", "--json"},
+		"meter-missing-plain": {"meter", "nope", "--plain"},
 	}
 	for name, args := range cases {
 		stdout, stderr, code := auditExec(t, bin, cfg, t.TempDir(), []string{"HOME=" + t.TempDir()}, args...)

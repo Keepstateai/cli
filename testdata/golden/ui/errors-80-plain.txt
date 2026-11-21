@@ -1,0 +1,23 @@
+✗ This session is 2.4 GB after cleanup
+│ The limit is 2 GB.
+│ Nothing was sent or created.
+
+Next: ks session show 2d1eb651
+
+✗ Unknown option --buget
+│ Did you mean --budget-tokens?
+
+Next: ks run --help
+
+✗ KeepState stopped answering after the upload
+│ It may have applied it.
+│ It is not known whether the work started.
+│ Don't run the same command again blindly.
+
+Next: ks operation show op_7Hc2
+
+✗ Can't finish the import
+│ Session 3f2a1c and the upload are in place, but KeepState didn't apply it.
+│ Some of the work had already started.
+
+Next: ks session show 3f2a1c

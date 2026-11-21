@@ -1,0 +1,4 @@
+exit 1
+--- stdout ---
+{"error":{"code":"http_404","message":"not found","work_started":"no","http_status":404},"request_id":"req_…","schema_version":2}
+--- stderr ---

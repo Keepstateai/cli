@@ -1,0 +1,24 @@
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mThis session is 2.4 GB after cleanup<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m The limit is 2 GB.
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks session show 2d1eb651<ESC>[0m
+
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mUnknown option --buget<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m Did you mean --budget-tokens?
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks run --help<ESC>[0m
+
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mKeepState stopped answering after the upload<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m It may have applied it.
+<ESC>[38;2;255;107;128m│<ESC>[0m It is not known whether the work started.
+<ESC>[38;2;255;107;128m│<ESC>[0m <ESC>[38;2;229;181;103mDon't run the same command again blindly.<ESC>[0m
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks operation show op_7Hc2<ESC>[0m
+
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mCan't finish the import<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m Session 3f2a1c and the upload are in place, but KeepState
+<ESC>[38;2;255;107;128m│<ESC>[0m didn't apply it.
+<ESC>[38;2;255;107;128m│<ESC>[0m Some of the work had already started.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks session show 3f2a1c<ESC>[0m

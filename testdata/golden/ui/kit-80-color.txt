@@ -1,0 +1,53 @@
+<ESC>[38;2;78;186;101m✓<ESC>[0m <ESC>[1mImported into session 3f2a1c<ESC>[0m
+  <ESC>[38;2;138;138;138mFrom<ESC>[0m        Claude Code session 2d1eb651 · ~/work/BulkPulse
+  <ESC>[38;2;138;138;138mSize<ESC>[0m        137 MB after cleanup (141 MB read)
+  <ESC>[38;2;138;138;138mMessages<ESC>[0m    1,204 of yours · 9,881 records
+  <ESC>[38;2;138;138;138mGoes up as<ESC>[0m  the conversation itself
+
+<ESC>[1mSessions on this machine<ESC>[0m  <ESC>[38;2;138;138;138m3 found<ESC>[0m
+  <ESC>[38;2;138;138;138mTOOL       <ESC>[0m  <ESC>[38;2;138;138;138mSESSION <ESC>[0m  <ESC>[38;2;138;138;138mPROJECT                       <ESC>[0m  <ESC>[38;2;138;138;138mLAST USED  <ESC>[0m  <ESC>[38;2;138;138;138m  SIZE<ESC>[0m
+  claude-code  2d1eb651  ~/work/projects/BulkPulse-main  open now     137 MB
+  claude-code  a91f03c2  ~/keepstate                     2 hours ago   48 MB
+  codex        77e1b0aa  ~/ks-ops                        yesterday    3.1 MB
+
+  <ESC>[38;2;138;138;138mThe agent's first reply re-reads the whole conversation, so it costs more than<ESC>[0m
+  <ESC>[38;2;138;138;138ma short message.<ESC>[0m
+
+<ESC>[38;2;229;181;103m!<ESC>[0m <ESC>[1mThis session is open in Claude Code right now<ESC>[0m
+  It was written 4 seconds ago. The import takes it as of now; later turns stay
+  on this machine.
+
+  <ESC>[38;2;138;138;138m•<ESC>[0m Reading the session...
+  <ESC>[38;2;78;186;101m✓<ESC>[0m Read the session                                                        <ESC>[38;2;138;138;138m0.8s<ESC>[0m
+  <ESC>[38;2;138;138;138m•<ESC>[0m Cleaning the conversation...
+  <ESC>[38;2;78;186;101m✓<ESC>[0m Cleaned 137 MB                                     <ESC>[38;2;138;138;138m3 secrets replaced · 2.1s<ESC>[0m
+  <ESC>[38;2;138;138;138m•<ESC>[0m Uploading the conversation...
+  <ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mUpload stopped at 44%<ESC>[0m                                                    <ESC>[38;2;138;138;138m12s<ESC>[0m
+  <ESC>[38;2;138;138;138m–<ESC>[0m Hand it to the agent                                                <ESC>[38;2;138;138;138mnot done<ESC>[0m
+
+    uploading the conversation: 10% (13.7 MB of 137 MB)
+    uploading the conversation: 20% (27.4 MB of 137 MB)
+    uploading the conversation: 30% (41.1 MB of 137 MB)
+    uploading the conversation: 40% (54.8 MB of 137 MB)
+    uploading the conversation: 50% (68.5 MB of 137 MB)
+    uploading the conversation: 60% (82.2 MB of 137 MB)
+    uploading the conversation: 70% (95.9 MB of 137 MB)
+    uploading the conversation: 80% (110 MB of 137 MB)
+    uploading the conversation: 90% (123 MB of 137 MB)
+    uploading the conversation: 100% (137 MB of 137 MB)
+  <ESC>[38;2;78;186;101m✓<ESC>[0m Uploaded the conversation                                      <ESC>[38;2;138;138;138m137 MB in 17s<ESC>[0m
+
+<ESC>[38;2;78;186;101m✓<ESC>[0m <ESC>[1mImported into session 3f2a1c<ESC>[0m
+  <ESC>[38;2;138;138;138mAgent<ESC>[0m    main (claude-code)
+  <ESC>[38;2;138;138;138mSecrets<ESC>[0m  3 replaced before upload
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks agent open main --session 3f2a1c<ESC>[0m
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks agent open main --session 3f2a1c<ESC>[0m
+      <ESC>[38;2;138;138;138mOpens the agent's window. Its first reply re-reads the whole conversation.<ESC>[0m
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks import list --cursor<ESC>[0m
+<ESC>[38;2;138;138;138m  or:<ESC>[0m <ESC>[38;2;215;95;120mks session list<ESC>[0m
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m
+  <ESC>[38;2;215;95;120mks session show 2d1eb651 --json --quiet --plain --no-input --wait-timeout 120s --yes --no-color<ESC>[0m

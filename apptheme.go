@@ -58,30 +58,51 @@ var (
 // enableAppTheme turns colour on for the app when the terminal can show it
 // and nobody asked for none.
 func enableAppTheme() {
-	th = appTheme{}
-	if os.Getenv("NO_COLOR") != "" || os.Getenv("KS_COLOR") == "0" || out.plain || !stdoutIsTerminal() {
-		return
+	th = detectTheme(os.Getenv, stdoutIsTerminal(), false)
+}
+
+// detectTheme decides colour for one stream. The app and the commands share
+// it: NO_COLOR (any non-empty value), KS_COLOR=0, TERM=dumb, --plain and
+// --no-color turn colour off. For commands (cmd true) --json, CI and a stream
+// that is not a terminal also turn it off, unless FORCE_COLOR or
+// CLICOLOR_FORCE says otherwise; NO_COLOR and the flags still win.
+func detectTheme(getenv func(string) string, tty, cmd bool) appTheme {
+	if getenv("NO_COLOR") != "" || getenv("KS_COLOR") == "0" || out.plain || out.noColor {
+		return appTheme{}
 	}
-	term := os.Getenv("TERM")
+	term := getenv("TERM")
 	if term == "dumb" {
-		return
+		return appTheme{}
 	}
+	if cmd {
+		force := getenv("FORCE_COLOR") != "" && getenv("FORCE_COLOR") != "0" || getenv("CLICOLOR_FORCE") != "" && getenv("CLICOLOR_FORCE") != "0"
+		if out.json {
+			return appTheme{}
+		}
+		if !force && (getenv("CI") != "" || !tty) {
+			return appTheme{}
+		}
+	} else if !tty {
+		return appTheme{}
+	}
+	t := appTheme{}
 	switch {
-	case os.Getenv("COLORTERM") == "truecolor" || os.Getenv("COLORTERM") == "24bit":
-		th.depth = colorTrue
+	case getenv("COLORTERM") == "truecolor" || getenv("COLORTERM") == "24bit":
+		t.depth = colorTrue
 	case strings.Contains(term, "256color"):
-		th.depth = color256
+		t.depth = color256
 	default:
-		th.depth = color16
+		t.depth = color16
 	}
 	// COLORFGBG="15;0" is light text on dark; "0;15" dark text on light
-	if v := os.Getenv("KS_THEME"); v != "" {
-		th.light = v == "light"
-	} else if f := os.Getenv("COLORFGBG"); f != "" {
+	if v := getenv("KS_THEME"); v != "" {
+		t.light = v == "light"
+	} else if f := getenv("COLORFGBG"); f != "" {
 		parts := strings.Split(f, ";")
 		bg := parts[len(parts)-1]
-		th.light = bg == "7" || bg == "15"
+		t.light = bg == "7" || bg == "15"
 	}
+	return t
 }
 
 func (t appTheme) on() bool { return t.depth != colorOff }
