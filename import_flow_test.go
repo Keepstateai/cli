@@ -35,10 +35,10 @@ func (e *importEnv) ready() {
 	e.c.runCtl.record = map[string]any{"id": "session_abc123", "runtime_state": "running"}
 }
 
-// The limit is 2 GB.
-func TestImportLimitIsTwoGB(t *testing.T) {
-	if importMaxBytes != 2_000_000_000 {
-		t.Fatalf("the import limit is %d, want 2,000,000,000", importMaxBytes)
+// The limit is 1 GB, the same as the generic upload cap.
+func TestImportLimitIsOneGB(t *testing.T) {
+	if importMaxBytes != 1_000_000_000 {
+		t.Fatalf("the import limit is %d, want 1,000,000,000", importMaxBytes)
 	}
 }
 

@@ -102,7 +102,7 @@ terminal you are guided and asked before anything is created (pick, files or not
 and without a terminal (or with `--no-input`) the command stops after the plan
 and names the command to run. `--plan` creates nothing and prints a digest,
 and `--execute` names it (a conversation that changed since is refused). A
-conversation over 2 GB (2,000,000,000 bytes) is refused: import it as a written
+conversation over 1 GB (1,000,000,000 bytes) is refused: import it as a written
 summary with `--brief`, or start from a shorter session. A session that was
 written in the last two minutes is open somewhere: the plan says that what you
 say after it stays behind. A

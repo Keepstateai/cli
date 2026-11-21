@@ -35,11 +35,12 @@ import (
 )
 
 // importMaxBytes is the most a conversation may be once what must not travel
-// is taken out: 2 GB (2,000,000,000 bytes, the decimal gigabyte).
-const importMaxBytes = 2_000_000_000
+// is taken out: 1 GB (1,000,000,000 bytes, the decimal gigabyte, the same cap
+// as every other upload).
+const importMaxBytes = 1_000_000_000
 
 // importLimit is the limit in force. KS_IMPORT_MAX_BYTES may only lower it,
-// so a test needs no 2 GB file.
+// so a test needs no 1 GB file.
 func importLimit() int64 {
 	if v, err := strconv.ParseInt(os.Getenv("KS_IMPORT_MAX_BYTES"), 10, 64); err == nil && v > 0 && v < importMaxBytes {
 		return v

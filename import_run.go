@@ -331,7 +331,7 @@ func importWriteOut(p *importPrep, dst string) {
 	if err != nil {
 		fail(&cliError{Code: exitUsage, Kind: "usage", Message: fmt.Sprintf("%s cannot be written (%v); an existing file is never replaced. Nothing else was done", visible(sanitize(dst)), sanitize(err.Error()))})
 	}
-	// a conversation can be 2 GB: it is copied as a stream, never held whole
+	// a conversation can be 1 GB: it is copied as a stream, never held whole
 	var n int64
 	if p.Mode == "brief" {
 		k, werr := f.WriteString(p.Brief)
@@ -444,7 +444,7 @@ func importExecute(cr hostedCreds, inv *Invocation, p *importPrep, set importSet
 	}
 	// apply is idempotent on the service (the same digest and upload place
 	// once), so a lost answer is asked again by running the command again
-	err := hostedCallWith(longClient(100*time.Minute), cr, "POST", "/api/v2/imports/apply", body, &env)
+	err := hostedCallWith(longClient(55*time.Minute), cr, "POST", "/api/v2/imports/apply", body, &env)
 	if placing {
 		failPrelude = nil
 		if err == nil {

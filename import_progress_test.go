@@ -183,8 +183,8 @@ func TestUploadBarThrottled300MB(t *testing.T) {
 	}
 }
 
-// The 2 GB limit: a sparse file, so the disk is not used and memory stays at a chunk.
-func TestUploadBarAtTheTwoGBLimit(t *testing.T) {
+// The 1 GB limit: a sparse file, so the disk is not used and memory stays at a chunk.
+func TestUploadBarAtTheOneGBLimit(t *testing.T) {
 	if testing.Short() {
 		t.Skip("short")
 	}
@@ -193,8 +193,8 @@ func TestUploadBarAtTheTwoGBLimit(t *testing.T) {
 		t.Skip("less than 15 GiB free")
 	}
 	ev, srv, _ := uploadSparse(t, importMaxBytes, 0, true)
-	checkBarRun(t, "2 GB", importMaxBytes, ev, srv)
-	if srv.puts != 120 { // 2,000,000,000 / 16 MiB, rounded up
+	checkBarRun(t, "1 GB", importMaxBytes, ev, srv)
+	if srv.puts != 60 { // 1,000,000,000 / 16 MiB, rounded up
 		t.Fatalf("%d chunks", srv.puts)
 	}
 }

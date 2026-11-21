@@ -450,7 +450,7 @@ func TestImportPlanRefusesAtTheSizeLimitBeforeAskingTheService(t *testing.T) {
 	p := filepath.Join(e.home, ".claude", "projects", "-p", claudeSID+".jsonl")
 	_ = os.MkdirAll(filepath.Dir(p), 0o755)
 	_ = os.WriteFile(p, []byte(b.String()), 0o600)
-	e.env = append(e.env, "KS_IMPORT_MAX_BYTES=50000000") // the limit is 2 GB; a lower one makes a small file enough
+	e.env = append(e.env, "KS_IMPORT_MAX_BYTES=50000000") // the limit is 1 GB; a lower one makes a small file enough
 	_, errs, code := e.run("import", "claude-code", "--latest", "--plan")
 	if code != exitConflict || !strings.Contains(errs, "the limit is 50 MB (50,000,000 bytes)") || !strings.Contains(errs, "Nothing was sent") || !strings.Contains(errs, "--brief") {
 		t.Fatalf("over the limit: %d\n%s", code, errs)

@@ -17,7 +17,7 @@
   safe) and placing. One line per 10% without a terminal; none with `--json`.
   Ctrl-C stops at a chunk and says what was kept; running the same command
   continues.
-- The size limit is 2 GB (was 50 MB), the file is read as a stream, and the
+- The size limit is 1 GB (was 50 MB), the file is read as a stream, and the
   "Next:" command of an over-limit refusal now runs as given. The plan says
   when the conversation is open in the tool right now.
 - The plan estimates what the first reply will cost (Sonnet 5.5 and Opus 5.5
