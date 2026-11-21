@@ -156,7 +156,7 @@ func importUsage(msg, next string) {
 // chooseTranscript answers the one session --latest or --session names.
 func chooseTranscript(tool string, inv *Invocation) transcriptInfo {
 	if inv.Bool("latest") == inv.Set("session") {
-		importUsage("name the session to import: --latest (the newest for this project) or --session ID. Nothing was sent", "ks import list")
+		importUsage("name the session to import: --latest (the newest for this project) or --session ID, and add --yes to import it without being asked. Nothing was sent", "ks import list")
 	}
 	all := localTranscripts(tool)
 	if inv.Set("session") {
@@ -344,7 +344,23 @@ func prepareImport(inv *Invocation, tool string) *importPrep {
 		}
 		p.CursorNote = fmt.Sprintf("%d turns read; %d headers had no message and were skipped", len(turns), cs.Orphans)
 	default:
+		passes := int64(1)
+		if tool == "claude-code" {
+			passes = 2 // the first pass pairs tool calls with their results, the second writes
+		}
+		bar := newXferBar("Cleaning", "cleaning", p.Info.Size*passes, 0)
+		bar.scale = passes
+		var read int64
+		if p.Info.Size > 0 {
+			importReadProg = func(n int64) { read += n; bar.update(read) }
+		}
 		res, err := sanitizeTranscript(p.Info, rw, sb, filepath.Join(tmp, "transcript.jsonl"))
+		importReadProg = nil
+		if err == nil && p.Info.Size > 0 {
+			bar.finish()
+		} else {
+			bar.leave()
+		}
 		if err != nil {
 			fail(&cliError{Code: exitFailed, Kind: "transcript_unreadable", Message: fmt.Sprintf("the %s session %s could not be read: %s. Nothing was sent", tool, p.Info.ID, sanitize(err.Error()))})
 		}
@@ -352,6 +368,10 @@ func prepareImport(inv *Invocation, tool string) *importPrep {
 		p.Bytes, p.SHA256, p.Stripped, p.Rewritten = res.Bytes, res.SHA256, res.Stripped, res.PathsRewritten
 		p.Redactions.add(res.Redactions)
 		p.Out = res.OutPath
+		if set.mode == "conversation" && p.Bytes == 0 {
+			fail(&cliError{Code: exitFailed, Kind: "import_empty", Message: "this session holds no messages to carry once what must not travel is taken out. Nothing was sent. Pick another session",
+				NextAction: "ks import list"})
+		}
 		if limit := importLimit(); set.mode == "conversation" && p.Bytes > limit {
 			fail(&cliError{Code: exitConflict, Kind: "import_too_large",
 				Message: fmt.Sprintf("this session is %s (%s bytes) once what must not travel is taken out, and the limit is %s (%s bytes). Nothing was sent. Import a written summary of it instead, or start from a shorter session",
@@ -447,7 +467,7 @@ func utcStamp(s string) string {
 
 func chooseCursorChat(inv *Invocation) (*cursorStore, *cursorChat) {
 	if inv.Bool("latest") == inv.Set("chat") {
-		importUsage("name the chat to import: --latest (the newest) or --chat ID. Nothing was sent", "ks import list --cursor")
+		importUsage("name the chat to import: --latest (the newest) or --chat ID, and add --yes to import it without being asked. Nothing was sent", "ks import list --cursor")
 	}
 	store := firstNonEmptyStr(inv.Str("store"), cursorDefaultStore())
 	cs, err := openCursorStore(store)

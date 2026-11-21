@@ -499,6 +499,11 @@ type uploader struct {
 	// againCmd, when set, is the command that continues this upload in the
 	// words of the command that started it (ks import)
 	againCmd string
+	// ackBar, when set, shows the upload as a bar counted in the bytes the
+	// service acknowledged (barEvents keeps what it showed, for a test)
+	ackBar    bool
+	bar       *xferBar
+	barEvents *[]barEvent
 }
 
 // again is the command that continues (or repeats) this upload.
@@ -675,6 +680,9 @@ func (u *uploader) progressLine(done int64) {
 }
 
 func (u *uploader) endProgress() {
+	if u.bar != nil {
+		u.bar.leave()
+	}
 	if u.tty && !out.quiet && !out.json && !u.lastAt.IsZero() {
 		fmt.Fprint(os.Stderr, "\r\x1b[K")
 	}
@@ -714,6 +722,10 @@ func (u *uploader) send() {
 	}
 	buf := make([]byte, chunk)
 	offset := u.view.Received
+	if u.ackBar && u.plan.Size > 0 {
+		u.bar = newXferBar("Uploading", "uploading", u.plan.Size, offset)
+		u.bar.events = u.barEvents
+	}
 	var src io.ReadCloser
 	reopen := func() {
 		if src != nil {
@@ -747,7 +759,11 @@ func (u *uploader) send() {
 		var err error
 		var rb []byte
 		for round := 0; ; round++ {
-			body := &countingReader{r: bytes.NewReader(buf[:n]), base: offset, on: u.progressLine}
+			on := u.progressLine
+			if u.bar != nil {
+				on = func(int64) {} // the bar counts what was acknowledged, not what was written
+			}
+			body := &countingReader{r: bytes.NewReader(buf[:n]), base: offset, on: on}
 			_, rb, err = uploadDo(u.ctx, u.cr, stream, "PUT", route, map[string]string{"Content-Type": "application/octet-stream", "X-KS-Chunk-SHA256": hex.EncodeToString(sum[:])}, body, n)
 			if err == nil || u.ctx.Err() != nil {
 				break
@@ -776,6 +792,9 @@ func (u *uploader) send() {
 				err = serr
 			} else {
 				u.view.Received, offset = v.Received, v.Received
+				if u.bar != nil {
+					u.bar.reset(v.Received)
+				}
 				reopen()
 				continue
 			}
@@ -805,7 +824,14 @@ func (u *uploader) send() {
 			offset = v.Received
 			reopen()
 		}
-		u.progressLine(offset)
+		if u.bar != nil {
+			u.bar.update(v.Received)
+		} else {
+			u.progressLine(offset)
+		}
+	}
+	if u.bar != nil && u.view.Received >= u.plan.Size {
+		u.bar.finish()
 	}
 	u.endProgress()
 }

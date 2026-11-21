@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // importCtl stands in for the control plane and the session's machine: what
@@ -32,7 +33,10 @@ type importCtl struct {
 	ups       map[string]*fakeImportUpload
 	failApply int // the next N applies answer a server error
 	applied   map[string]bool
-	refuse    string // when set, the plan route refuses with this message
+	refuse    string        // when set, the plan route refuses with this message
+	putDelay  time.Duration // each chunk is slow by this much (a slow link)
+	failAfter int           // when > 0, chunks after this many have been taken answer 503
+	taken     int           // chunks taken so far
 }
 
 type fakeImportUpload struct {
@@ -104,6 +108,21 @@ func (c *importCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"schema_version": 2, "error": map[string]any{"code": typ, "type": typ, "message": msg, "work_started": "no"}})
 	}
 	base := "/api/v2/sessions/session_abc123/uploads"
+	if r.Method == "PUT" && strings.HasPrefix(r.URL.Path, base) {
+		c.imu.Lock()
+		delay, failAfter, taken := c.putDelay, c.failAfter, c.taken
+		c.imu.Unlock()
+		if delay > 0 {
+			time.Sleep(delay)
+		}
+		if failAfter > 0 && taken >= failAfter {
+			refuse(503, "ks_unavailable", "the service is busy")
+			return
+		}
+		c.imu.Lock()
+		c.taken++
+		c.imu.Unlock()
+	}
 	switch {
 	case r.Method == "POST" && r.URL.Path == "/api/v2/imports":
 		var d map[string]any

@@ -2089,6 +2089,14 @@ func main() {
 	if c.Group {
 		// a head with no subcommand, or a help word: the group's usage
 		if len(rest) == 0 {
+			if c.Name() == "import" && guidedInteractive() {
+				importGuided(nil, "")
+				return
+			}
+			if c.Name() == "import" {
+				fmt.Fprintln(os.Stderr, "Name the tool and the session to import without being asked: ks import claude-code --latest --yes, or ks import codex --session ID --yes (ks import list shows them). Nothing was done.")
+				fmt.Fprintln(os.Stderr)
+			}
 			groupUsage(c)
 			os.Exit(2)
 		}

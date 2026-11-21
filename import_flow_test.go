@@ -1,13 +1,10 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -101,46 +98,6 @@ func TestImportBareJSONIsStable(t *testing.T) {
 	out, errs, code := e.run("import", "claude-code", "--latest", "--json", "--yes")
 	if code != 0 || decodeJSONOut(t, out)["import_id"] == nil && decodeJSONOut(t, out)["session_id"] == nil {
 		t.Fatalf("--json --yes: %d\n%s\n%s", code, out, errs)
-	}
-}
-
-// At a terminal the person is asked, and the answer decides.
-func TestImportAsksAtATerminal(t *testing.T) {
-	if _, err := exec.LookPath("script"); err != nil || runtime.GOOS == "windows" {
-		t.Skip("script(1) is not installed")
-	}
-	for _, answer := range []string{"n", "y"} {
-		e := newImportEnv(t)
-		e.ready()
-		args := []string{"import", "claude-code", "--latest"}
-		var cmd *exec.Cmd
-		if runtime.GOOS == "darwin" {
-			cmd = exec.Command("script", append([]string{"-q", "/dev/null", e.bin}, args...)...)
-		} else {
-			cmd = exec.Command("script", "-q", "-e", "-c", e.bin+" "+strings.Join(args, " "), "/dev/null")
-		}
-		cmd.Dir = e.dir
-		cmd.Env = append(append(os.Environ(), "XDG_CONFIG_HOME="+e.cfg), e.env...)
-		// the answer waits in the terminal's input; the pipe stays open until the
-		// run ends, because its end would be sent as end-of-file
-		in, _ := cmd.StdinPipe()
-		var b bytes.Buffer
-		cmd.Stdout, cmd.Stderr = &b, &b
-		_ = cmd.Start()
-		_, _ = in.Write([]byte(answer + "\n"))
-		_ = cmd.Wait()
-		in.Close()
-		got := b.String()
-		if !strings.Contains(got, "Import this conversation? [y/N]") {
-			t.Fatalf("answer %q: no question:\n%s", answer, got)
-		}
-		made := len(e.c.creations)
-		if answer == "n" && (made != 0 || !strings.Contains(got, "Nothing was created")) {
-			t.Fatalf("declined: %d created\n%s", made, got)
-		}
-		if answer == "y" && (made != 1 || !strings.Contains(got, "Imported Claude Code session")) {
-			t.Fatalf("accepted: %d created\n%s", made, got)
-		}
 	}
 }
 

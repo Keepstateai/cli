@@ -64,7 +64,12 @@ type transcriptInfo struct {
 	ModTime   time.Time `json:"-"`
 }
 
+// importReadProg, when set, is told how many bytes the sanitizing passes have
+// read in all (set only around sanitizeTranscript, never for a light read).
+var importReadProg func(n int64)
+
 func readImportLines(path string, f func(line []byte) error) error {
+	prog := importReadProg
 	fh, err := os.Open(path)
 	if err != nil {
 		return err
@@ -73,6 +78,9 @@ func readImportLines(path string, f func(line []byte) error) error {
 	r := bufio.NewReaderSize(fh, 1<<20)
 	for {
 		line, err := r.ReadBytes('\n')
+		if prog != nil {
+			prog(int64(len(line)))
+		}
 		if len(bytes.TrimSpace(line)) > 0 {
 			if ferr := f(line); ferr != nil {
 				return ferr

@@ -23,6 +23,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -116,6 +117,9 @@ func serverImportPlan(cr hostedCreds, decl map[string]any) importServicePlan {
 
 // ---- progress kept under the digest ----------------------------------------------
 
+// importBarEvents, when a test sets it, keeps what the conversation's upload bar showed.
+var importBarEvents *[]barEvent
+
 type importState struct {
 	SessionID string `json:"session_id"`
 	AgentID   string `json:"agent_id"`
@@ -174,6 +178,13 @@ func importSessionName(p *importPrep) string {
 func importTool(tool string) func(*Invocation) {
 	return func(inv *Invocation) {
 		write := inv.Set("out")
+		if inv.Bool("with-files") && inv.Bool("no-files") {
+			importUsage("--with-files and --no-files say opposite things: one of them. Nothing was created", "")
+		}
+		if bare := !write && !inv.Bool("plan") && !inv.Set("execute"); bare && guidedInteractive() {
+			importGuided(inv, tool)
+			return
+		}
 		if inv.Bool("plan") && inv.Set("execute") {
 			importUsage("--plan and --execute are two steps: one of them. Nothing was created", "")
 		}
@@ -330,6 +341,16 @@ func importWriteOut(p *importPrep, dst string) {
 }
 
 func importExecute(cr hostedCreds, inv *Invocation, p *importPrep, set importSettings, svc importServicePlan) {
+	// Ctrl-C during the uploads stops them at a chunk and says what was kept
+	ctx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stopSignals()
+	var placing *spinner
+	startPlacing := func() {
+		if placing == nil && p.Mode == "conversation" {
+			placing = startSpinner("Placing", "placing on the service")
+			failPrelude = func() { placing.end(false) }
+		}
+	}
 	st := loadImportState(svc.Digest)
 	if st.SessionID != "" && !sessionStillThere(cr, st.SessionID) {
 		st = importState{}
@@ -362,7 +383,7 @@ func importExecute(cr hostedCreds, inv *Invocation, p *importPrep, set importSet
 
 	if p.Files != nil && !st.FilesDone {
 		files := *p.Files
-		u := &uploader{ctx: context.Background(), cr: cr, inv: &Invocation{set: map[string]bool{"replace": true}, strs: map[string]string{}}, sess: sess, agent: "main", plan: &files, tty: stderrIsTerminal(), againCmd: again}
+		u := &uploader{ctx: ctx, cr: cr, inv: &Invocation{set: map[string]bool{"replace": true}, strs: map[string]string{}}, sess: sess, agent: "main", plan: &files, tty: stderrIsTerminal(), againCmd: again, ackBar: true}
 		progress("uploading the project's files: %s (%s) to %s", visible(files.Name), bytesText(files.Content), visible(p.Dest))
 		u.declare(false)
 		if u.view.State != "placed" {
@@ -375,11 +396,12 @@ func importExecute(cr hostedCreds, inv *Invocation, p *importPrep, set importSet
 	if p.Mode == "conversation" && !st.ConvDone {
 		plan := &uploadPlan{Kind: "file", Wire: "conversation", Name: "the conversation", Local: p.Out, To: p.Harness + "/" + p.ConvID, Mode: "0644",
 			Content: p.Bytes, Size: p.Bytes, SHA256: p.SHA256, Skipped: []uploadSkip{}}
-		u := &uploader{ctx: context.Background(), cr: cr, inv: quiet, sess: sess, agent: "main", plan: plan, tty: stderrIsTerminal(), againCmd: again}
+		u := &uploader{ctx: ctx, cr: cr, inv: quiet, sess: sess, agent: "main", plan: plan, tty: stderrIsTerminal(), againCmd: again, ackBar: true, barEvents: importBarEvents}
 		progress("uploading the conversation (%s)", bytesText(p.Bytes))
 		u.declare(false)
 		if u.view.State != "verified" && u.view.State != "placed" {
 			u.send()
+			startPlacing()
 			u.view = u.complete()
 		}
 		if u.view.State != "verified" && u.view.State != "placed" {
@@ -393,6 +415,7 @@ func importExecute(cr hostedCreds, inv *Invocation, p *importPrep, set importSet
 	if p.Mode == "conversation" {
 		body["upload_id"] = st.UploadID
 	}
+	startPlacing()
 	var env struct {
 		Data struct {
 			ImportID       string `json:"import_id"`
@@ -406,7 +429,12 @@ func importExecute(cr hostedCreds, inv *Invocation, p *importPrep, set importSet
 	}
 	// apply is idempotent on the service (the same digest and upload place
 	// once), so a lost answer is asked again by running the command again
-	if err := hostedCallWith(longClient(100*time.Minute), cr, "POST", "/api/v2/imports/apply", body, &env); err != nil {
+	err := hostedCallWith(longClient(100*time.Minute), cr, "POST", "/api/v2/imports/apply", body, &env)
+	if placing != nil {
+		placing.end(err == nil)
+		failPrelude = nil
+	}
+	if err != nil {
 		fail(&cliError{Code: exitFailed, Kind: "import_not_applied", WorkStarted: workYes,
 			Message:    "the session and the uploads are in place, but the service did not apply the import: " + sanitize(errText(err)),
 			NextAction: again + " (it continues from here and creates nothing new)"})
@@ -424,6 +452,7 @@ func importExecute(cr hostedCreds, inv *Invocation, p *importPrep, set importSet
 			what = "a written summary of it"
 		}
 		fmt.Printf("Imported %s session %s into session %s (agent main): %s is in place. %s\n", importToolLabel(p.Tool), visible(sanitize(p.Info.ID)), st.SessionID, what, sanitize(d.Message))
+		fmt.Printf("console: %s\n", consoleAgentsURL(cr, "#agent/"+firstNonEmptyStr(d.AgentID, st.AgentID)))
 		fmt.Printf("next: %s\n", nextSend)
 		fmt.Printf("      ks agent open main --session %s\n", st.SessionID)
 	})

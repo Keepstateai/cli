@@ -16,6 +16,7 @@ func importFlags(cursor bool) []Flag {
 	}
 	fs = append(fs,
 		Flag{Name: "project", Kind: flagString, Value: "DIR", Summary: "the project folder: which session --latest takes, and where --with-files reads the repository from"},
+		Flag{Name: "no-files", Kind: flagBool, Summary: "do not bring the project's files, and do not ask about them: the conversation only"},
 		Flag{Name: "with-files", Kind: flagBool, Summary: "bring the project's git repository at the session's folder (its files and history) into the new session's workspace, under the upload policy: .env files, credential-named files, node_modules and what .gitignore lists are left out"},
 		Flag{Name: "name", Kind: flagString, Value: "NAME", Summary: "the new session's name; default the project's folder name and \"import\""},
 		Flag{Name: "model", Kind: flagString, Value: "MODEL", Summary: "the model the new agent calls, one KeepState offers for its harness; default the service's"},
