@@ -65,6 +65,12 @@ type tokenMasker struct {
 	phase    maskPhase
 	resume   maskPhase // the phase an escape sequence returns to
 	hold     []byte    // a possible prefix of the token's prefix, not yet shown
+	holdRaw  []byte    // the same with the escape sequences seen inside it, in order
+	holdEsc  []byte    // just those escape sequences
+	scanEsc  int       // inside an escape sequence while holding a prefix (0 none)
+	scanCSI  bool      // that sequence is a CSI
+	holdCut  bool      // a sequence that is not a colour code came inside the prefix
+	prefCut  bool      // the prefix was completed across such a sequence
 	tok      []byte    // the first complete run of the token, captured
 	done     bool      // a token was captured; later ones are only hidden
 	runLen   int       // hidden characters in the current run, against the cap
@@ -99,7 +105,7 @@ func (m *tokenMasker) Write(p []byte) []byte {
 func (m *tokenMasker) Flush() []byte {
 	var out []byte
 	if m.phase == maskScan {
-		out = append(out, m.hold...)
+		out = append(out, m.holdRaw...)
 	}
 	out = append(out, m.pending...)
 	if len(m.escBuf) > 0 {
@@ -108,7 +114,8 @@ func (m *tokenMasker) Flush() []byte {
 	if len(m.hold) >= 3 {
 		m.partial = true
 	}
-	m.hold, m.pending, m.escBuf = nil, nil, nil
+	m.clearHold()
+	m.pending, m.escBuf = nil, nil
 	m.phase = maskScan
 	return out
 }
@@ -120,6 +127,8 @@ func (m *tokenMasker) Result() ([]byte, string) {
 	switch {
 	case m.overflow:
 		return nil, "overflow"
+	case m.started && m.prefCut:
+		return nil, "cut"
 	case m.started && m.tailMax >= claudePlanTailSuspect:
 		// the capture stopped at a break or a code and a long run of token
 		// characters followed it: the token was probably cut by a wrap or an
@@ -145,7 +154,9 @@ func (m *tokenMasker) Token() []byte {
 func (m *tokenMasker) Wipe() {
 	wipe(m.tok)
 	wipe(m.hold)
-	m.tok, m.hold = nil, nil
+	wipe(m.holdRaw)
+	wipe(m.holdEsc)
+	m.tok, m.hold, m.holdRaw, m.holdEsc = nil, nil, nil, nil
 }
 
 func wipe(b []byte) {
@@ -255,31 +266,92 @@ func (m *tokenMasker) finishEscape(out []byte) []byte {
 	return out
 }
 
+// scan passes bytes through while holding a possible start of the token. A
+// colour code, a cursor move or an erase in the middle of the prefix does not
+// hide it: the prefix is read across such codes, and the codes are shown. A
+// prefix completed across a code that is not a colour is hidden and not kept.
 func (m *tokenMasker) scan(out []byte, b byte) []byte {
+	if m.scanEsc != 0 {
+		return m.scanEscape(out, b)
+	}
+	if b == 0x1b && len(m.hold) > 0 {
+		m.scanEsc, m.scanCSI = 1, false
+		m.holdRaw = append(m.holdRaw, b)
+		m.holdEsc = append(m.holdEsc, b)
+		return out
+	}
 	// a byte that continues what is held is held too; one that does not
 	// releases the held bytes and is looked at again
 	cand := append(m.hold, b)
 	if bytes.HasPrefix([]byte(claudePlanTokenPrefix), cand) {
 		m.hold = cand
+		m.holdRaw = append(m.holdRaw, b)
 		if len(m.hold) == len(claudePlanTokenPrefix) {
-			m.hold = m.hold[:0]
+			out = append(out, m.holdEsc...)
+			m.prefCut = m.holdCut
+			m.clearHold()
 			m.phase = maskToken
 			return m.startRun(out)
 		}
 		return out
 	}
 	if len(m.hold) > 0 {
-		held := append([]byte(nil), m.hold...)
-		m.hold = m.hold[:0]
-		for _, h := range held {
+		for _, h := range m.hold {
 			m.trackColumn(h)
 		}
-		out = append(out, held...)
+		out = append(out, m.holdRaw...)
+		m.clearHold()
 		// the dropped bytes may hide a new start: 's' of "ssk-ant-oat"
 		return m.scan(out, b)
 	}
 	m.trackColumn(b)
 	return append(out, b)
+}
+
+func (m *tokenMasker) clearHold() {
+	m.hold, m.holdRaw, m.holdEsc = m.hold[:0], m.holdRaw[:0], m.holdEsc[:0]
+	m.holdCut, m.scanEsc, m.scanCSI = false, 0, false
+}
+
+// scanEscape follows an escape sequence met inside a held prefix.
+func (m *tokenMasker) scanEscape(out []byte, b byte) []byte {
+	m.holdRaw = append(m.holdRaw, b)
+	m.holdEsc = append(m.holdEsc, b)
+	end := func(sgr bool) []byte {
+		if !sgr {
+			m.holdCut = true
+		}
+		m.scanEsc, m.scanCSI = 0, false
+		return out
+	}
+	switch m.scanEsc {
+	case 1:
+		switch b {
+		case '[':
+			m.scanEsc, m.scanCSI = 2, true
+		case ']':
+			m.scanEsc = 3
+		default:
+			return end(false)
+		}
+	case 2:
+		if b >= 0x40 && b <= 0x7e {
+			return end(b == 'm')
+		}
+	case 3:
+		switch b {
+		case 0x07:
+			return end(false)
+		case 0x1b:
+			m.scanEsc = 4
+		}
+	case 4:
+		if b == '\\' {
+			return end(false)
+		}
+		m.scanEsc = 3
+	}
+	return out
 }
 
 func (m *tokenMasker) hiding(out []byte, b byte) []byte {

@@ -79,6 +79,13 @@ Next: ks login claude
 
 Next: ks login claude
 
+✗ That line is too long to be a token
+│ It was read to its end and thrown
+│ away.
+│ Nothing was sent or created.
+
+Next: ks login claude
+
 ✗ Your Claude plan sign-in cannot be
   used
 │ Your Claude plan sign-in no longer

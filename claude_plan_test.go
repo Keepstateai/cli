@@ -42,14 +42,16 @@ type planCtl struct {
 // start, then each poll; the last repeats), what it did with codes and
 // cancels.
 type signinScript struct {
-	startFail *planFail
-	views     []map[string]any
-	codeFail  *planFail
-	at        int
-	codes     []string
-	cancelled bool
-	starts    int
-	queries   []string
+	startDelay time.Duration // how long the start takes to answer
+	cancelFail bool          // DELETE is refused
+	startFail  *planFail
+	views      []map[string]any
+	codeFail   *planFail
+	at         int
+	codes      []string
+	cancelled  bool
+	starts     int
+	queries    []string
 }
 
 func sview(state string, step int, extra map[string]any) map[string]any {
@@ -842,6 +844,11 @@ func (c *planCtl) serveSignin(w http.ResponseWriter, r *http.Request, raw []byte
 	case r.Method == "POST" && r.URL.Path == "/api/v2/claude-signins":
 		sc.starts++
 		sc.queries = append(sc.queries, r.URL.RawQuery)
+		if sc.startDelay > 0 {
+			c.mu.Unlock()
+			time.Sleep(sc.startDelay)
+			c.mu.Lock()
+		}
 		if sc.startFail != nil {
 			refuse(sc.startFail)
 			return
@@ -849,6 +856,10 @@ func (c *planCtl) serveSignin(w http.ResponseWriter, r *http.Request, raw []byte
 		sc.at = 0
 		env(201, sc.views[0])
 	case r.Method == "GET":
+		if sc.cancelled {
+			env(200, sview("cancelled", 1, nil))
+			return
+		}
 		if sc.at < len(sc.views)-1 {
 			sc.at++
 		}
@@ -863,6 +874,10 @@ func (c *planCtl) serveSignin(w http.ResponseWriter, r *http.Request, raw []byte
 		}
 		env(200, map[string]any{})
 	case r.Method == "DELETE":
+		if sc.cancelFail {
+			refuse(&planFail{503, "ks_unavailable", "try again"})
+			return
+		}
 		sc.cancelled = true
 		env(200, map[string]any{"state": "cancelled"})
 	default:
@@ -898,4 +913,108 @@ func (c *planCtl) signinQueries() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return append([]string(nil), c.signin.queries...)
+}
+
+// ---- a line longer than the limit -----------------------------------------------------
+
+func TestReadBoundedLineDrainsTheRestOfALongLine(t *testing.T) {
+	r := bufio.NewReader(strings.NewReader(strings.Repeat("A", 50) + "\nnext line\n"))
+	line, err := readBoundedLine(r, 20)
+	if err != errLineTooLong {
+		t.Fatalf("err = %v, want errLineTooLong", err)
+	}
+	if len(line) > 20 {
+		t.Errorf("the line was kept at %d bytes, past the limit", len(line))
+	}
+	rest, _ := r.ReadString('\n')
+	if rest != "next line\n" {
+		t.Errorf("the rest of the long line was left to the next read: %q", rest)
+	}
+	// a line that fits is read as before, and one at the limit exactly is fine
+	r = bufio.NewReader(strings.NewReader(strings.Repeat("B", 20) + "\nok\n"))
+	if line, err := readBoundedLine(r, 20); err != nil || len(line) != 20 {
+		t.Errorf("a line of exactly the limit: %d bytes, err %v", len(line), err)
+	}
+}
+
+func TestAnOverlongPastedLineIsRefusedInWordsAndNothingIsStored(t *testing.T) {
+	c := newPlanCtl()
+	bin, _, _, env := planEnv(t, c)
+	_, errs, code := runPlan(t, bin, env, strings.Repeat("A", 9000)+"\n"+fixtureClaudeToken()+"\n", "login", "claude")
+	if code != exitUsage || !strings.Contains(errs, "too long") || strings.Count(errs, "Next:") != 1 {
+		t.Errorf("exit %d\n%s", code, errs)
+	}
+	if n := len(c.posts("/api/v2/keys")); n != 0 {
+		t.Errorf("%d requests were sent for a line that was too long", n)
+	}
+}
+
+// ---- Ctrl-C tells the truth about the sign-in ------------------------------------------
+
+// settleCtl is a service that answers a sign-in's state as scripted and
+// records whether it was cancelled.
+func settleCtl(t *testing.T, states []string, getFails, cancelFails bool) (hostedCreds, *int, func()) {
+	t.Helper()
+	cancels := 0
+	i := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case "DELETE":
+			cancels++
+			if cancelFails {
+				w.WriteHeader(503)
+				return
+			}
+			fmt.Fprint(w, `{"schema_version":2,"data":{}}`)
+		default:
+			if getFails {
+				w.WriteHeader(503)
+				return
+			}
+			st := states[min(i, len(states)-1)]
+			i++
+			v := sview(st, 4, nil)
+			if st == "done" {
+				v["key"] = map[string]any{"id": "vlt_plan0001", "last4": "9999", "expires_at": "2027-11-22T10:00:00Z"}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"schema_version": 2, "data": v})
+		}
+	}))
+	return hostedCreds{CTL: srv.URL, Token: "t"}, &cancels, srv.Close
+}
+
+func TestInterruptWordsAreTrueWhateverTheServiceDid(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		states             []string
+		getFails, delFails bool
+		says               []string
+		not                []string
+		cancels            int
+	}{
+		{"it had already finished", []string{"done"}, false, false, []string{"plan was saved", "9999"}, []string{"nothing was saved", "Cancelled"}, 0},
+		{"it was still going and the cancel worked", []string{"link_ready", "cancelled"}, false, false, []string{"Cancelled. The sign-in machine is gone and nothing was saved."}, []string{"plan was saved"}, 1},
+		{"it finished while the cancel was sent", []string{"checking", "done"}, false, false, []string{"plan was saved", "9999"}, []string{"nothing was saved"}, 1},
+		{"it had already ended", []string{"expired"}, false, false, []string{"had already ended", "nothing was saved"}, []string{"plan was saved"}, 0},
+		{"the check cannot be made", nil, true, false, []string{"could not be confirmed", "ks key list"}, []string{"Cancelled. The sign-in machine is gone", "nothing was saved."}, 1},
+		{"the cancel failed and it is still going", []string{"checking", "checking"}, false, true, []string{"could not be confirmed", "ks key list", "ends on its own"}, []string{"Cancelled. The sign-in machine is gone"}, 1},
+	} {
+		cr, cancels, stop := settleCtl(t, tc.states, tc.getFails, tc.delFails)
+		got := interruptWords(cr, "signin_0001")
+		stop()
+		for _, w := range tc.says {
+			if !strings.Contains(got, w) {
+				t.Errorf("%s: the words %q lack %q", tc.name, got, w)
+			}
+		}
+		for _, w := range tc.not {
+			if strings.Contains(got, w) {
+				t.Errorf("%s: the words %q say %q, which is not true here", tc.name, got, w)
+			}
+		}
+		if *cancels != tc.cancels {
+			t.Errorf("%s: %d cancels, want %d", tc.name, *cancels, tc.cancels)
+		}
+	}
 }

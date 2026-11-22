@@ -79,6 +79,13 @@
 
 <ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks login claude<ESC>[0m
 
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mThat line is too long to be a token<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m It was read to its end and thrown
+<ESC>[38;2;255;107;128m│<ESC>[0m away.
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks login claude<ESC>[0m
+
 <ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mYour Claude plan sign-in cannot be<ESC>[0m
   <ESC>[38;2;255;107;128mused<ESC>[0m
 <ESC>[38;2;255;107;128m│<ESC>[0m Your Claude plan sign-in no longer

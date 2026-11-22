@@ -176,6 +176,12 @@ func signinNoEchoErr() *cliError {
 // signinStartErr words a refusal to start; the machine being unavailable is
 // the one the caller turns into the paste.
 func signinStartErr(err error) error {
+	var te transportErr
+	if errors.As(err, &te) {
+		return signinErr("claude_signin_unsure", "Could not tell whether the sign-in started", exitTemporary,
+			[]string{"KeepState did not answer. A sign-in machine may be starting; it ends on its own within a few minutes, and nothing is saved unless you finish the sign-in."},
+			"KeepState did not answer, so it is not known whether a sign-in machine started; if one did it ends on its own within a few minutes and nothing is saved", "ks login claude")
+	}
 	var he *hostedErr
 	if errors.As(err, &he) {
 		switch he.Type {
@@ -199,9 +205,50 @@ type signinRun struct {
 	quiet       bool
 	interactive bool
 
-	mu   sync.Mutex
-	id   string // the sign-in the cancel handler would end
-	done bool
+	mu          sync.Mutex
+	id          string // the sign-in the cancel handler would end
+	done        bool
+	starting    bool          // the start has been asked and has not answered
+	startCh     chan startEnd // how the start ended, for the cancel handler
+	interrupted bool          // the person pressed Ctrl-C: the handler owns the exit
+}
+
+// startEnd is how asking for a sign-in ended: its id when it answered, and
+// whether it never answered at all (a machine may be starting that is not known).
+type startEnd struct {
+	id      string
+	unknown bool
+}
+
+func (r *signinRun) beginStart() {
+	r.mu.Lock()
+	r.starting, r.startCh = true, make(chan startEnd, 1)
+	r.mu.Unlock()
+}
+
+func (r *signinRun) endStart(id string, unknown bool) {
+	r.mu.Lock()
+	r.starting = false
+	if id != "" {
+		r.id = id
+	}
+	ch := r.startCh
+	r.mu.Unlock()
+	select {
+	case ch <- startEnd{id, unknown}:
+	default:
+	}
+}
+
+// holdIfInterrupted parks the flow once Ctrl-C was pressed: the handler is
+// settling the sign-in and then exits, and nothing else may print or exit first.
+func (r *signinRun) holdIfInterrupted() {
+	r.mu.Lock()
+	i := r.interrupted
+	r.mu.Unlock()
+	if i {
+		select {}
+	}
 }
 
 func (r *signinRun) setID(id string) { r.mu.Lock(); r.id = id; r.mu.Unlock() }
@@ -224,17 +271,29 @@ func (r *signinRun) guard(restoreEcho func() func()) (stop func()) {
 				}
 			}
 			r.mu.Lock()
-			id, done := r.id, r.done
+			r.interrupted = true
+			id, starting, ch := r.id, r.starting, r.startCh
 			r.mu.Unlock()
 			fmt.Fprintln(os.Stderr)
-			if id != "" && !done {
-				if err := cancelSignin(r.cr, id); err != nil {
-					fmt.Fprintln(os.Stderr, "Cancelled here, but KeepState could not be reached to end the sign-in machine. It ends on its own, and nothing was saved.")
-				} else {
-					fmt.Fprintln(os.Stderr, "Cancelled. The sign-in machine is gone and nothing was saved.")
+			if id == "" && starting {
+				// the start has not answered: if it does, that machine is ended
+				// and said; if it never does, say it may still be starting
+				select {
+				case e := <-ch:
+					id = e.id
+					if id == "" && e.unknown {
+						fmt.Fprintln(os.Stderr, mayStillBeStarting)
+					} else if id == "" {
+						fmt.Fprintln(os.Stderr, "Cancelled. Nothing was saved.")
+					}
+				case <-time.After(8 * time.Second):
+					fmt.Fprintln(os.Stderr, mayStillBeStarting)
 				}
-			} else {
+			} else if id == "" {
 				fmt.Fprintln(os.Stderr, "Cancelled. Nothing was saved.")
+			}
+			if id != "" {
+				fmt.Fprintln(os.Stderr, interruptWords(r.cr, id))
 			}
 			runExitHooks()
 			signal.Stop(sigs)
@@ -246,6 +305,42 @@ func (r *signinRun) guard(restoreEcho func() func()) (stop func()) {
 		}
 	}()
 	return func() { signal.Stop(sigs); close(quit) }
+}
+
+const mayStillBeStarting = "Cancelled here. A sign-in machine may still be starting; it ends on its own within a few minutes, and nothing is saved unless you finish the sign-in."
+
+// interruptWords says what became of a sign-in that the person stopped, from
+// what the service says and not from what was hoped. It ends the sign-in if it
+// is still going, and looks again, because it may have finished in between.
+func interruptWords(cr hostedCreds, id string) string {
+	settled := func(v signinView) (string, bool) {
+		switch v.State {
+		case "done":
+			last4 := ""
+			if v.Key != nil && v.Key.Last4 != "" {
+				last4 = " (…" + sanitize(v.Key.Last4) + ")"
+			}
+			return "The sign-in had already finished: your Claude plan was saved" + last4 + ". The machine is gone. Remove it with ks key delete if you did not mean to keep it.", true
+		case "cancelled":
+			return "Cancelled. The sign-in machine is gone and nothing was saved.", true
+		case "expired", "failed":
+			return "The sign-in had already ended (" + v.State + "). The machine is gone and nothing was saved.", true
+		}
+		return "", false
+	}
+	v, err := getSignin(cr, id)
+	if err == nil {
+		if w, ok := settled(v); ok {
+			return w
+		}
+	}
+	_ = cancelSignin(cr, id)
+	if v2, err2 := getSignin(cr, id); err2 == nil {
+		if w, ok := settled(v2); ok {
+			return w
+		}
+	}
+	return "Stopped here, but what happened to the sign-in could not be confirmed. Run ks key list to see whether your Claude plan was saved. If its machine is still running it ends on its own within a few minutes."
 }
 
 // machineSignIn runs the whole sign-in on the service and returns the stored
@@ -282,11 +377,14 @@ func (r *signinRun) attempt(setRestore func(func())) (customerKey, bool, error) 
 		ue.Note("KeepState starts a private machine that runs Claude Code's own sign-in for you. You open a link, sign in to Claude, and paste the code it shows. The machine is destroyed afterwards, and the token is never shown to you or kept here.")
 		ue.Blank()
 	}
+	r.beginStart()
 	v, err := startSignin(r.cr, r.org)
+	var te transportErr
+	r.endStart(v.ID, errors.As(err, &te))
+	r.holdIfInterrupted()
 	if err != nil {
 		return customerKey{}, false, signinStartErr(err)
 	}
-	r.setID(v.ID)
 	p := &signinProgress{r: r, st: nil, printed: map[int]bool{}, active: -1}
 	if !r.quiet {
 		p.st = ue.Steps()
@@ -360,6 +458,7 @@ func (r *signinRun) attempt(setRestore func(func())) (customerKey, bool, error) 
 		}
 		time.Sleep(signinEvery())
 		nv, gerr := getSignin(r.cr, v.ID)
+		r.holdIfInterrupted()
 		if gerr != nil {
 			bad++
 			if bad >= 5 {
@@ -429,9 +528,13 @@ func (r *signinRun) takeCode(v signinView, setRestore func(func()), showLink boo
 	if r2 == nil {
 		r2 = bufio.NewReader(os.Stdin)
 	}
-	line, _ := readBoundedLine(r2, 512)
+	line, lerr := readBoundedLine(r2, 512)
 	if r.interactive {
 		fmt.Fprintln(os.Stderr)
+	}
+	if errors.Is(lerr, errLineTooLong) {
+		return nil, signinErr("claude_signin_code_long", "That is too long to be the code", exitUsage,
+			[]string{"It was read to its end and thrown away.", "The sign-in was cancelled and nothing was saved."}, "that is too long to be the code; it was read to its end and thrown away. The sign-in was cancelled", "ks login claude")
 	}
 	code := cleanCode(line)
 	wipe(line)

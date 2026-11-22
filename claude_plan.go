@@ -552,6 +552,9 @@ func readPastedToken(ue *ui, tty bool) ([]byte, error) {
 		restore()
 		fmt.Fprintln(os.Stderr)
 	}
+	if errors.Is(err, errLineTooLong) {
+		return nil, claudePlanLineTooLongErr()
+	}
 	if err != nil && len(line) == 0 {
 		return nil, &cliError{Code: exitUsage, Kind: "usage", WorkStarted: workNo,
 			Message: "no token was read from standard input. Nothing was stored", NextAction: "ks login claude"}
@@ -568,10 +571,16 @@ func readPastedToken(ue *ui, tty bool) ([]byte, error) {
 	return got, nil
 }
 
-// readBoundedLine reads up to limit bytes of one line, without the line end.
+// errLineTooLong says a line was longer than it could be.
+var errLineTooLong = errors.New("the line is too long")
+
+// readBoundedLine reads one line of at most limit bytes, without the line
+// end. A longer line is read to its end and thrown away, so none of it is left
+// for the next read or for the shell, and errLineTooLong is returned; the
+// part already read is wiped.
 func readBoundedLine(r *bufio.Reader, limit int) ([]byte, error) {
 	var line []byte
-	for len(line) < limit {
+	for {
 		b, err := r.ReadByte()
 		if err != nil {
 			return line, err
@@ -582,9 +591,26 @@ func readBoundedLine(r *bufio.Reader, limit int) ([]byte, error) {
 			}
 			return line, nil
 		}
+		if len(line) >= limit {
+			wipe(line)
+			for {
+				c, e := r.ReadByte()
+				if e != nil || c == '\n' || c == '\r' {
+					break
+				}
+			}
+			return nil, errLineTooLong
+		}
 		line = append(line, b)
 	}
-	return line, nil
+}
+
+func claudePlanLineTooLongErr() *cliError {
+	return &cliError{Code: exitUsage, Kind: "claude_plan_line_too_long", WorkStarted: workNo,
+		Title:      "That line is too long to be a token",
+		Why:        []string{"It was read to its end and thrown away."},
+		Message:    "that line is too long to be a token; it was read to its end and thrown away. Nothing was stored",
+		NextAction: "ks login claude"}
 }
 
 // ---- running an agent on the plan --------------------------------------------

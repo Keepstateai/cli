@@ -57,6 +57,17 @@ Next: ks login claude
 
 Next: ks login claude
 
+✗ Could not tell whether the sign-in
+  started
+│ KeepState did not answer. A sign-in
+│ machine may be starting; it ends on
+│ its own within a few minutes, and
+│ nothing is saved unless you finish the
+│ sign-in.
+│ Nothing was sent or created.
+
+Next: ks login claude
+
 ✗ The sign-in took too long
 │ It was cancelled. Nothing was saved.
 │ Nothing was sent or created.

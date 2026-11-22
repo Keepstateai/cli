@@ -387,3 +387,26 @@ func TestRunOnAMembersPlanInAnOrganization(t *testing.T) {
 		}
 	}
 }
+
+// Ctrl-C while the start has not answered yet: once the machine's id arrives it
+// is cancelled and said; if the start never answers, the words say the machine
+// may still be starting.
+func TestMachineCtrlCDuringTheStartCancelsTheMachineWhenItsIdArrives(t *testing.T) {
+	c := newPlanCtl()
+	c.signin = &signinScript{startDelay: 250 * time.Millisecond, views: []map[string]any{sview("starting", 1, nil)}}
+	bin, _, _, env := ttyPlanEnv(t, c)
+	out, code := inPTYSteps(t, env, []ptyStep{{waitFor: "KeepState starts a private machine", delay: 20 * time.Millisecond, input: "\x03"}}, bin, "login", "claude")
+	if code != 130 || !c.signinWas() || !strings.Contains(out, "Cancelled. The sign-in machine is gone and nothing was saved.") {
+		t.Errorf("exit %d, cancelled on the service: %v\n%s", code, c.signinWas(), out)
+	}
+}
+
+func TestMachineCtrlCWhenTheStartNeverAnswersSaysTheMachineMayStillBeStarting(t *testing.T) {
+	c := newPlanCtl()
+	c.signin = &signinScript{startDelay: 3 * time.Second, views: []map[string]any{sview("starting", 1, nil)}}
+	bin, _, _, env := ttyPlanEnv(t, c)
+	out, code := inPTYSteps(t, env, []ptyStep{{waitFor: "KeepState starts a private machine", delay: 20 * time.Millisecond, input: "\x03"}}, bin, "login", "claude")
+	if code != 130 || !strings.Contains(out, "may still be starting") || !strings.Contains(out, "ends on its own") || strings.Contains(out, "The sign-in machine is gone") {
+		t.Errorf("exit %d\n%s", code, out)
+	}
+}

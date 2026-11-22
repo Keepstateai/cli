@@ -47,6 +47,14 @@
 
 <ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks login claude<ESC>[0m
 
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mCould not tell whether the sign-in started<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m KeepState did not answer. A sign-in machine may be
+<ESC>[38;2;255;107;128m│<ESC>[0m starting; it ends on its own within a few minutes, and
+<ESC>[38;2;255;107;128m│<ESC>[0m nothing is saved unless you finish the sign-in.
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks login claude<ESC>[0m
+
 <ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mThe sign-in took too long<ESC>[0m
 <ESC>[38;2;255;107;128m│<ESC>[0m It was cancelled. Nothing was saved.
 <ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.

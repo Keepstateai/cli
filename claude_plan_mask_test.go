@@ -366,3 +366,66 @@ func TestMaskerHidesATokenAfterTheRecordedRealScreenAtEverySplit(t *testing.T) {
 	// and in the chunks the child wrote them, with the tail as one more read
 	check("as recorded", append(recordedSetupFrames(t), []byte(tail)))
 }
+
+// ---- codes inside the prefix --------------------------------------------------------
+
+// A colour code, a cursor move or an erase can fall inside "sk-ant-oat" as
+// readily as inside the rest of a token. The prefix is read across them, and a
+// token whose prefix was completed across a code that is not a colour is hidden
+// and not kept.
+func TestMaskerReadsThePrefixAcrossCodesAndHidesTheToken(t *testing.T) {
+	tok := fixtureClaudeToken()
+	for _, tc := range []struct {
+		name, code string
+		kept       bool
+	}{
+		{"a colour code", "\x1b[2m", true},
+		{"a colour reset", "\x1b[0m", true},
+		{"an erase", "\x1b[K", false},
+		{"a cursor move", "\x1b[9G", false},
+		{"a link", "\x1b]8;;\x07", false},
+		{"a two byte sequence", "\x1b7", false},
+	} {
+		for at := 1; at < len(claudePlanTokenPrefix); at++ {
+			in := tok[:at] + tc.code + tok[at:] + "\r\n\r\nafter"
+			// at every split of the stream, and byte by byte
+			splits := [][]string{{in}}
+			for cut := 1; cut < len(in); cut++ {
+				splits = append(splits, []string{in[:cut], in[cut:]})
+			}
+			var bytewise []string
+			for i := range in {
+				bytewise = append(bytewise, in[i:i+1])
+			}
+			splits = append(splits, bytewise)
+			for _, chunks := range splits {
+				m := newTokenMasker(300)
+				var shown []byte
+				for _, c := range chunks {
+					shown = append(shown, m.Write([]byte(c))...)
+				}
+				shown = append(shown, m.Flush()...)
+				got, why := m.Result()
+				if leaks(string(shown), tok[13:]) || bytes.Contains(shown, []byte("oat01")) {
+					t.Fatalf("%s inside the prefix at %d: a piece of the token reached the screen: %q", tc.name, at, shown)
+				}
+				if tc.kept && string(got) != tok || !tc.kept && (got != nil || why != "cut") {
+					t.Fatalf("%s inside the prefix at %d: kept=%v reason=%q", tc.name, at, got != nil, why)
+				}
+				if !bytes.Contains(shown, []byte("after")) || !bytes.Contains(shown, []byte(claudePlanMask)) {
+					t.Fatalf("%s at %d: the words around the token were lost: %q", tc.name, at, shown)
+				}
+			}
+		}
+	}
+}
+
+func TestMaskerShowsABitOfTextThatOnlyLooksLikeThePrefixExactlyAsItCame(t *testing.T) {
+	for _, in := range []string{"sk-an\x1b[31mgry", "sk\x1b[Kate", "sk-ant-o\x1b]0;t\x07x", "ask-\x1b[0m"} {
+		m := newTokenMasker(300)
+		out := append(m.Write([]byte(in)), m.Flush()...)
+		if string(out) != in {
+			t.Errorf("%q came out as %q", in, out)
+		}
+	}
+}

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"testing"
 	"time"
 )
@@ -41,7 +42,7 @@ func claudePlanErrors(u *ui) {
 	for i, ce := range []*cliError{
 		claudePlanPersonalErr(), claudePlanTokenInvalidErr(), claudePlanUnavailableErr(), claudePlanUnconfirmedErr(), claudePlanNoEchoErr(), claudePlanNoneErr(),
 		claudePlanRunnerErr("this agent calls OpenAI, not a Claude model"), claudePlanNotFinishedErr(), claudePlanUnreadErr(),
-		claudePlanTimedOutErr(), claudePlanStoppedErr(), claudePlanUnusableErr(claudePlanKey("invalid", "")), claudePlanUnusableErr(claudePlanKey("expired", "")),
+		claudePlanTimedOutErr(), claudePlanStoppedErr(), claudePlanLineTooLongErr(), claudePlanUnusableErr(claudePlanKey("invalid", "")), claudePlanUnusableErr(claudePlanKey("expired", "")),
 	} {
 		if i > 0 {
 			u.Blank()
@@ -140,7 +141,7 @@ func claudeSigninErrors(u *ui) {
 		signinRateErr("Too many sign-ins were started in a short time."), signinForbiddenErr(),
 		signinFailedErr("ks_signin_code_refused", "Claude did not accept that code. Start again to get a new link, and paste the new code.", "ks login claude"),
 		signinFailedErr("ks_signin_machine", "The sign-in machine did not start.", "ks login claude"),
-		signinGoneErr("expired"), signinGoneErr("cancelled"), signinLostErr(), signinTooSlowErr(), signinCodeEmptyErr(), signinNoEchoErr(),
+		signinGoneErr("expired"), signinGoneErr("cancelled"), signinLostErr(), signinStartErr(transportErr{err: io.EOF}).(*cliError), signinTooSlowErr(), signinCodeEmptyErr(), signinNoEchoErr(),
 		claudePlanErr(&hostedErr{Status: 409, Type: "ks_claude_plan_org", Message: "no plan"}).(*cliError),
 	} {
 		if i > 0 {
