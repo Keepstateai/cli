@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 func runDoctor() int {
@@ -99,6 +100,30 @@ func runDoctor() int {
 			note("--", "capabilities", "capability registry unreachable; cached copy fetched "+cached.CachedAt+": "+line)
 		} else {
 			note("--", "capabilities", "capability registry unreachable and no cached copy")
+		}
+	}
+
+	// 2c. the Claude plan sign-in, when one is stored: quiet when none is, a
+	// warning 14 days before it ends, a failure once it cannot be used
+	if signedIn {
+		if keys, err := fetchKeys(cr); err == nil {
+			if p := planKeyOf(keys); p != nil {
+				now := time.Now()
+				ends := planEndsWords(*p)
+				switch planState(*p, now) {
+				case "ok":
+					line := "Claude plan sign-in: stored (…" + sanitize(p.Last4) + ")"
+					if ends != "" {
+						line += ", ends " + ends
+					}
+					note("ok", "claude-plan", line)
+				case "expiring":
+					note("note", "claude-plan", planStateWords(*p, now))
+				default:
+					note("FAIL", "claude-plan", planStateWords(*p, now))
+					fails++
+				}
+			}
 		}
 	}
 

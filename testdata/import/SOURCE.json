@@ -5,22 +5,22 @@
   "import_rules.json": {
    "path": "import_rules.json",
    "from": "internal/importscan/rules.json",
-   "sha256": "f581a497c0934dd4232f1bdf8bb0167e3725c304f58c5c94f4bfe29ba082f78d",
-   "vendored_sha256": "f581a497c0934dd4232f1bdf8bb0167e3725c304f58c5c94f4bfe29ba082f78d",
+   "sha256": "a67619b70964cd1cedeea72b82daff0adaf0bea5ab4c121954cfd4221b0881c5",
+   "vendored_sha256": "a67619b70964cd1cedeea72b82daff0adaf0bea5ab4c121954cfd4221b0881c5",
    "transform": "none: the service file carries no private governance id, so the public scrub leaves it unchanged"
   },
   "import-redaction-v1.json": {
    "path": "testdata/import/import-redaction-v1.json",
    "from": "docs/upgrade/vectors/import-redaction-v1.json",
-   "sha256": "7f7272c49ae42eaa4a4d59dfba4cdf7bc3f35b9d810f48da6a097a957271133c",
-   "vendored_sha256": "7f7272c49ae42eaa4a4d59dfba4cdf7bc3f35b9d810f48da6a097a957271133c",
+   "sha256": "804e56f6890ca3ea44698ee4253d8a2a3632ee551603ecc205c440605deabd3d",
+   "vendored_sha256": "804e56f6890ca3ea44698ee4253d8a2a3632ee551603ecc205c440605deabd3d",
    "transform": "none: the service file carries no private governance id, so the public scrub leaves it unchanged"
   },
   "fakes.json": {
    "path": "testdata/import/fakes.json",
    "from": "fixtures/import/fakes.json",
-   "sha256": "57b60dbd26884a6e3578aa6a81fcfb1ce5649b7c71bcf13e453fe1e2fa1d891a",
-   "vendored_sha256": "57b60dbd26884a6e3578aa6a81fcfb1ce5649b7c71bcf13e453fe1e2fa1d891a",
+   "sha256": "802edb34361b4636f4f07c54c494fd1786c6dcf12811b03c63df689c743ddb1b",
+   "vendored_sha256": "802edb34361b4636f4f07c54c494fd1786c6dcf12811b03c63df689c743ddb1b",
    "transform": "none: the service file carries no private governance id, so the public scrub leaves it unchanged"
   },
   "claude-code-2.1.296.jsonl": {

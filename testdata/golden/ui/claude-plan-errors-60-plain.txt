@@ -1,0 +1,89 @@
+✗ A Claude plan belongs to one person
+│ It cannot be stored for an organization. Your own account
+│ can.
+│ Nothing was sent or created.
+
+Next: ks context use personal
+
+✗ That is not a Claude plan token
+│ A token made by claude setup-token starts with sk-ant-oat.
+│ Nothing was sent or created.
+
+Next: ks login claude
+
+✗ Claude plan sign-in is not available yet
+│ KeepState has not turned it on for your account.
+│ An API key works as before.
+│ Nothing was sent or created.
+
+Next: ks key add --provider anthropic
+
+✗ Could not check that Claude plan sign-in is available
+│ KeepState did not answer, so nothing was started and no
+│ token was made.
+│ Nothing was sent or created.
+
+Next: ks login claude
+
+✗ This terminal cannot hide what you paste
+│ Nothing was read, so the token was never shown.
+│ Nothing was sent or created.
+
+Next: ks login claude --no-input
+
+✗ You are not signed in to a Claude plan
+│ There is no usable Claude plan sign-in on your account.
+│ Nothing was sent or created.
+
+Next: ks login claude
+
+✗ A Claude plan runs Claude Code only
+│ This agent calls OpenAI, not a Claude model.
+│ Nothing was sent or created.
+
+Next: ks run --agent --key own
+
+✗ The Claude Code sign-in did not finish
+│ Claude Code ended before it made a token.
+│ Nothing was sent or created.
+
+Next: ks login claude
+
+✗ Claude Code made a token this client could not read
+│ It was hidden from the screen and not kept.
+│ Make a new one.
+│ Nothing was sent or created.
+
+Next: ks login claude
+
+✗ The Claude Code sign-in took too long
+│ It was stopped after 20 minutes.
+│ Nothing was sent or created.
+
+Next: ks login claude
+
+✗ The Claude Code sign-in was stopped
+│ You pressed Ctrl-C.
+│ Nothing was sent or created.
+
+Next: ks login claude
+
+✗ That line is too long to be a token
+│ It was read to its end and thrown away.
+│ Nothing was sent or created.
+
+Next: ks login claude
+
+✗ Your Claude plan sign-in cannot be used
+│ Your Claude plan sign-in no longer works. Run ks login
+│ claude to sign in again.
+│ Nothing was sent or created.
+
+Next: ks login claude
+
+✗ Your Claude plan sign-in cannot be used
+│ Your Claude plan sign-in has ended. Run ks login claude to
+│ sign in again.
+│ Nothing was sent or created.
+
+Next: ks login claude

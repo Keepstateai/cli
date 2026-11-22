@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 )
 
 type customerKey struct {
@@ -30,6 +31,12 @@ type customerKey struct {
 	Revision  int64  `json:"revision"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
+	// Kind, ExpiresAt, State and StateWords are on a Claude plan sign-in's
+	// row only (claude_plan.go); every other key's row has none of them
+	Kind       string `json:"kind,omitempty"`
+	ExpiresAt  string `json:"expires_at,omitempty"`
+	State      string `json:"state,omitempty"`
+	StateWords string `json:"state_words,omitempty"`
 }
 
 func fetchKeys(cr hostedCreds) ([]customerKey, error) { return fetchKeysIn(cr, "") }
@@ -108,6 +115,9 @@ func resolveKeyIn(cr hostedCreds, org, arg string) (customerKey, error) {
 }
 
 func keyLine(k customerKey) string {
+	if k.Provider == claudePlanProvider {
+		return planKeyLine(k, time.Now())
+	}
 	state := "enabled"
 	if !k.Enabled {
 		state = "disabled"
@@ -149,9 +159,13 @@ func hostedKeyList(cr hostedCreds, inv *Invocation) {
 			managed = managedKeyRows(doc)
 		}
 	}
+	offerPlan := planKeyOf(keys) == nil && claudePlanListed(cr)
 	emit(facts, func() {
 		if len(keys) == 0 {
 			fmt.Println("No provider keys. Add one: ks key add --provider anthropic < key.txt")
+			if offerPlan {
+				fmt.Println("Or sign in to your Claude plan once, and your Claude Code agents use it: ks login claude")
+			}
 			if len(managed) == 0 {
 				return
 			}
@@ -162,6 +176,14 @@ func hostedKeyList(cr hostedCreds, inv *Invocation) {
 		}
 		for _, l := range managed {
 			fmt.Println(l)
+		}
+		if len(keys) > 0 && offerPlan {
+			fmt.Println("Your Claude plan can be a key too: sign in once with ks login claude")
+		}
+		if p := planKeyOf(keys); p != nil {
+			if w := planStateWords(*p, time.Now()); w != "" {
+				fmt.Println(w)
+			}
 		}
 	})
 }
@@ -228,6 +250,15 @@ func hostedKeyAdd(cr hostedCreds, inv *Invocation) {
 	provider := inv.Str("provider")
 	if provider == "" {
 		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--provider is required (anthropic, openai or openrouter)", NextAction: "ks key add --provider anthropic < key.txt"})
+	}
+	if provider == claudePlanProvider || provider == claudePlanKeyArg {
+		// a Claude plan token is made and read by ks login claude, which keeps
+		// it off the screen and out of every log; it is not a pasted key
+		fail(&cliError{Code: exitUsage, Kind: "usage", WorkStarted: workNo,
+			Title:      "A Claude plan sign-in is made with ks login claude",
+			Why:        []string{"That command runs Claude Code's sign-in for you and keeps the token off the screen.", "Nothing was stored."},
+			Message:    "a Claude plan sign-in is made with ks login claude, not ks key add. Nothing was stored",
+			NextAction: "ks login claude"})
 	}
 	tty := false
 	if fi, err := os.Stdin.Stat(); err == nil && fi.Mode()&os.ModeCharDevice != 0 && !out.noInput {

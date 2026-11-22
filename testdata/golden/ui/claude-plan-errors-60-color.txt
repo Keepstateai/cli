@@ -1,0 +1,89 @@
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mA Claude plan belongs to one person<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m It cannot be stored for an organization. Your own account
+<ESC>[38;2;255;107;128m│<ESC>[0m can.
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks context use personal<ESC>[0m
+
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mThat is not a Claude plan token<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m A token made by claude setup-token starts with sk-ant-oat.
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks login claude<ESC>[0m
+
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mClaude plan sign-in is not available yet<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m KeepState has not turned it on for your account.
+<ESC>[38;2;255;107;128m│<ESC>[0m An API key works as before.
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks key add --provider anthropic<ESC>[0m
+
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mCould not check that Claude plan sign-in is available<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m KeepState did not answer, so nothing was started and no
+<ESC>[38;2;255;107;128m│<ESC>[0m token was made.
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks login claude<ESC>[0m
+
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mThis terminal cannot hide what you paste<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was read, so the token was never shown.
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks login claude --no-input<ESC>[0m
+
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mYou are not signed in to a Claude plan<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m There is no usable Claude plan sign-in on your account.
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks login claude<ESC>[0m
+
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mA Claude plan runs Claude Code only<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m This agent calls OpenAI, not a Claude model.
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks run --agent --key own<ESC>[0m
+
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mThe Claude Code sign-in did not finish<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m Claude Code ended before it made a token.
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks login claude<ESC>[0m
+
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mClaude Code made a token this client could not read<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m It was hidden from the screen and not kept.
+<ESC>[38;2;255;107;128m│<ESC>[0m Make a new one.
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks login claude<ESC>[0m
+
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mThe Claude Code sign-in took too long<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m It was stopped after 20 minutes.
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks login claude<ESC>[0m
+
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mThe Claude Code sign-in was stopped<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m You pressed Ctrl-C.
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks login claude<ESC>[0m
+
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mThat line is too long to be a token<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m It was read to its end and thrown away.
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks login claude<ESC>[0m
+
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mYour Claude plan sign-in cannot be used<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m Your Claude plan sign-in no longer works. Run ks login
+<ESC>[38;2;255;107;128m│<ESC>[0m claude to sign in again.
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks login claude<ESC>[0m
+
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mYour Claude plan sign-in cannot be used<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m Your Claude plan sign-in has ended. Run ks login claude to
+<ESC>[38;2;255;107;128m│<ESC>[0m sign in again.
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks login claude<ESC>[0m

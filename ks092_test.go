@@ -49,6 +49,23 @@ var ks092Mutations = []mutation{
 		"\tif displayNameOK(name, agentNameMax) {\n\t\treturn nil\n\t}\n",
 		"\tif agentNameSafe.MatchString(name) {\n\t\treturn nil\n\t}\n",
 		"TestANewNameTheServiceRefusesIsAUsageErrorBeforeAnyRequest|TestTheAppRefusesANewAgentNameTheServiceRefusesBeforeAnyRequest"},
+	// the Claude plan sign-in's review guards
+	{"claude sign-in: Ctrl-C after the sign-in finished says it was cancelled and nothing was saved", "claude_signin.go",
+		"\t\tcase \"done\":\n\t\t\tlast4 := \"\"\n",
+		"\t\tcase \"nope\":\n\t\t\tlast4 := \"\"\n",
+		"TestInterruptWordsAreTrueWhateverTheServiceDid"},
+	{"claude sign-in: Ctrl-C during the start forgets the machine whose id arrives", "claude_signin.go",
+		"\t\t\t\t\tid = e.id\n",
+		"\t\t\t\t\t_ = e.id\n",
+		"TestMachineCtrlCDuringTheStartCancelsTheMachineWhenItsIdArrives"},
+	{"claude sign-in: the rest of a long pasted line is left for the next read", "claude_plan.go",
+		"\t\t\twipe(line)\n\t\t\tfor {\n\t\t\t\tc, e := r.ReadByte()",
+		"\t\t\twipe(line)\n\t\t\tfor false {\n\t\t\t\tc, e := r.ReadByte()",
+		"TestReadBoundedLineDrainsTheRestOfALongLine"},
+	{"claude sign-in: a colour code inside the token's prefix lets the token through unhidden", "claude_plan_mask.go",
+		"\tif b == 0x1b && len(m.hold) > 0 {\n",
+		"\tif false && b == 0x1b && len(m.hold) > 0 {\n",
+		"TestMaskerReadsThePrefixAcrossCodesAndHidesTheToken|TestMaskerShowsABitOfTextThatOnlyLooksLikeThePrefixExactlyAsItCame"},
 }
 
 // copyTree copies the module (no .git) so a mutation never touches this one.

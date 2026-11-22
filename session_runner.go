@@ -75,6 +75,15 @@ func runnerKeyWords(k *runnerKeyRead) string {
 	switch k.Route {
 	case "keepstate":
 		return "KeepState's key"
+	case "claude_plan":
+		label := "your Claude plan"
+		if k.Key != nil && k.Key.Last4 != "" {
+			label += " …" + k.Key.Last4
+		}
+		if k.Problem != nil && strings.TrimSpace(k.Problem.Words) != "" {
+			label += ": " + sanitize(strings.TrimSpace(k.Problem.Words))
+		}
+		return label
 	case "own":
 		if k.Key != nil {
 			label := firstNonEmptyStr(k.Key.Label, "your key")

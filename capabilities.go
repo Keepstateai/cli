@@ -8,6 +8,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -49,6 +51,10 @@ type capabilitySet struct {
 	Capabilities    []capabilityRow `json:"capabilities"`
 	Limits          map[string]any  `json:"limits"`
 	ControlPlane    string          `json:"control_plane"`
+	// Holder names whose registry this is: the answer can differ per
+	// account (a switch may be a list of accounts), so a copy read for one
+	// is never read for another
+	Holder string `json:"holder,omitempty"`
 	// Protocol is the service's negotiation block and States its published
 	// state vocabulary per kind (KS-010).
 	Protocol *struct {
@@ -85,6 +91,7 @@ func fetchCapabilities(cr hostedCreds) (*capabilitySet, error) {
 	}
 	set := env.Data
 	set.ControlPlane = cr.CTL
+	set.Holder = capsHolder(cr)
 	set.CachedAt = time.Now().UTC().Format(time.RFC3339)
 	if b, err := json.MarshalIndent(set, "", " "); err == nil {
 		_ = os.MkdirAll(configDir(), 0o700)
@@ -185,4 +192,11 @@ func capabilitySummary(set *capabilitySet) (line string, disabled []string) {
 		}
 	}
 	return line, disabled
+}
+
+// capsHolder names an account's credential without keeping it: a short hash
+// of the bearer token, so a cached registry can be tied to who it was read for.
+func capsHolder(cr hostedCreds) string {
+	sum := sha256.Sum256([]byte(cr.Token))
+	return hex.EncodeToString(sum[:8])
 }

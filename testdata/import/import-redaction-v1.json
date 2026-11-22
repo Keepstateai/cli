@@ -17,6 +17,47 @@
    }
   },
   {
+   "name": "claude plan token from setup-token",
+   "in": [
+    "Your OAuth token: ",
+    {
+     "fake": "claude_plan_token"
+    },
+    "\nStore this token securely."
+   ],
+   "want": "Your OAuth token: [redacted:claude_plan_token]\nStore this token securely.",
+   "kinds": {
+    "claude_plan_token": 1
+   }
+  },
+  {
+   "name": "claude plan token in an environment line",
+   "in": [
+    "export CLAUDE_CODE_OAUTH_TOKEN=",
+    {
+     "fake": "claude_plan_token"
+    },
+    "\n"
+   ],
+   "want": "export CLAUDE_CODE_OAUTH_TOKEN=[redacted:claude_plan_token]\n",
+   "kinds": {
+    "claude_plan_token": 1
+   }
+  },
+  {
+   "name": "claude plan token as a bearer header",
+   "in": [
+    "Authorization: Bearer ",
+    {
+     "fake": "claude_plan_token"
+    }
+   ],
+   "want": "Authorization: Bearer [redacted:claude_plan_token]",
+   "kinds": {
+    "claude_plan_token": 1
+   }
+  },
+  {
    "name": "openrouter key",
    "in": [
     "export OR=",

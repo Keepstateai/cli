@@ -1,0 +1,40 @@
+<ESC>[1mSign in to your Claude plan<ESC>[0m
+  <ESC>[38;2;138;138;138mClaude Code's own sign-in runs below. Approve it in your browser and, if it<ESC>[0m
+  <ESC>[38;2;138;138;138masks, paste the code it shows. As the screen passes, this client hides<ESC>[0m
+  <ESC>[38;2;138;138;138manything shaped like the token Claude Code makes, keeps it in memory and sends<ESC>[0m
+  <ESC>[38;2;138;138;138mit to KeepState once. It cannot hide a token it does not recognise, and when<ESC>[0m
+  <ESC>[38;2;138;138;138mit is not sure it read the token whole it keeps nothing.<ESC>[0m
+
+  <ESC>[38;2;78;186;101m✓<ESC>[0m Opened Claude Code's sign-in
+  <ESC>[38;2;78;186;101m✓<ESC>[0m Read the token                                 <ESC>[38;2;138;138;138mit was hidden from the screen<ESC>[0m
+  <ESC>[38;2;138;138;138m•<ESC>[0m Storing your sign-in...
+  <ESC>[38;2;78;186;101m✓<ESC>[0m Stored your sign-in                                                     <ESC>[38;2;138;138;138m0.9s<ESC>[0m
+
+<ESC>[38;2;78;186;101m✓<ESC>[0m <ESC>[1mSigned in to your Claude plan<ESC>[0m
+  <ESC>[38;2;138;138;138mToken<ESC>[0m    ends …9999; it is never shown again
+  <ESC>[38;2;138;138;138mEnds<ESC>[0m     22 Nov 2027
+  <ESC>[38;2;138;138;138mUsed by<ESC>[0m  your Claude Code agents, instead of an API key; no KeepState charge
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks run --agent --key claude-plan<ESC>[0m
+
+<ESC>[38;2;78;186;101m✓<ESC>[0m <ESC>[1mSigned in to your Claude plan<ESC>[0m
+  <ESC>[38;2;138;138;138mToken<ESC>[0m    ends …9999; it is never shown again
+  <ESC>[38;2;138;138;138mEnds<ESC>[0m     22 Nov 2027
+  <ESC>[38;2;138;138;138mUsed by<ESC>[0m  your Claude Code agents, instead of an API key; no KeepState charge
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks run --agent --key claude-plan<ESC>[0m
+
+<ESC>[38;2;229;181;103m!<ESC>[0m <ESC>[1mCheck this sign-in<ESC>[0m
+  Your Claude plan sign-in ends on 3 Dec 2026. Run ks login claude to renew it.
+
+<ESC>[1mSign in to your Claude plan<ESC>[0m
+  <ESC>[38;2;138;138;138mClaude Code is not installed on this computer. On a computer that has Claude<ESC>[0m
+  <ESC>[38;2;138;138;138mCode, run claude setup-token, sign in there, and paste the token it prints<ESC>[0m
+  <ESC>[38;2;138;138;138mhere. Nothing is shown as you paste.<ESC>[0m
+
+
+<ESC>[38;2;229;181;103m!<ESC>[0m <ESC>[1mThis client could not read the token safely<ESC>[0m
+  It was hidden and not kept because a line break or a screen code may have cut
+  it. Run claude setup-token yourself, in another terminal, and paste the token
+  it prints.
+

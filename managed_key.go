@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -230,7 +231,7 @@ func checkManagedFlags(inv *Invocation) {
 	switch inv.Cmd.Name() {
 	case "run":
 		if !inv.Bool("agent") {
-			if inv.Set("spend-limit") || key == keepstateKeyArg || key == ownKeyArg {
+			if inv.Set("spend-limit") || key == keepstateKeyArg || key == ownKeyArg || key == claudePlanKeyArg {
 				usage("--key "+firstNonEmptyStr(key, keepstateKeyArg)+" and --spend-limit belong to an agent session. Nothing was started", "ks run --agent --key keepstate")
 			}
 			return
@@ -466,8 +467,22 @@ func hostedSessionKeySet(cr hostedCreds, inv *Invocation) {
 	}
 	keyArg := inv.Str("key")
 	managed := keyArg == keepstateKeyArg
+	plan := keyArg == claudePlanKeyArg
 	var k customerKey
-	if keyArg != "" && !managed {
+	if plan {
+		keys, kerr := fetchKeys(cr)
+		if kerr != nil {
+			die(kerr)
+		}
+		pk := planKeyOf(keys)
+		switch {
+		case pk == nil:
+			fail(claudePlanNoneErr())
+		case !planUsable(*pk, time.Now()):
+			fail(claudePlanUnusableErr(*pk))
+		}
+		k = *pk
+	} else if keyArg != "" && !managed {
 		if k, err = resolveKey(cr, keyArg); err != nil {
 			die(err)
 		}
@@ -536,11 +551,21 @@ func hostedSessionKeySet(cr hostedCreds, inv *Invocation) {
 					keys[p] = id
 				}
 			}
+			if plan {
+				// the plan serves Claude Code's Anthropic calls: it replaces an
+				// Anthropic key of the session's, and the session's runner and
+				// model must be Claude Code's
+				if rp := rec.Data.RunnerKey; rp != nil && rp.Provider != "" && rp.Provider != claudePlanAnthropic {
+					fail(claudePlanRunnerErr("this session calls " + providerName(rp.Provider) + ", not a Claude model"))
+				}
+				delete(keys, claudePlanAnthropic)
+				provider = claudePlanAnthropic
+			}
 			keys[k.Provider] = k.ID
 			body["keys"] = keys
 			if current != nil {
 				// a session that knows KeepState's key: this provider leaves it
-				body["managed"] = withoutStr(current, k.Provider)
+				body["managed"] = withoutStr(current, provider)
 			}
 		}
 		if err := hostedMutate(cr, "POST", "/api/v2/sessions/"+url.PathEscape(sess.RecordID)+"/bindings", body, &res); err != nil {
@@ -556,6 +581,8 @@ func hostedSessionKeySet(cr hostedCreds, inv *Invocation) {
 		facts["binding"] = res
 		if managed {
 			said = append(said, fmt.Sprintf("session %s: %s calls go on KeepState's key (%s, paid from your purchased credit) from the first call after the session next wakes", sess.ShortID, providerName(provider), spreadText(provider, offer)))
+		} else if plan {
+			said = append(said, fmt.Sprintf("session %s: Claude Code's calls go on your Claude plan (…%s), which your plan bills and limits; KeepState adds no charge", sess.ShortID, k.Last4))
 		} else {
 			said = append(said, fmt.Sprintf("session %s: %s bound to %s (…%s)", sess.ShortID, k.Provider, k.ID, k.Last4))
 		}

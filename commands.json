@@ -84,7 +84,7 @@
     },
     {
      "flag": "--key KEY",
-     "summary": "the key the agent calls with (with --agent): a key's id or alias, own for your own key, or keepstate for KeepState's key (charged from your purchased credit at the provider's list price plus the spread); default your account's default for the agent's provider, else your one enabled key for it. The provider is the model's: the harness's, or OpenRouter for an open model, which calls an OpenRouter key"
+     "summary": "the key the agent calls with (with --agent): a key's id or alias, own for your own key, keepstate for KeepState's key (charged from your purchased credit at the provider's list price plus the spread), or claude-plan for your Claude plan sign-in (ks login claude; Claude Code with a Claude model only, billed and limited by your plan, no KeepState charge); default your account's default for the agent's provider, else your one enabled key for it. The provider is the model's: the harness's, or OpenRouter for an open model, which calls an OpenRouter key"
     },
     {
      "flag": "--spend-limit DOLLARS",
@@ -490,7 +490,7 @@
    "flags": [
     {
      "flag": "--key KEY",
-     "summary": "the key's id or alias, or keepstate for KeepState's key"
+     "summary": "the key's id or alias, keepstate for KeepState's key, or claude-plan for your Claude plan sign-in"
     },
     {
      "flag": "--provider PROVIDER",
@@ -2040,7 +2040,7 @@
    "flags": [
     {
      "flag": "--key KEY",
-     "summary": "with a model of another provider (an open model via OpenRouter, or back): the key it calls, one of your keys of that provider by id (an OpenRouter key for an open model), or keepstate for KeepState's key; default the session's or the account's key for that provider"
+     "summary": "with a model of another provider (an open model via OpenRouter, or back): the key it calls, one of your keys of that provider by id (an OpenRouter key for an open model), keepstate for KeepState's key, or claude-plan for your Claude plan sign-in; default the session's or the account's key for that provider"
     }
    ]
   },
@@ -2090,7 +2090,7 @@
     },
     {
      "flag": "--key KEY",
-     "summary": "the key the new harness calls: one of your keys by id, or keepstate for KeepState's key; default the session's or the account's key for that provider"
+     "summary": "the key the new harness calls: one of your keys by id, keepstate for KeepState's key, or claude-plan for your Claude plan sign-in; default the session's or the account's key for that provider"
     }
    ],
    "note": "Reads GET /api/v2/sessions/{id} and sends PATCH /api/v2/sessions/{id} with harness, an optional runner_model and expected_revision; gated on agent.workspace. The service accepts the switch while the session is parked or has no machine yet (ks_session_not_paused otherwise), for a harness GET /api/v2/models offers (ks_harness_unavailable) and the session's own image carries (ks_harness_not_in_image), with a model of that harness (ks_model_harness_mismatch) and, for a harness that calls another provider, an enabled key for it (ks_no_inference_key)."
@@ -2202,7 +2202,7 @@
     },
     {
      "flag": "--key KEY",
-     "summary": "the key the runner calls: one of your keys by id (an OpenRouter key for an open model), or keepstate for KeepState's key"
+     "summary": "the key the runner calls: one of your keys by id (an OpenRouter key for an open model), keepstate for KeepState's key, or claude-plan for your Claude plan sign-in"
     },
     {
      "flag": "--spend-limit DOLLARS",
@@ -3030,7 +3030,7 @@
     },
     {
      "flag": "--key KEY",
-     "summary": "the key the child calls with: a key's id or alias, own, or keepstate for KeepState's key; default the role's, else as for ks run --agent"
+     "summary": "the key the child calls with: a key's id or alias, own, keepstate for KeepState's key, or claude-plan for your Claude plan sign-in; default the role's, else as for ks run --agent"
     },
     {
      "flag": "--spend-limit DOLLARS",
@@ -4646,6 +4646,52 @@
     {
      "flag": "--organization ID",
      "summary": "the organization; your context's when absent"
+    }
+   ]
+  },
+  {
+   "verb": "login claude",
+   "aliases": [],
+   "usage": "ks login claude [--machine] [--org ORG]",
+   "summary": "sign in to your Claude plan once; your Claude Code agents then use it instead of an API key",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--machine",
+     "summary": "use a short-lived KeepState machine to run Claude Code's sign-in, even where Claude Code is installed here: you open a link, sign in to Claude and paste the code it shows (the default where Claude Code is not installed; with --no-input the code is one line of standard input)"
+    },
+    {
+     "flag": "--org ORG",
+     "summary": "store it as your Claude plan under this organization (an id or a name), used only by your agents there; default your context's organization, else your own account"
+    }
+   ]
+  },
+  {
+   "verb": "organization plan-keys",
+   "aliases": [],
+   "usage": "ks organization plan-keys [--org ORG]",
+   "summary": "the Claude plans members have put in an organization: yours, and for an owner or admin every member's (last four characters, standing, end; never a token)",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--org ORG",
+     "summary": "the organization (an id or a name); default your context's"
+    }
+   ]
+  },
+  {
+   "verb": "organization plan-keys remove",
+   "aliases": [],
+   "usage": "ks organization plan-keys remove <member> [--org ORG]",
+   "summary": "end a member's Claude plan in an organization (yours, or as an owner or admin another member's): the permission in that organization ends, the person's own sign-in stays",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--org ORG",
+     "summary": "the organization (an id or a name); default your context's"
     }
    ]
   }

@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 )
 
 type provisionPhaseRow struct {
@@ -168,6 +169,7 @@ func startedWord(p provisionAnswer) string {
 // account's single enabled key for the runner's provider. None or several is
 // refused before anything is created; a key is never guessed.
 func runKey(cr hostedCreds, arg, runnerProvider string) (customerKey, error) {
+	runKeyPlanAlt = nil
 	if arg != "" {
 		k, err := resolveKey(cr, arg)
 		if err != nil {
@@ -189,12 +191,19 @@ func runKey(cr hostedCreds, arg, runnerProvider string) (customerKey, error) {
 			usable = append(usable, k)
 		}
 	}
+	if p := planKeyOf(keys); p != nil && runnerProvider == claudePlanAnthropic && planUsable(*p, time.Now()) {
+		runKeyPlanAlt = p // an API key stays the default; the plan is a choice
+	}
 	switch len(usable) {
 	case 1:
 		return usable[0], nil
 	case 0:
+		planWords := ""
+		if runnerProvider == claudePlanAnthropic && claudePlanListed(cr) {
+			planWords = ", or sign in with your Claude plan: ks login claude"
+		}
 		return customerKey{}, &cliError{Code: exitConflict, Kind: "no_key",
-			Message: "you have no enabled " + runnerProvider + " key, which the agent calls with" + openRouterWhy(runnerProvider) + ". Nothing was created", NextAction: "ks key add --provider " + runnerProvider}
+			Message: "you have no enabled " + runnerProvider + " key, which the agent calls with" + openRouterWhy(runnerProvider) + planWords + ". Nothing was created", NextAction: "ks key add --provider " + runnerProvider}
 	}
 	var ids []string
 	for _, k := range usable {
@@ -204,6 +213,10 @@ func runKey(cr hostedCreds, arg, runnerProvider string) (customerKey, error) {
 		Message:    fmt.Sprintf("you have %d enabled %s keys (%s); name the one this agent calls with. Nothing was created", len(usable), runnerProvider, strings.Join(ids, ", ")),
 		NextAction: "ks run --agent --key <id>"}
 }
+
+// runKeyPlanAlt is a usable Claude plan sign-in seen while choosing an API
+// key, so the run can say the plan is a choice too (nil otherwise).
+var runKeyPlanAlt *customerKey
 
 // openRouterWhy says, beside a key refusal, why the agent calls an
 // OpenRouter key: its model is an open model via OpenRouter. Nothing for
@@ -310,7 +323,13 @@ func createAgentRecord(cr hostedCreds, name, agentName, keyArg string, model, ef
 	// organization's keys only, never yours (org_run.go)
 	org := currentContext(cr)
 	var choice runKeyChoice
-	if org != "" {
+	if org != "" && keyArg == claudePlanKeyArg {
+		// a member's Claude plan under the organization, never anyone else's
+		if choice, err = chooseClaudePlanInOrg(cr, org, runnerProvider); err != nil {
+			return none, customerKey{}, err
+		}
+		progress("context: organization %s", org)
+	} else if org != "" {
 		progress("context: organization %s (ks context use personal for your own account)", org)
 	} else if choice, err = chooseRunKey(cr, keyArg, runnerProvider, spend); err != nil {
 		// ---- 2. your own key or KeepState's key, chosen before anything exists ----
@@ -334,6 +353,26 @@ func createAgentRecord(cr hostedCreds, name, agentName, keyArg string, model, ef
 	if err := hostedCall(cr, "POST", "/api/v2/preflight", pfBody, &pf); err != nil {
 		return none, customerKey{}, err
 	}
+	// no key of your own and no choice, and the preflight says so: the Claude
+	// plan sign-in, where there is one (or is offered at a terminal), is what
+	// an API key would have been. Asked only then, so a run with a key of its
+	// own makes the same requests it always made.
+	if choice.plan {
+		if b, ok := pf.Data["blockers"].([]any); ok {
+			pf.Data["blockers"] = withoutKeyBlocker(b, pf.Data["checks"])
+		}
+	} else if planWorthTrying(org, keyArg, choice, runnerProvider) && hasKeyBlocker(pf.Data["checks"]) {
+		pk, use, perr := planInsteadOfNoKey(cr, runnerProvider)
+		if perr != nil {
+			return none, customerKey{}, perr
+		}
+		if use {
+			choice = planRunChoice(cr, pk, runnerProvider)
+			if b, ok := pf.Data["blockers"].([]any); ok {
+				pf.Data["blockers"] = withoutKeyBlocker(b, pf.Data["checks"])
+			}
+		}
+	}
 	if b, ok := pf.Data["blockers"].([]any); ok && len(b) > 0 {
 		var lines []string
 		for _, x := range b {
@@ -343,12 +382,18 @@ func createAgentRecord(cr hostedCreds, name, agentName, keyArg string, model, ef
 		if choice.answered {
 			next += " --key " + map[bool]string{true: keepstateKeyArg, false: ownKeyArg}[choice.managed]
 		}
+		hint := ""
+		if planWorthTrying(org, keyArg, choice, runnerProvider) && hasKeyBlocker(pf.Data["checks"]) && claudePlanListed(cr) {
+			hint = " (or sign in with your Claude plan: ks login claude)"
+		}
 		return none, customerKey{}, &cliError{Code: exitConflict, Kind: "preflight_blocked",
-			Message:    "preflight found blockers, so nothing was created: " + strings.Join(lines, "; "),
+			Message:    "preflight found blockers, so nothing was created: " + strings.Join(lines, "; ") + hint,
 			NextAction: next}
 	}
 	var key customerKey
 	switch {
+	case choice.plan:
+		key = choice.planKey
 	case org != "":
 		if key, err = orgRunKey(pf.Data, org, keyArg, runnerProvider); err != nil {
 			return none, customerKey{}, err
@@ -357,7 +402,20 @@ func createAgentRecord(cr hostedCreds, name, agentName, keyArg string, model, ef
 		key = customerKey{ID: keepstateKeyArg, Provider: runnerProvider}
 	default:
 		if key, err = runKey(cr, choice.keyArg, runnerProvider); err != nil {
-			return none, customerKey{}, err
+			// a service whose preflight does not name the missing key still
+			// ends here: the plan, where there is one, is the key
+			var ce *cliError
+			if !errors.As(err, &ce) || ce.Kind != "no_key" || !planWorthTrying(org, keyArg, choice, runnerProvider) {
+				return none, customerKey{}, err
+			}
+			pk, use, perr := planInsteadOfNoKey(cr, runnerProvider)
+			if perr != nil {
+				return none, customerKey{}, perr
+			}
+			if !use {
+				return none, customerKey{}, err
+			}
+			choice, key, err = planRunChoice(cr, pk, runnerProvider), pk, nil
 		}
 	}
 
@@ -389,6 +447,10 @@ func createAgentRecord(cr hostedCreds, name, agentName, keyArg string, model, ef
 		// the runner its agents work inside; Claude Code is sent as nothing,
 		// so a service that predates harnesses is asked nothing new
 		body["harness"] = harness.ID
+	}
+	if choice.plan {
+		// the session is bound to the Claude plan sign-in by its creation
+		body["claude_plan"] = true
 	}
 	if choice.send != nil {
 		// sent only to a service that offers KeepState's key: the providers
@@ -431,8 +493,8 @@ func createAgentRecord(cr hostedCreds, name, agentName, keyArg string, model, ef
 	}
 
 	// ---- 3a. the session's binding: that key is used or nothing is ---------
-	// (a session on KeepState's key was bound by its creation)
-	if !choice.managed {
+	// (a session on KeepState's key or on the Claude plan was bound by its creation)
+	if !choice.managed && !choice.plan {
 		var bound struct {
 			Data struct {
 				Revision int64 `json:"revision"`
@@ -448,13 +510,21 @@ func createAgentRecord(cr hostedCreds, name, agentName, keyArg string, model, ef
 	case startObserver != nil && choice.managed:
 		startObserver("key", keepstateKeyArg)
 		startObserver("machine", "")
+	case startObserver != nil && choice.plan:
+		startObserver("key", claudePlanKeyArg)
+		startObserver("machine", "")
 	case startObserver != nil:
 		startObserver("key", key.Last4)
 		startObserver("machine", "")
 	case choice.managed:
 		progress("  %s", choice.line(runnerProvider))
+	case choice.plan:
+		progress("This agent will use your Claude plan (…%s), which your plan bills and limits; KeepState adds no charge", key.Last4)
 	default:
 		progress("  %s calls go through your key %s (…%s)", runnerProvider, key.ID, key.Last4)
+		if runKeyPlanAlt != nil && keyArg == "" {
+			progress("  Your Claude plan is also a choice: --key claude-plan")
+		}
 	}
 
 	return rec, key, nil
@@ -530,6 +600,8 @@ type runKeyChoice struct {
 	spend       int64     // the spend limit on KeepState's key the creation sends
 	offer       managedProvider
 	answered    bool // the account's model keys were read
+	plan        bool // on the account's Claude plan sign-in (claude_plan.go)
+	planKey     customerKey
 }
 
 // line is what the run says about a session on KeepState's key.
@@ -550,6 +622,9 @@ func (c runKeyChoice) line(provider string) string {
 // nothing) and the account's default for the provider. A service that does
 // not list KeepState's key is asked nothing new and sent nothing new.
 func chooseRunKey(cr hostedCreds, keyArg, provider string, spend *int64) (runKeyChoice, error) {
+	if keyArg == claudePlanKeyArg {
+		return chooseClaudePlan(cr, provider)
+	}
 	c := runKeyChoice{keyArg: keyArg}
 	if keyArg == ownKeyArg {
 		c.keyArg = ""
