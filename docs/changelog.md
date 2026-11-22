@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The Claude Code plugin now runs `@keepstateai/cli@0.1.47`.
+
 ## v0.1.47 (2026-11-22)
 
 - `ks import` is now one guided step at a terminal. With no tool, or a tool and
