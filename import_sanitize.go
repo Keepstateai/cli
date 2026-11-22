@@ -29,11 +29,25 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
 
-const importMaxBytes = 50_000_000
+// importMaxBytes is the most a conversation may be once what must not travel
+// is taken out: 120 MB (120,000,000 bytes), what a session can resume. It was
+// measured: on the guest (2 GiB of memory) the pinned runners resume up to about
+// 150 MB and run out of memory above.
+const importMaxBytes = 120_000_000
+
+// importLimit is the limit in force. KS_IMPORT_MAX_BYTES may only lower it,
+// so a test needs no 120 MB file.
+func importLimit() int64 {
+	if v, err := strconv.ParseInt(os.Getenv("KS_IMPORT_MAX_BYTES"), 10, 64); err == nil && v > 0 && v < importMaxBytes {
+		return v
+	}
+	return importMaxBytes
+}
 
 // transcriptInfo is what a light read of a transcript says about it: no
 // message text, only identity and counts.
@@ -52,7 +66,12 @@ type transcriptInfo struct {
 	ModTime   time.Time `json:"-"`
 }
 
+// importReadProg, when set, is told how many bytes the sanitizing passes have
+// read in all (set only around sanitizeTranscript, never for a light read).
+var importReadProg func(n int64)
+
 func readImportLines(path string, f func(line []byte) error) error {
+	prog := importReadProg
 	fh, err := os.Open(path)
 	if err != nil {
 		return err
@@ -61,6 +80,9 @@ func readImportLines(path string, f func(line []byte) error) error {
 	r := bufio.NewReaderSize(fh, 1<<20)
 	for {
 		line, err := r.ReadBytes('\n')
+		if prog != nil {
+			prog(int64(len(line)))
+		}
 		if len(bytes.TrimSpace(line)) > 0 {
 			if ferr := f(line); ferr != nil {
 				return ferr
@@ -273,6 +295,26 @@ type sanitizeResult struct {
 	Stripped       map[string]int
 	Redactions     redactCounts
 	PathsRewritten int
+	EstTokens      int64 // the first reply reads about this many (see import_estimate.go)
+	EstCompacted   bool  // a compaction boundary cut what the harness sends
+	// Boundary is the index (among the file's non-blank lines) of the last
+	// compaction record kept, or -1. A trim starts there.
+	Boundary int
+	// NoTrimWhy: the file holds a compaction but there is nothing to trim to (and Boundary
+	// is then -1): its summary cannot travel, or it is not in the file.
+	NoTrimWhy string
+	// Records and Prompts are what the written file holds: its records, and the person's
+	// own messages among them.
+	Records int
+	Prompts int
+}
+
+// trimOpts says to write only what the harness sends the model: from the
+// compaction record at index Start, and, for a Codex rollout, the session's
+// first record before it (a rollout starts with its session_meta).
+type trimOpts struct {
+	On    bool
+	Start int
 }
 
 type sanitizer struct {
@@ -284,6 +326,16 @@ type sanitizer struct {
 	out      *bufio.Writer
 	written  int64
 	lastUUID any
+	est      *tokenEstimator
+	trim     trimOpts
+	boundary int // the last compaction record's index, -1 if none
+	// the last compaction's summary: whether it can travel in a trim, and if not why
+	boundaryOK  bool
+	boundaryWhy string
+	afterBound  bool // a Claude Code boundary was just kept: the next record must be its summary
+	records     int
+	prompts     int
+	sawMeta     bool // trim: the session_meta has been written
 }
 
 func (s *sanitizer) mapStrings(v any) any {
@@ -309,9 +361,35 @@ func (s *sanitizer) write(rec map[string]any) error {
 	if err != nil {
 		return err
 	}
+	s.est.add(rec) // the record as it is written: what the harness will read
+	s.records++
+	if s.isPrompt(rec) {
+		s.prompts++
+	}
 	n, err := s.out.Write(b)
 	s.written += int64(n)
 	return err
+}
+
+// isPrompt: a record that is the person's own message.
+func (s *sanitizer) isPrompt(rec map[string]any) bool {
+	switch asStr(rec["type"]) {
+	case "user":
+		if c, _ := rec["isCompactSummary"].(bool); c {
+			return false
+		}
+		if m := asMap(rec["message"]); m != nil {
+			text, ok := humanTextOf(m["content"])
+			return ok && !notAPrompt(text)
+		}
+	case "response_item":
+		p := asMap(rec["payload"])
+		if asStr(p["type"]) == "message" && asStr(p["role"]) == "user" {
+			text, ok := humanTextOf(p["content"])
+			return ok && !notAPrompt(text)
+		}
+	}
+	return false
 }
 
 func asMap(v any) map[string]any { m, _ := v.(map[string]any); return m }
@@ -384,13 +462,23 @@ func claudeCandidate(r *claudeLight) bool {
 // sanitizeTranscript writes the sanitized transcript to outPath and answers
 // what it holds and what was taken out.
 func sanitizeTranscript(info transcriptInfo, rw *pathRewriter, sb *summaryBuilder, outPath string) (*sanitizeResult, error) {
+	return sanitizeTranscriptTrim(info, rw, sb, outPath, trimOpts{})
+}
+
+// sanitizeTranscriptTrim is sanitizeTranscript, optionally writing only what
+// the harness sends after the last compaction (see trimOpts).
+func sanitizeTranscriptTrim(info transcriptInfo, rw *pathRewriter, sb *summaryBuilder, outPath string, trim trimOpts) (*sanitizeResult, error) {
 	fh, err := os.OpenFile(outPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, err
 	}
 	h := sha256.New()
 	bw := bufio.NewWriterSize(io.MultiWriter(fh, h), 1<<20)
-	s := &sanitizer{rw: rw, red: redactCounts{}, strip: map[string]int{}, summary: sb, id: info.ID, out: bw}
+	s := &sanitizer{rw: rw, red: redactCounts{}, strip: map[string]int{}, summary: sb, id: info.ID, out: bw, est: newTokenEstimator(info.Tool), trim: trim, boundary: -1}
+	rwBefore := 0
+	if rw != nil {
+		rwBefore = rw.Count
+	}
 	switch info.Tool {
 	case "claude-code":
 		err = s.claude(info.Path)
@@ -410,16 +498,24 @@ func sanitizeTranscript(info transcriptInfo, rw *pathRewriter, sb *summaryBuilde
 		return nil, err
 	}
 	res := &sanitizeResult{Info: info, OutPath: outPath, Bytes: s.written, SHA256: hex.EncodeToString(h.Sum(nil)),
-		Stripped: s.strip, Redactions: s.red}
+		Stripped: s.strip, Redactions: s.red, EstTokens: s.est.Tokens(), EstCompacted: s.est.compacted, Boundary: s.boundary, NoTrimWhy: s.boundaryWhy, Records: s.records, Prompts: s.prompts}
+	if s.boundary >= 0 && !s.boundaryOK { // a compaction the harness reads, but whose summary cannot travel
+		res.Boundary = -1
+	}
 	if rw != nil {
-		res.PathsRewritten = rw.Count
+		res.PathsRewritten = rw.Count - rwBefore
 	}
 	return res, nil
 }
 
 func (s *sanitizer) claude(path string) error {
 	useIDs, resIDs := map[string]bool{}, map[string]bool{}
+	n1 := -1
 	err := readImportLines(path, func(line []byte) error {
+		n1++
+		if s.trim.On && n1 < s.trim.Start {
+			return nil // a trim: what came before the last compaction is not sent
+		}
 		var r struct {
 			claudeLight
 			Message *struct {
@@ -454,7 +550,12 @@ func (s *sanitizer) claude(path string) error {
 	if err != nil {
 		return err
 	}
+	n2 := -1
 	return readImportLines(path, func(line []byte) error {
+		n2++
+		if s.trim.On && n2 < s.trim.Start {
+			return nil
+		}
 		rec, err := decodeImportLine(line)
 		if err != nil {
 			s.strip["unreadable line"]++
@@ -479,6 +580,12 @@ func (s *sanitizer) claude(path string) error {
 			return nil
 		}
 		if typ == "user" || typ == "assistant" {
+			if s.afterBound { // the record right after a boundary must be its summary
+				s.afterBound = false
+				if c, _ := rec["isCompactSummary"].(bool); c {
+					s.boundaryOK, s.boundaryWhy = true, ""
+				}
+			}
 			if _, ok := rec["toolUseResult"]; ok {
 				s.strip["tool result detail"]++
 			}
@@ -495,9 +602,13 @@ func (s *sanitizer) claude(path string) error {
 					m["content"] = nl
 				}
 			}
-		} else if cm := asMap(rec["compactMetadata"]); cm != nil {
-			delete(cm, "preservedSegment")
-			delete(cm, "preservedMessages")
+		} else {
+			s.boundary, s.boundaryOK, s.afterBound = n2, false, true
+			s.boundaryWhy = "its compaction summary is not in the file, after the boundary"
+			if cm := asMap(rec["compactMetadata"]); cm != nil {
+				delete(cm, "preservedSegment")
+				delete(cm, "preservedMessages")
+			}
 		}
 		if _, ok := rec["cwd"]; ok {
 			rec["cwd"] = importGuestWorkspace
@@ -512,7 +623,11 @@ func (s *sanitizer) claude(path string) error {
 			rec["parentUuid"] = s.lastUUID
 		}
 		if _, ok := rec["logicalParentUuid"]; ok {
-			rec["logicalParentUuid"] = s.lastUUID
+			if s.lastUUID == nil {
+				delete(rec, "logicalParentUuid") // a trim's first record has nothing before it
+			} else {
+				rec["logicalParentUuid"] = s.lastUUID
+			}
 		}
 		if u := rec["uuid"]; u != nil {
 			s.lastUUID = u
@@ -559,15 +674,58 @@ func humanTextOf(v any) (string, bool) {
 var codexEventsKept = map[string]bool{"user_message": true, "agent_message": true, "task_started": true, "task_complete": true, "turn_aborted": true}
 
 func (s *sanitizer) codex(path string) error {
+	n := -1
 	return readImportLines(path, func(line []byte) error {
+		n++
 		rec, err := decodeImportLine(line)
 		if err != nil {
-			s.strip["unreadable line"]++
+			if !s.trim.On || n >= s.trim.Start {
+				s.strip["unreadable line"]++
+			}
 			return nil
 		}
 		typ := asStr(rec["type"])
 		p := asMap(rec["payload"])
+		if s.trim.On && n < s.trim.Start {
+			// a trim keeps, of what came before the compaction, only the
+			// session's first record: a rollout starts with its session_meta
+			if typ != "session_meta" || s.sawMeta {
+				return nil
+			}
+		}
+		if typ == "session_meta" {
+			s.sawMeta = true
+		}
 		switch typ {
+		case "compacted":
+			s.boundary = n
+			hist, hasHist := p["replacement_history"].([]any)
+			_ = hist
+			switch {
+			case !hasHist:
+				s.boundaryOK, s.boundaryWhy = false, "it has no replacement history (Codex rebuilds it from the earlier messages, which a trim would drop)"
+			case strings.TrimSpace(asStr(p["message"])) == "":
+				s.boundaryOK, s.boundaryWhy = false, "its summary is kept by Codex only in an encrypted form that cannot be carried"
+			default:
+				s.boundaryOK, s.boundaryWhy = true, ""
+			}
+			if !s.trim.On {
+				s.strip["compacted"]++
+				return nil
+			}
+			// kept in a trim: its summary and its replacement history, each
+			// item held to the rules of any other record
+			np := map[string]any{"message": asStr(p["message"])}
+			if hist, ok := p["replacement_history"].([]any); ok {
+				var kept []any
+				for _, it := range hist {
+					if s.codexHistoryItemOK(asMap(it)) {
+						kept = append(kept, it)
+					}
+				}
+				np["replacement_history"] = kept
+			}
+			rec["payload"] = np
 		case "session_meta", "turn_context":
 		case "response_item":
 			pt := asStr(p["type"])
@@ -634,6 +792,40 @@ func (s *sanitizer) codex(path string) error {
 	})
 }
 
+// codexHistoryItemOK: whether an item of a compaction's replacement history may
+// travel. The rules are those of a response_item record: no reasoning, no
+// encrypted compaction item, no tool list, no developer message, no
+// environment message.
+func (s *sanitizer) codexHistoryItemOK(it map[string]any) bool {
+	if it == nil {
+		return false
+	}
+	switch asStr(it["type"]) {
+	case "reasoning":
+		s.strip["reasoning"]++
+		return false
+	case "compaction":
+		s.strip["compaction"]++
+		return false
+	case "additional_tools":
+		s.strip["tool list"]++
+		return false
+	case "message":
+		text, _ := humanTextOf(it["content"])
+		switch asStr(it["role"]) {
+		case "developer":
+			s.strip["developer message"]++
+			return false
+		case "user":
+			if strings.Contains(text, "<environment_context>") {
+				s.strip["environment message"]++
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // strippedWords is what was taken out, in plain words, biggest first.
 func strippedWords(m map[string]int) string {
 	if len(m) == 0 {
@@ -658,4 +850,22 @@ func strippedWords(m map[string]int) string {
 		parts = append(parts, fmt.Sprintf("%d %s", x.n, x.k))
 	}
 	return strings.Join(parts, ", ")
+}
+
+// trimTranscript cleans a session again from its last compaction on (see trimOpts),
+// into outPath, and answers the trim. A failure is an error, never a quiet fallback to
+// the whole conversation: the file is read a second time and may have changed or gone.
+func trimTranscript(info transcriptInfo, rw *pathRewriter, full *sanitizeResult, outPath string) (*sanitizeResult, error) {
+	if full.Boundary < 0 {
+		return nil, fmt.Errorf("there is no compaction to trim to")
+	}
+	tr, err := sanitizeTranscriptTrim(info, rw, nil, outPath, trimOpts{On: true, Start: full.Boundary})
+	if err != nil {
+		return nil, fmt.Errorf("the session could not be read again to trim it to its last compaction: %w", err)
+	}
+	if tr.Bytes == 0 || tr.Boundary < 0 {
+		os.Remove(outPath)
+		return nil, fmt.Errorf("the trim to the last compaction came out empty (the file changed between the two readings)")
+	}
+	return tr, nil
 }

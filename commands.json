@@ -4204,7 +4204,7 @@
   {
    "verb": "import claude-code",
    "aliases": [],
-   "usage": "ks import claude-code [--latest] [--session ID] [--project DIR] [--with-files] [--name NAME] [--model MODEL] [--key KEY] [--budget DOLLARS] [--harness H] [--brief] [--plan] [--execute DIGEST] [--out FILE]",
+   "usage": "ks import claude-code [--latest] [--session ID] [--project DIR] [--no-files] [--with-files] [--name NAME] [--model MODEL] [--key KEY] [--budget DOLLARS] [--harness H] [--brief] [--plan] [--execute DIGEST] [--out FILE]",
    "summary": "a Claude Code session on this machine as a new agent session that continues the same conversation (or, with --brief, a written summary of it)",
    "status": "available",
    "surface": "hosted",
@@ -4220,6 +4220,10 @@
     {
      "flag": "--project DIR",
      "summary": "the project folder: which session --latest takes, and where --with-files reads the repository from"
+    },
+    {
+     "flag": "--no-files",
+     "summary": "do not bring the project's files, and do not ask about them: the conversation only"
     },
     {
      "flag": "--with-files",
@@ -4266,7 +4270,7 @@
   {
    "verb": "import codex",
    "aliases": [],
-   "usage": "ks import codex [--latest] [--session ID] [--project DIR] [--with-files] [--name NAME] [--model MODEL] [--key KEY] [--budget DOLLARS] [--harness H] [--brief] [--plan] [--execute DIGEST] [--out FILE]",
+   "usage": "ks import codex [--latest] [--session ID] [--project DIR] [--no-files] [--with-files] [--name NAME] [--model MODEL] [--key KEY] [--budget DOLLARS] [--harness H] [--brief] [--plan] [--execute DIGEST] [--out FILE]",
    "summary": "a Codex CLI session on this machine as a new agent session that continues the same conversation (or, with --brief, a written summary of it)",
    "status": "available",
    "surface": "hosted",
@@ -4282,6 +4286,10 @@
     {
      "flag": "--project DIR",
      "summary": "the project folder: which session --latest takes, and where --with-files reads the repository from"
+    },
+    {
+     "flag": "--no-files",
+     "summary": "do not bring the project's files, and do not ask about them: the conversation only"
     },
     {
      "flag": "--with-files",
@@ -4328,7 +4336,7 @@
   {
    "verb": "import cursor",
    "aliases": [],
-   "usage": "ks import cursor [--latest] [--chat ID] [--store FILE] [--project DIR] [--with-files] [--name NAME] [--model MODEL] [--key KEY] [--budget DOLLARS] [--harness H] [--brief] [--plan] [--execute DIGEST] [--out FILE]",
+   "usage": "ks import cursor [--latest] [--chat ID] [--store FILE] [--project DIR] [--no-files] [--with-files] [--name NAME] [--model MODEL] [--key KEY] [--budget DOLLARS] [--harness H] [--brief] [--plan] [--execute DIGEST] [--out FILE]",
    "summary": "a Cursor chat as a written summary for a new agent session (best effort: Cursor's chat store is not documented)",
    "status": "available",
    "surface": "hosted",
@@ -4348,6 +4356,10 @@
     {
      "flag": "--project DIR",
      "summary": "the project folder: which session --latest takes, and where --with-files reads the repository from"
+    },
+    {
+     "flag": "--no-files",
+     "summary": "do not bring the project's files, and do not ask about them: the conversation only"
     },
     {
      "flag": "--with-files",

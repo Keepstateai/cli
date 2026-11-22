@@ -18,27 +18,66 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 type importServicePlan struct {
 	Digest string `json:"digest"`
 	Mode   string `json:"mode"`
 	Plan   struct {
-		Lines    []string `json:"lines"`
-		MaxBytes int64    `json:"max_bytes"`
+		Lines    []string              `json:"lines"`
+		MaxBytes int64                 `json:"max_bytes"`
+		Estimate *importEstimateAnswer `json:"estimate,omitempty"`
 	} `json:"plan"`
 }
+
+// importEstimateAnswer is the service's estimate of the first reply's cost:
+// the count the client declared, priced from the service's rate book.
+type importEstimateAnswer struct {
+	IsEstimate         bool   `json:"is_estimate"`
+	Method             string `json:"method"`
+	Tokens             int64  `json:"tokens"`
+	Compacted          bool   `json:"compacted"`
+	Basis              string `json:"basis"`
+	NoticeBytes        int64  `json:"notice_bytes"`
+	NoticeOpusMicroUSD int64  `json:"notice_opus_microusd"`
+	Notice             bool   `json:"notice"`
+	NoticeReason       string `json:"notice_reason"`
+	Models             []struct {
+		ID                 string `json:"id"`
+		Name               string `json:"name"`
+		ContextTokens      int64  `json:"context_tokens"`
+		FirstReadMicroUSD  int64  `json:"first_read_microusd"`
+		LaterReplyMicroUSD int64  `json:"later_reply_microusd"`
+		OverContext        bool   `json:"over_context"`
+		Note               string `json:"note"`
+	} `json:"models"`
+}
+
+// importLiveWindow: a conversation written this recently is open somewhere.
+const importLiveWindow = 2 * time.Minute
+
+func timeSince(t time.Time) time.Duration { return time.Since(t) }
 
 func (p *importPrep) localLines(set importSettings) []string {
 	var l []string
 	label := importToolLabel(p.Tool)
 	add := func(f string, a ...any) { l = append(l, sanitize(fmt.Sprintf(f, a...))) }
+	if s := importLiveSentence(p); s != "" {
+		add("%s", s)
+	}
+	if p.Trimmed {
+		add("%s", trimmedSentence(p))
+	}
 	switch p.Tool {
 	case "cursor":
 		add("Cursor chat %s%s: %d turns of text. Cursor's storage is not documented, so reading it is best effort. Cursor is not an agent KeepState runs, so nothing is resumed: the chat goes across as a written summary.", p.Info.ID, nameWords(p.Info.Model, ", model "), p.Turns)
@@ -95,11 +134,48 @@ func nounCount(n int, one, many string) string {
 	return fmt.Sprintf("%s %s", commas(int64(n)), noun(n, one, many))
 }
 
+// importNewFields are the declaration's source fields an older service does not know.
+var importNewFields = []string{"est_tokens", "est_compacted", "trimmed", "untrimmed_bytes"}
+
+// retryWithoutNewFields: when err is a service's refusal of a field it does not know and
+// the declaration carries any of the newer ones, it takes them out (in place) and says so.
+func retryWithoutNewFields(decl map[string]any, err error) bool {
+	src := asMap(decl["source"])
+	if err == nil || src == nil || !unknownFieldRefusal(err) {
+		return false
+	}
+	had := false
+	for _, f := range importNewFields {
+		if _, ok := src[f]; ok {
+			had = true
+			delete(src, f)
+		}
+	}
+	return had
+}
+
+// unknownFieldRefusal: the service refused the request body for a field it does not take.
+func unknownFieldRefusal(err error) bool {
+	var he *hostedErr
+	if !errors.As(err, &he) {
+		return false
+	}
+	return he.Type == "ks_body_unknown_field" || strings.Contains(he.Message, "unknown field")
+}
+
 func serverImportPlan(cr hostedCreds, decl map[string]any) importServicePlan {
 	var env struct {
 		Data importServicePlan `json:"data"`
 	}
-	if err := hostedCall(cr, "POST", "/api/v2/imports", decl, &env); err != nil {
+	err := hostedCall(cr, "POST", "/api/v2/imports", decl, &env)
+	// deploy order: a service that does not know the newer fields refuses them. Ask once
+	// more without them (and so with no estimate): the declaration is changed in place, so
+	// the apply carries the one that was planned.
+	if retryWithoutNewFields(decl, err) {
+		env.Data = importServicePlan{}
+		err = hostedCall(cr, "POST", "/api/v2/imports", decl, &env)
+	}
+	if err != nil {
 		die(err)
 	}
 	if len(env.Data.Digest) != 64 {
@@ -109,6 +185,9 @@ func serverImportPlan(cr hostedCreds, decl map[string]any) importServicePlan {
 }
 
 // ---- progress kept under the digest ----------------------------------------------
+
+// importBarSeen, when a test sets it, keeps what the conversation's upload bar was told.
+var importBarSeen *[]int64
 
 type importState struct {
 	SessionID string `json:"session_id"`
@@ -168,8 +247,12 @@ func importSessionName(p *importPrep) string {
 func importTool(tool string) func(*Invocation) {
 	return func(inv *Invocation) {
 		write := inv.Set("out")
-		if !write && inv.Bool("plan") == (inv.Str("execute") != "") {
-			importUsage("an import is planned first (--plan) and executed by naming that plan's digest (--execute DIGEST): one of the two. Nothing was created", "ks import "+tool+" --latest --plan")
+		if inv.Bool("with-files") && inv.Bool("no-files") {
+			importUsage("--with-files and --no-files say opposite things: one of them. Nothing was created", "")
+		}
+		if bare := !write && !inv.Bool("plan") && !inv.Set("execute"); bare && guidedInteractive() {
+			importGuided(inv, tool)
+			return
 		}
 		if inv.Bool("plan") && inv.Set("execute") {
 			importUsage("--plan and --execute are two steps: one of them. Nothing was created", "")
@@ -191,6 +274,10 @@ func importTool(tool string) func(*Invocation) {
 			importShowPlan(p, set, svc, inv)
 			return
 		}
+		if !inv.Set("execute") {
+			importBare(cr, inv, p, set, svc)
+			return
+		}
 		want := strings.ToLower(strings.TrimSpace(inv.Str("execute")))
 		if !digestSafe.MatchString(want) || want != svc.Digest {
 			fail(&cliError{Code: exitFailed, Kind: "plan_changed", Message: "the session changed since the plan was made (or this is not that plan's digest), so nothing was created. Plan again and execute the new digest",
@@ -202,18 +289,36 @@ func importTool(tool string) func(*Invocation) {
 
 // importReplayArgs is the command line's flags again with one added.
 func importReplayArgs(inv *Invocation, extra string) string {
+	return strings.Join(append(importFlagParts(inv, nil), extra), " ")
+}
+
+// importFlagParts is the command line's flags again, leaving out the named ones.
+func importFlagParts(inv *Invocation, skip map[string]bool) []string {
 	var parts []string
 	for _, f := range []string{"latest", "with-files", "brief"} {
-		if inv.Bool(f) {
+		if inv.Bool(f) && !skip[f] {
 			parts = append(parts, "--"+f)
 		}
 	}
 	for _, f := range []string{"session", "chat", "project", "store", "name", "model", "key", "budget", "harness"} {
-		if inv.Set(f) {
+		if inv.Set(f) && !skip[f] {
 			parts = append(parts, "--"+f, shellWord(inv.Str(f)))
 		}
 	}
-	return strings.Join(append(parts, extra), " ")
+	return parts
+}
+
+// importSessionCommand is the command that imports this one session, with the
+// same other flags and one added: what a "Next:" line names when the session
+// itself, not the newest one, is what it is about.
+func importSessionCommand(inv *Invocation, tool, id, extra string) string {
+	parts := importFlagParts(inv, map[string]bool{"latest": true, "session": true, "chat": true, "brief": true})
+	if tool == "cursor" {
+		parts = append(parts, "--chat", id)
+	} else {
+		parts = append(parts, "--session", id)
+	}
+	return strings.TrimSpace("ks import " + tool + " " + strings.Join(append(parts, extra), " "))
 }
 
 func importPlanDoc(p *importPrep, set importSettings, svc importServicePlan) map[string]any {
@@ -222,23 +327,52 @@ func importPlanDoc(p *importPrep, set importSettings, svc importServicePlan) map
 	if p.Files != nil {
 		files = map[string]any{"included": true, "folder": p.Files.To, "files": len(p.Files.Entries), "bytes": p.Files.Content, "head": p.Head, "dirty": p.Dirty, "left_out": len(p.Files.Skipped)}
 	}
-	return map[string]any{"digest": svc.Digest, "mode": p.Mode, "tool": p.Tool, "session_id": p.Info.ID, "turns": p.Turns,
+	doc := map[string]any{"digest": svc.Digest, "mode": p.Mode, "tool": p.Tool, "session_id": p.Info.ID, "turns": p.Turns,
 		"bytes_before": p.Info.Size, "bytes": p.Bytes, "redactions": map[string]int(p.Redactions), "stripped": map[string]int(p.Stripped),
 		"paths_rewritten": p.Rewritten, "files": files, "best_effort": p.Tool == "cursor",
 		"target": map[string]any{"harness": set.harness, "model": set.model, "key": set.key, "name": set.name},
 		"lines":  lines}
+	if p.Trimmed { // additive: the plan says the conversation was trimmed, and from what
+		doc["trimmed"] = true
+		doc["bytes_before_trim"] = p.UntrimmedBytes
+	}
+	if svc.Plan.Estimate != nil {
+		doc["estimate"] = svc.Plan.Estimate // additive: the service's estimate of the first reply's cost
+	}
+	return doc
 }
 
 func importShowPlan(p *importPrep, set importSettings, svc importServicePlan, inv *Invocation) {
 	doc := importPlanDoc(p, set, svc)
 	emit(doc, func() {
-		fmt.Println("Import plan (nothing has been created):")
-		for _, l := range doc["lines"].([]string) {
-			fmt.Println("  " + l)
-		}
-		fmt.Printf("plan digest: %s\n", svc.Digest)
-		fmt.Printf("to do it: ks import %s %s\n", p.Tool, importReplayArgs(inv, "--execute "+svc.Digest))
+		printImportPlan(p, set, svc)
+		o, _ := cmdUI()
+		o.Blank()
+		o.Facts([2]string{"Plan digest", svc.Digest})
+		o.Blank()
+		o.NextWhy("ks import "+p.Tool+" "+importReplayArgs(inv, "--execute "+svc.Digest), "Does exactly this plan.")
 	})
+}
+
+// importBare is the command with neither --plan nor --execute and no terminal
+// to ask on (or --yes): it plans, shows the plan and, with --yes, executes
+// from the same reading of the conversation, so a session that is still being
+// written cannot make the plan's digest stale. --json without --yes is the
+// plan's document. At a terminal importGuided runs instead.
+func importBare(cr hostedCreds, inv *Invocation, p *importPrep, set importSettings, svc importServicePlan) {
+	if out.json && !out.yes {
+		importShowPlan(p, set, svc, inv)
+		return
+	}
+	if !out.json {
+		printImportPlan(p, set, svc)
+	}
+	if !out.yes {
+		fail(&cliError{Code: exitUsage, Kind: "confirmation_required",
+			Message:    "this import needs your yes and this terminal cannot ask for it. Nothing was created. Read the plan above, then run the command below to do it",
+			NextAction: "ks import " + p.Tool + " " + importReplayArgs(inv, "--yes")})
+	}
+	importExecute(cr, inv, p, set, svc)
 }
 
 func importWriteOut(p *importPrep, dst string) {
@@ -246,29 +380,43 @@ func importWriteOut(p *importPrep, dst string) {
 	if err != nil {
 		fail(&cliError{Code: exitUsage, Kind: "usage", Message: fmt.Sprintf("%s cannot be written (%v); an existing file is never replaced. Nothing else was done", visible(sanitize(dst)), sanitize(err.Error()))})
 	}
-	var data []byte
+	// a conversation can be big: it is copied as a stream, never held whole
+	var n int64
 	if p.Mode == "brief" {
-		data = []byte(p.Brief)
+		k, werr := f.WriteString(p.Brief)
+		n, err = int64(k), werr
 	} else {
-		data, err = os.ReadFile(p.Out)
-		if err != nil {
-			f.Close()
-			die(err)
+		var src *os.File
+		if src, err = os.Open(p.Out); err == nil {
+			n, err = io.Copy(f, src)
+			src.Close()
 		}
 	}
-	if _, err := f.Write(data); err != nil {
+	if err != nil {
 		f.Close()
 		die(err)
 	}
 	if err := f.Close(); err != nil {
 		die(err)
 	}
-	emit(map[string]any{"out": dst, "mode": p.Mode, "bytes": len(data), "sha256": p.SHA256, "redactions": map[string]int(p.Redactions), "stripped": map[string]int(p.Stripped), "paths_rewritten": p.Rewritten}, func() {
-		fmt.Printf("wrote %s (%s, sha256 %s); nothing was sent and nothing was created. Secrets replaced: %s.\n", visible(sanitize(dst)), bytesText(int64(len(data))), short64(p.SHA256), p.Redactions.words())
+	emit(map[string]any{"out": dst, "mode": p.Mode, "bytes": n, "sha256": p.SHA256, "redactions": map[string]int(p.Redactions), "stripped": map[string]int(p.Stripped), "paths_rewritten": p.Rewritten}, func() {
+		fmt.Printf("wrote %s (%s, sha256 %s); nothing was sent and nothing was created. Secrets replaced: %s.\n", visible(sanitize(dst)), bytesText(n), short64(p.SHA256), p.Redactions.words())
 	})
 }
 
 func importExecute(cr hostedCreds, inv *Invocation, p *importPrep, set importSettings, svc importServicePlan) {
+	// Ctrl-C during the uploads stops them at a chunk and says what was kept
+	ctx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stopSignals()
+	steps := importSteps()
+	placing := false
+	startPlacing := func() {
+		if !placing && p.Mode == "conversation" && steps != nil {
+			placing = true
+			steps.Start("Placing the conversation on KeepState")
+			failPrelude = func() { steps.Fail("Could not place the conversation", "") }
+		}
+	}
 	st := loadImportState(svc.Digest)
 	if st.SessionID != "" && !sessionStillThere(cr, st.SessionID) {
 		st = importState{}
@@ -301,8 +449,7 @@ func importExecute(cr hostedCreds, inv *Invocation, p *importPrep, set importSet
 
 	if p.Files != nil && !st.FilesDone {
 		files := *p.Files
-		u := &uploader{ctx: context.Background(), cr: cr, inv: &Invocation{set: map[string]bool{"replace": true}, strs: map[string]string{}}, sess: sess, agent: "main", plan: &files, tty: stderrIsTerminal(), againCmd: again}
-		progress("uploading the project's files: %s (%s) to %s", visible(files.Name), bytesText(files.Content), visible(p.Dest))
+		u := &uploader{ctx: ctx, cr: cr, inv: &Invocation{set: map[string]bool{"replace": true}, strs: map[string]string{}}, sess: sess, agent: "main", plan: &files, tty: stderrIsTerminal(), againCmd: again, ackBar: true, barLabel: "Uploading the project's files", barDone: "Uploaded the project's files"}
 		u.declare(false)
 		if u.view.State != "placed" {
 			u.send()
@@ -314,11 +461,11 @@ func importExecute(cr hostedCreds, inv *Invocation, p *importPrep, set importSet
 	if p.Mode == "conversation" && !st.ConvDone {
 		plan := &uploadPlan{Kind: "file", Wire: "conversation", Name: "the conversation", Local: p.Out, To: p.Harness + "/" + p.ConvID, Mode: "0644",
 			Content: p.Bytes, Size: p.Bytes, SHA256: p.SHA256, Skipped: []uploadSkip{}}
-		u := &uploader{ctx: context.Background(), cr: cr, inv: quiet, sess: sess, agent: "main", plan: plan, tty: stderrIsTerminal(), againCmd: again}
-		progress("uploading the conversation (%s)", bytesText(p.Bytes))
+		u := &uploader{ctx: ctx, cr: cr, inv: quiet, sess: sess, agent: "main", plan: plan, tty: stderrIsTerminal(), againCmd: again, ackBar: true, barSeen: importBarSeen, barLabel: "Uploading the conversation", barDone: "Uploaded the conversation"}
 		u.declare(false)
 		if u.view.State != "verified" && u.view.State != "placed" {
 			u.send()
+			startPlacing()
 			u.view = u.complete()
 		}
 		if u.view.State != "verified" && u.view.State != "placed" {
@@ -332,6 +479,7 @@ func importExecute(cr hostedCreds, inv *Invocation, p *importPrep, set importSet
 	if p.Mode == "conversation" {
 		body["upload_id"] = st.UploadID
 	}
+	startPlacing()
 	var env struct {
 		Data struct {
 			ImportID       string `json:"import_id"`
@@ -345,26 +493,48 @@ func importExecute(cr hostedCreds, inv *Invocation, p *importPrep, set importSet
 	}
 	// apply is idempotent on the service (the same digest and upload place
 	// once), so a lost answer is asked again by running the command again
-	if err := hostedCall(cr, "POST", "/api/v2/imports/apply", body, &env); err != nil {
+	err := hostedCallWith(ctx, longClient(55*time.Minute), cr, "POST", "/api/v2/imports/apply", body, &env)
+	if placing {
+		failPrelude = nil
+		if err == nil {
+			steps.Done("Placed the conversation", "")
+		} else {
+			steps.Fail("Could not place the conversation", "")
+		}
+	}
+	if err != nil && ctx.Err() != nil { // Ctrl-C: stop at once, and say what is true
+		fail(&cliError{Code: exitInterrupt, Kind: "interrupted", WorkStarted: workYes,
+			Message: "The placement may still finish on KeepState. Run the same command again to see it.", NextAction: again})
+	}
+	if err != nil {
 		fail(&cliError{Code: exitFailed, Kind: "import_not_applied", WorkStarted: workYes,
 			Message:    "the session and the uploads are in place, but the service did not apply the import: " + sanitize(errText(err)),
 			NextAction: again + " (it continues from here and creates nothing new)"})
 	}
 	d := env.Data
-	nextSend := fmt.Sprintf("ks agent send main \"...\" --session %s   (the agent continues from here; its first reply re-reads the whole conversation)", st.SessionID)
-	if p.Mode == "brief" {
-		nextSend = fmt.Sprintf("ks agent send main \"...\" --session %s   (the summary reaches the agent with this first instruction)", st.SessionID)
-	}
 	res := map[string]any{"import_id": d.ImportID, "mode": p.Mode, "session_id": firstNonEmptyStr(d.SessionID, st.SessionID), "agent_id": firstNonEmptyStr(d.AgentID, st.AgentID),
 		"conversation_id": d.ConversationID, "message": d.Message, "redactions": map[string]int(p.Redactions), "files_uploaded": p.Files != nil}
 	emit(res, func() {
-		what := "its conversation"
+		o, _ := cmdUI()
+		carried := "the full conversation, " + commas(int64(p.Turns)) + " of your messages"
+		next := "ks agent open main --session " + st.SessionID
 		if p.Mode == "brief" {
-			what = "a written summary of it"
+			carried = "a written summary of the conversation"
+			next = "ks agent send main \"pick up where we left off\" --session " + st.SessionID
 		}
-		fmt.Printf("Imported %s session %s into session %s (agent main): %s is in place. %s\n", importToolLabel(p.Tool), visible(sanitize(p.Info.ID)), st.SessionID, what, sanitize(d.Message))
-		fmt.Printf("next: %s\n", nextSend)
-		fmt.Printf("      ks agent open main --session %s\n", st.SessionID)
+		facts := [][2]string{
+			{"Agent", "main (" + set.harness + ")"},
+			{"Carried", carried},
+			{"Secrets", sanitize(p.Redactions.words()) + " replaced before upload"},
+			{"Source", importToolLabel(p.Tool) + " session " + visible(sanitize(p.Info.ID))},
+			{"Console", consoleAgentsURL(cr, "#agent/"+firstNonEmptyStr(d.AgentID, st.AgentID))},
+		}
+		if m := strings.TrimSpace(sanitize(d.Message)); m != "" {
+			facts = append(facts, [2]string{"Service", m})
+		}
+		o.Blank()
+		o.Success("Imported into session "+short64(st.SessionID), facts, next)
+		o.Note("The agent's first reply re-reads the whole conversation.")
 	})
 	_ = os.Remove(importStatePath(svc.Digest))
 }

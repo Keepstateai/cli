@@ -499,6 +499,13 @@ type uploader struct {
 	// againCmd, when set, is the command that continues this upload in the
 	// words of the command that started it (ks import)
 	againCmd string
+	// ackBar, when set, shows the upload as a bar counted in the bytes the
+	// service acknowledged (barEvents keeps what it showed, for a test)
+	ackBar   bool
+	bar      *importBar
+	barSeen  *[]int64
+	barLabel string // the bar's words while it runs ("Uploading the conversation")
+	barDone  string // the line it leaves on the screen ("Uploaded the conversation")
 }
 
 // again is the command that continues (or repeats) this upload.
@@ -714,6 +721,9 @@ func (u *uploader) send() {
 	}
 	buf := make([]byte, chunk)
 	offset := u.view.Received
+	if u.ackBar && u.plan.Size > 0 {
+		u.bar = newImportBar(firstNonEmptyStr(u.barLabel, "Uploading"), u.plan.Size, offset, u.barSeen)
+	}
 	var src io.ReadCloser
 	reopen := func() {
 		if src != nil {
@@ -747,7 +757,11 @@ func (u *uploader) send() {
 		var err error
 		var rb []byte
 		for round := 0; ; round++ {
-			body := &countingReader{r: bytes.NewReader(buf[:n]), base: offset, on: u.progressLine}
+			on := u.progressLine
+			if u.bar != nil {
+				on = func(int64) {} // the bar counts what was acknowledged, not what was written
+			}
+			body := &countingReader{r: bytes.NewReader(buf[:n]), base: offset, on: on}
 			_, rb, err = uploadDo(u.ctx, u.cr, stream, "PUT", route, map[string]string{"Content-Type": "application/octet-stream", "X-KS-Chunk-SHA256": hex.EncodeToString(sum[:])}, body, n)
 			if err == nil || u.ctx.Err() != nil {
 				break
@@ -776,6 +790,9 @@ func (u *uploader) send() {
 				err = serr
 			} else {
 				u.view.Received, offset = v.Received, v.Received
+				if u.bar != nil {
+					u.bar.Set(v.Received)
+				}
 				reopen()
 				continue
 			}
@@ -805,7 +822,14 @@ func (u *uploader) send() {
 			offset = v.Received
 			reopen()
 		}
-		u.progressLine(offset)
+		if u.bar != nil {
+			u.bar.Set(v.Received)
+		} else {
+			u.progressLine(offset)
+		}
+	}
+	if u.bar != nil && u.view.Received >= u.plan.Size {
+		u.bar.Done(firstNonEmptyStr(u.barDone, "Uploaded"))
 	}
 	u.endProgress()
 }
@@ -816,7 +840,7 @@ func (u *uploader) complete() uploadView {
 	long := &http.Client{Transport: &http.Transport{
 		DialContext:           (&net.Dialer{Timeout: 30 * time.Second}).DialContext,
 		TLSHandshakeTimeout:   30 * time.Second,
-		ResponseHeaderTimeout: 15 * time.Minute, // checking and unpacking 1 GB
+		ResponseHeaderTimeout: 20 * time.Minute, // checking and unpacking, or reading, up to 1 GB
 		Proxy:                 http.ProxyFromEnvironment,
 	}}
 	route := uploadsBase(u.sess) + "/" + url.PathEscape(u.view.UploadID) + "/complete"
@@ -839,9 +863,13 @@ func (u *uploader) complete() uploadView {
 		}
 		time.Sleep(uploadBackoff(round))
 	}
+	if u.ctx.Err() != nil { // Ctrl-C while the session checks and places it
+		die(&cliError{Code: exitInterrupt, Kind: "interrupted", WorkStarted: workYes,
+			Message: "The placement may still finish on KeepState. Run the same command again to see it.", NextAction: u.again()})
+	}
 	if transient(err) {
 		die(&cliError{Code: exitTemporary, Kind: "upload_unconfirmed", WorkStarted: workUnknown,
-			Message:    fmt.Sprintf("every byte arrived, but whether the session placed the upload is not known (%s)", sanitize(err.Error())),
+			Message:    fmt.Sprintf("every byte arrived, but the session's answer to the final check did not come (%s), so whether it verified or placed the upload is not known", sanitize(err.Error())),
 			NextAction: u.again()})
 	}
 	die(u.refusal(err, "Every byte arrived and nothing was placed."))

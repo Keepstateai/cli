@@ -142,7 +142,7 @@ func importList(inv *Invocation) {
 			fmt.Println(cursorNote)
 		}
 		if len(rows) > 0 {
-			fmt.Println("import one with: ks import claude-code --latest   (or codex, or cursor; --session ID names one)")
+			fmt.Println("Next: ks import claude-code --latest   (or codex, or cursor; --session ID names one)")
 		}
 	})
 }
@@ -156,7 +156,7 @@ func importUsage(msg, next string) {
 // chooseTranscript answers the one session --latest or --session names.
 func chooseTranscript(tool string, inv *Invocation) transcriptInfo {
 	if inv.Bool("latest") == inv.Set("session") {
-		importUsage("name the session to import: --latest (the newest for this project) or --session ID. Nothing was sent", "ks import list")
+		importUsage("name the session to import: --latest (the newest for this project) or --session ID, and add --yes to import it without being asked. Nothing was sent", "ks import list")
 	}
 	all := localTranscripts(tool)
 	if inv.Set("session") {
@@ -199,28 +199,43 @@ func chooseTranscript(tool string, inv *Invocation) transcriptInfo {
 
 // ---- the preparation: everything the plan says ----------------------------------
 
+// importCleanSeen, when a test sets it, keeps what the cleaning bar was told.
+var importCleanSeen *[]int64
+
 type importPrep struct {
-	Tool       string
-	Mode       string // conversation | brief
-	Harness    string
-	Info       transcriptInfo
-	ConvID     string
-	Decl       map[string]any
-	Brief      string
-	Out        string // the sanitized transcript (conversation mode)
-	Bytes      int64
-	SHA256     string
-	Redactions redactCounts
-	Stripped   map[string]int
-	Rewritten  int
-	Files      *uploadPlan
-	Root       string
-	Head       string
-	Dirty      bool
-	Turns      int
-	Dest       string
-	CursorNote string
-	cleanup    []func()
+	Tool         string
+	Mode         string // conversation | brief
+	Harness      string
+	Info         transcriptInfo
+	ConvID       string
+	Decl         map[string]any
+	Brief        string
+	Out          string // the sanitized transcript (conversation mode)
+	Bytes        int64
+	SHA256       string
+	Redactions   redactCounts
+	Stripped     map[string]int
+	Rewritten    int
+	Files        *uploadPlan
+	Root         string
+	Head         string
+	Dirty        bool
+	Turns        int
+	SummaryChars int64 // what a written summary of it would be, in characters
+	// Trimmed: the conversation is cut to what the harness sends the model, from the
+	// last compaction on; UntrimmedBytes is what it was before. OverLimit: still
+	// over what a session can resume (a person at a terminal is offered the choices).
+	Trimmed        bool
+	UntrimmedBytes int64
+	TrimPrompts    int    // of the trim: the person's own messages in it
+	TrimRecords    int    // and its records
+	NoTrimWhy      string // a compaction is in the file but there is nothing to trim to, and why
+	OverLimit      bool
+	EstTokens      int64 // see import_estimate.go
+	EstCompacted   bool
+	Dest           string
+	CursorNote     string
+	cleanup        []func()
 }
 
 func (p *importPrep) Close() {
@@ -288,6 +303,12 @@ func importSettingsOf(inv *Invocation, tool string) importSettings {
 }
 
 func prepareImport(inv *Invocation, tool string) *importPrep {
+	return prepareImportOpts(inv, tool, false)
+}
+
+// prepareImportOpts: deferOver is for a person at a terminal, who is offered choices
+// for a conversation that is still too big, instead of a refusal (importGuided).
+func prepareImportOpts(inv *Invocation, tool string, deferOver bool) *importPrep {
 	set := importSettingsOf(inv, tool)
 	p := &importPrep{Tool: tool, Mode: set.mode, Harness: set.harness, Redactions: redactCounts{}, Stripped: map[string]int{}}
 	tmp, err := os.MkdirTemp("", "ks-import-")
@@ -344,19 +365,71 @@ func prepareImport(inv *Invocation, tool string) *importPrep {
 		}
 		p.CursorNote = fmt.Sprintf("%d turns read; %d headers had no message and were skipped", len(turns), cs.Orphans)
 	default:
+		passes := int64(1)
+		if tool == "claude-code" {
+			passes = 2 // the first pass pairs tool calls with their results, the second writes
+		}
+		bar := newImportBar("Cleaning the conversation", p.Info.Size, 0, importCleanSeen)
+		var read int64
+		importReadProg = func(n int64) { read += n; bar.Set(min(read/passes, p.Info.Size)) }
 		res, err := sanitizeTranscript(p.Info, rw, sb, filepath.Join(tmp, "transcript.jsonl"))
+		importReadProg = nil
+		if err == nil {
+			bar.Set(p.Info.Size)
+			bar.Done("Cleaned the conversation")
+		}
 		if err != nil {
 			fail(&cliError{Code: exitFailed, Kind: "transcript_unreadable", Message: fmt.Sprintf("the %s session %s could not be read: %s. Nothing was sent", tool, p.Info.ID, sanitize(err.Error()))})
 		}
 		p.Turns = p.Info.Turns
+		// over what a session can resume, with a compaction in it: keep only what
+		// the harness sends the model (from the last compaction on). Before the size
+		// check, the estimate and the digest.
+		noTrimWhy := res.NoTrimWhy
+		p.NoTrimWhy = noTrimWhy
+		if set.mode == "conversation" && res.Bytes > importLimit() && res.Boundary >= 0 {
+			tbar := newImportBar("Trimming to the last compaction", p.Info.Size, 0, importCleanSeen)
+			var tread int64
+			importReadProg = func(n int64) { tread += n; tbar.Set(min(tread/passes, p.Info.Size)) }
+			tr, terr := trimTranscript(p.Info, rw, res, filepath.Join(tmp, "transcript-trimmed.jsonl"))
+			importReadProg = nil
+			if terr != nil {
+				fail(&cliError{Code: exitFailed, Kind: "trim_failed", Message: sanitize(terr.Error()) + ". Nothing was sent. Run the same command again, or import a written summary with --brief",
+					NextAction: importSessionCommand(inv, tool, p.Info.ID, "--brief")})
+			}
+			tbar.Set(p.Info.Size)
+			tbar.Done("Trimmed to the last compaction")
+			p.Trimmed, p.UntrimmedBytes = true, res.Bytes
+			p.TrimPrompts, p.TrimRecords = tr.Prompts, tr.Records
+			os.Remove(res.OutPath)
+			res = tr
+		}
 		p.Bytes, p.SHA256, p.Stripped, p.Rewritten = res.Bytes, res.SHA256, res.Stripped, res.PathsRewritten
 		p.Redactions.add(res.Redactions)
 		p.Out = res.OutPath
-		if set.mode == "conversation" && p.Bytes > importMaxBytes {
-			fail(&cliError{Code: exitConflict, Kind: "import_too_large",
-				Message: fmt.Sprintf("this session is %s (%s bytes) once what must not travel is taken out; the limit is %s (%s bytes). Nothing was sent. Start a new session in %s from a shorter one, or import it as a written summary with --brief",
-					bytesText(p.Bytes), commas(p.Bytes), bytesText(importMaxBytes), commas(importMaxBytes), tool),
-				NextAction: "ks import " + tool + " --session " + p.Info.ID + " --brief"})
+		p.EstTokens, p.EstCompacted = res.EstTokens, res.EstCompacted
+		p.SummaryChars = int64(len([]rune(sb.build(importToolLabel(tool), redactCounts{}))))
+		if set.mode == "conversation" && p.Bytes == 0 {
+			fail(&cliError{Code: exitFailed, Kind: "import_empty", Message: "this session holds no messages to carry once what must not travel is taken out. Nothing was sent. Pick another session",
+				NextAction: "ks import list"})
+		}
+		if limit := importLimit(); set.mode == "conversation" && p.Bytes > limit {
+			p.OverLimit = true
+			if !deferOver { // a person at a terminal is offered the choices instead (importGuided)
+				how := "once what must not travel is taken out"
+				switch {
+				case p.Trimmed:
+					how = "once what must not travel is taken out and it is trimmed to its last compaction"
+				case noTrimWhy != "":
+					how += " (it holds a compaction, but " + noTrimWhy + ", so there is nothing to trim to)"
+				case res.Boundary < 0:
+					how += " (it holds no compaction to trim to)"
+				}
+				fail(&cliError{Code: exitConflict, Kind: "import_too_large",
+					Message: fmt.Sprintf("this session is %s (%s bytes) %s, and a session can resume up to %s (%s bytes). Nothing was sent. Import a written summary of it instead, or compact it in %s first (run /compact in that session) and import again",
+						bytesText(p.Bytes), commas(p.Bytes), how, bytesText(limit), commas(limit), importToolLabel(tool)),
+					NextAction: importSessionCommand(inv, tool, p.Info.ID, "--brief")})
+			}
 		}
 	}
 	if set.mode == "brief" {
@@ -420,6 +493,16 @@ func importDeclaration(p *importPrep, set importSettings) map[string]any {
 	if p.Tool == "codex" || p.Tool == "cursor" {
 		src["started_at"] = utcStamp(p.Info.StartedAt)
 	}
+	if p.Trimmed {
+		src["trimmed"] = true // bound into the digest: what travels is the trim, not the whole conversation
+		src["untrimmed_bytes"] = p.UntrimmedBytes
+	}
+	if p.Mode == "conversation" && p.EstTokens > 0 {
+		src["est_tokens"] = p.EstTokens // what the first reply reads, by the documented estimate
+		if p.EstCompacted {
+			src["est_compacted"] = true
+		}
+	}
 	target := map[string]any{"harness": set.harness, "model": set.model, "key": set.key, "name": set.name, "budget_usd": 0.0}
 	if set.spend != nil {
 		target["budget_usd"] = float64(*set.spend) / 1e6
@@ -447,7 +530,7 @@ func utcStamp(s string) string {
 
 func chooseCursorChat(inv *Invocation) (*cursorStore, *cursorChat) {
 	if inv.Bool("latest") == inv.Set("chat") {
-		importUsage("name the chat to import: --latest (the newest) or --chat ID. Nothing was sent", "ks import list --cursor")
+		importUsage("name the chat to import: --latest (the newest) or --chat ID, and add --yes to import it without being asked. Nothing was sent", "ks import list --cursor")
 	}
 	store := firstNonEmptyStr(inv.Str("store"), cursorDefaultStore())
 	cs, err := openCursorStore(store)

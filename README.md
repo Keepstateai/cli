@@ -83,6 +83,9 @@ a written summary.
 
 ```sh
 ks import list                                   # the sessions on this machine: id, project, date, size, messages
+ks import                                        # at a terminal: pick a session, review the plan, import
+ks import claude-code --latest                   # shows the plan, asks, then imports it
+ks import claude-code --latest --yes             # the same without the question
 ks import claude-code --latest --plan            # what would go up, and a digest; nothing is created
 ks import claude-code --latest --execute <digest>   # exactly that plan
 ks import codex --session 01a1c2d3 --with-files --plan
@@ -94,10 +97,17 @@ The session file is read on your machine. What must not travel is taken out
 signed thinking, encrypted reasoning), the old project paths are said as the
 new workspace's, and anything shaped like a secret (API keys, tokens, private
 keys, connection strings) is replaced before anything is sent; the plan counts
-the replacements by kind and never shows a secret. The plan comes first and
-creates nothing; `--execute` names its digest, and a conversation that changed
-since is refused. A conversation over 50 MB is refused: start a new session
-from a shorter one, or import it as a written summary with `--brief`. A
+the replacements by kind and never shows a secret. The plan is shown first. At a
+terminal you are guided and asked before anything is created (pick, files or not, review); `--yes` skips the question,
+and without a terminal (or with `--no-input`) the command stops after the plan
+and names the command to run. `--plan` creates nothing and prints a digest,
+and `--execute` names it (a conversation that changed since is refused). A
+conversation over 120 MB (120,000,000 bytes, what a session can resume) is
+trimmed to what the harness sends the model, from its last compaction on, with the
+summary; if it is still over, or holds no compaction, it is refused: compact it in
+the tool first, or import a written summary with `--brief`. A session that was
+written in the last two minutes is open somewhere: the plan says that what you
+say after it stays behind. A
 conversation goes into its own tool only; into the other one (`--harness`) it
 goes across as a summary. `--with-files` brings the git repository at the
 session's folder under the upload policy: `.env` files, credential-named

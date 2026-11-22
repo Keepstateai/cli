@@ -268,7 +268,15 @@ func classify(err error) *cliError {
 }
 
 // fail prints the error in the mode's shape and exits by the table.
+// failPrelude, when set, runs first in fail: a line being redrawn on the
+// terminal (a spinner) is closed before the failure's words are printed.
+var failPrelude func()
+
 func fail(err error) {
+	if f := failPrelude; f != nil {
+		failPrelude = nil
+		f()
+	}
 	ce := classify(err)
 	if out.json {
 		enc := json.NewEncoder(os.Stdout)

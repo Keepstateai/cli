@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+- `ks import` is now one guided step at a terminal. With no tool, or a tool and
+  no `--latest` or `--session`, it lists your sessions (tool, folder, first
+  prompt, when, and what each would send after cleaning; arrow keys or a
+  number), asks whether to bring the project files (with both sizes), shows the
+  plan and asks: Import now, Save the plan only, or Cancel. `--latest` and
+  `--session` skip the list, `--with-files` and `--no-files` skip the files
+  question, `--yes` skips the review. Without a terminal, or with `--no-input`,
+  nothing is asked: the plan is shown and the command says which flags to pass.
+  `--plan`, `--execute DIGEST` and `--json` keep their forms (`--json` without
+  `--yes` is the plan).
+- A progress bar covers the import: cleaning (bytes read), uploading (bytes
+  KeepState has acknowledged, so it reaches 100% only when the last byte is
+  safe) and placing. One line per 10% without a terminal; none with `--json`.
+  Ctrl-C stops at a chunk and says what was kept; running the same command
+  continues.
+- Against a service that does not know the token-count field yet, the plan
+  asks again without it and shows no estimate. Ctrl-C while the conversation
+  is being placed now stops at once (exit 130) and says the placement may still
+  finish on KeepState and to run the same command again. `--yes` at a terminal
+  takes the conversation only for the files question instead of asking.
+- A conversation over 120 MB (what a session can resume: the pinned runners
+  run out of memory on the 2 GiB guest above about 150 MB) is trimmed to what
+  the harness sends the model, from its last compaction on, with the summary;
+  the plan says "Trimmed to the last compaction: 137 MB to 18 MB". Still over, or
+  with no compaction, it is refused in plain words, and a person at a terminal is
+  offered compacting first, a written summary or cancel.
+- A trim is made only when the last compaction's summary can travel. Codex keeps
+  its summary in an encrypted item (the compacted record's message is empty), so a
+  Codex session over 120 MB is not trimmed: it is refused in plain words with that
+  reason, and a terminal offers compacting first, a written summary or cancel. A
+  trim that fails says so instead of falling back to the whole conversation. When
+  a conversation is trimmed the plan shows the trim's own counts. An older service
+  is asked again without the new fields whenever any of them was sent.
+- The size limit is 120 MB (was 50 MB), the file is read as a stream, and the
+  "Next:" command of an over-limit refusal now runs as given. The plan says
+  when the conversation is open in the tool right now.
+- The plan estimates what the first reply will cost (Sonnet 5.5 and Opus 5.5
+  for Claude Code), counting only what the harness sends after its last
+  compaction. Over 30 MB, or over USD 5 on Opus, it offers to compact in
+  Claude Code or Codex first (with the text to paste), to send a written
+  summary instead, or to go on.
 - The Claude Code plugin now runs `@keepstateai/cli@0.1.46`.
 
 ## v0.1.46 (2026-11-16)
