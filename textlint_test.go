@@ -182,7 +182,7 @@ func lintKey(s string) string {
 }
 
 func TestTextRuleExamples(t *testing.T) {
-	bad := []string{"a — b", "see BACKLOG-12", "NOT DONE: x", "next: ks login", "to do it: x", "It is HELD", "an ADR-004 reason", "KS-031 says"}
+	bad := []string{"a — b", "see BACKLOG" + "-12", "NOT DONE: x", "next: ks login", "to do it: x", "It is HELD", "an ADR" + "-004 reason", "KS-031 says"}
 	for _, s := range bad {
 		if len(textViolations(s)) == 0 {
 			t.Errorf("%q passed the lint", s)
