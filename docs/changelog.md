@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.47 (2026-11-22)
 
 - `ks import` is now one guided step at a terminal. With no tool, or a tool and
   no `--latest` or `--session`, it lists your sessions (tool, folder, first
@@ -43,6 +43,11 @@
   compaction. Over 30 MB, or over USD 5 on Opus, it offers to compact in
   Claude Code or Codex first (with the text to paste), to send a written
   summary instead, or to go on.
+- The commands that print once (import among them) now share one terminal design
+  kit: a title, facts, tables, a "Next:" line, steps, a progress bar, a confirm
+  question and an error block, all wrapped to your terminal's width. Colour and
+  motion follow NO_COLOR, `--no-color`, CI and `--json` as before; the plain
+  output that scripts read keeps its lines.
 - The Claude Code plugin now runs `@keepstateai/cli@0.1.46`.
 
 ## v0.1.46 (2026-11-16)
