@@ -199,6 +199,10 @@ func chooseTranscript(tool string, inv *Invocation) transcriptInfo {
 
 // ---- the preparation: everything the plan says ----------------------------------
 
+// importDeferOverLimit: a person at a terminal is offered choices for a
+// conversation that is still too big, instead of a refusal (set by importGuided).
+var importDeferOverLimit bool
+
 // importCleanSeen, when a test sets it, keeps what the cleaning bar was told.
 var importCleanSeen *[]int64
 
@@ -222,11 +226,17 @@ type importPrep struct {
 	Dirty        bool
 	Turns        int
 	SummaryChars int64 // what a written summary of it would be, in characters
-	EstTokens    int64 // see import_estimate.go
-	EstCompacted bool
-	Dest         string
-	CursorNote   string
-	cleanup      []func()
+	// Trimmed: the conversation is cut to what the harness sends the model, from the
+	// last compaction on; UntrimmedBytes is what it was before. OverLimit: still
+	// over what a session can resume (a person at a terminal is offered the choices).
+	Trimmed        bool
+	UntrimmedBytes int64
+	OverLimit      bool
+	EstTokens      int64 // see import_estimate.go
+	EstCompacted   bool
+	Dest           string
+	CursorNote     string
+	cleanup        []func()
 }
 
 func (p *importPrep) Close() {
@@ -367,6 +377,23 @@ func prepareImport(inv *Invocation, tool string) *importPrep {
 			fail(&cliError{Code: exitFailed, Kind: "transcript_unreadable", Message: fmt.Sprintf("the %s session %s could not be read: %s. Nothing was sent", tool, p.Info.ID, sanitize(err.Error()))})
 		}
 		p.Turns = p.Info.Turns
+		// over what a session can resume, with a compaction in it: keep only what
+		// the harness sends the model (from the last compaction on). Before the size
+		// check, the estimate and the digest.
+		if set.mode == "conversation" && res.Bytes > importLimit() && res.Boundary >= 0 {
+			tbar := newImportBar("Trimming to the last compaction", p.Info.Size, 0, importCleanSeen)
+			var tread int64
+			importReadProg = func(n int64) { tread += n; tbar.Set(min(tread/passes, p.Info.Size)) }
+			tr, terr := sanitizeTranscriptTrim(p.Info, rw, nil, filepath.Join(tmp, "transcript-trimmed.jsonl"), trimOpts{On: true, Start: res.Boundary})
+			importReadProg = nil
+			if terr == nil && tr.Bytes > 0 {
+				tbar.Set(p.Info.Size)
+				tbar.Done("Trimmed to the last compaction")
+				p.Trimmed, p.UntrimmedBytes = true, res.Bytes
+				os.Remove(res.OutPath)
+				res = tr
+			}
+		}
 		p.Bytes, p.SHA256, p.Stripped, p.Rewritten = res.Bytes, res.SHA256, res.Stripped, res.PathsRewritten
 		p.Redactions.add(res.Redactions)
 		p.Out = res.OutPath
@@ -377,10 +404,19 @@ func prepareImport(inv *Invocation, tool string) *importPrep {
 				NextAction: "ks import list"})
 		}
 		if limit := importLimit(); set.mode == "conversation" && p.Bytes > limit {
-			fail(&cliError{Code: exitConflict, Kind: "import_too_large",
-				Message: fmt.Sprintf("this session is %s (%s bytes) once what must not travel is taken out, and the limit is %s (%s bytes). Nothing was sent. Import a written summary of it instead, or start from a shorter session",
-					bytesText(p.Bytes), commas(p.Bytes), bytesText(limit), commas(limit)),
-				NextAction: importSessionCommand(inv, tool, p.Info.ID, "--brief")})
+			p.OverLimit = true
+			if !importDeferOverLimit { // a person at a terminal is offered the choices instead (importGuided)
+				how := "once what must not travel is taken out"
+				if p.Trimmed {
+					how = "once what must not travel is taken out and it is trimmed to its last compaction"
+				} else if res.Boundary < 0 {
+					how += " (it holds no compaction to trim to)"
+				}
+				fail(&cliError{Code: exitConflict, Kind: "import_too_large",
+					Message: fmt.Sprintf("this session is %s (%s bytes) %s, and a session can resume up to %s (%s bytes). Nothing was sent. Import a written summary of it instead, or compact it in %s first (run /compact in that session) and import again",
+						bytesText(p.Bytes), commas(p.Bytes), how, bytesText(limit), commas(limit), importToolLabel(tool)),
+					NextAction: importSessionCommand(inv, tool, p.Info.ID, "--brief")})
+			}
 		}
 	}
 	if set.mode == "brief" {
@@ -443,6 +479,10 @@ func importDeclaration(p *importPrep, set importSettings) map[string]any {
 		"redactions": map[string]int(p.Redactions), "stripped": map[string]int(p.Stripped), "paths_rewritten": p.Rewritten}
 	if p.Tool == "codex" || p.Tool == "cursor" {
 		src["started_at"] = utcStamp(p.Info.StartedAt)
+	}
+	if p.Trimmed {
+		src["trimmed"] = true // bound into the digest: what travels is the trim, not the whole conversation
+		src["untrimmed_bytes"] = p.UntrimmedBytes
 	}
 	if p.Mode == "conversation" && p.EstTokens > 0 {
 		src["est_tokens"] = p.EstTokens // what the first reply reads, by the documented estimate

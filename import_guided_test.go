@@ -180,24 +180,46 @@ func TestGuidedCancelAtTheReview(t *testing.T) {
 	}
 }
 
-func TestGuidedOverTheLimitOffersTheSummary(t *testing.T) {
-	e := newImportEnv(t)
-	e.ready()
-	e.env = append(e.env, "KS_IMPORT_MAX_BYTES=1000")
-	got, code := e.ptyImport([]keyStep{{"Pick a session", "\r"}, {"Import a written summary of it instead?", "y\r"}, {"Review the plan", "\r"}}, "import", "claude-code")
-	if !strings.Contains(got, "too big") {
-		t.Fatalf("the row is not marked:\n%s", got)
+// Still over what a session can resume (after a trim, or with nothing to trim to): the
+// choices are compact first, a written summary, cancel; the reserved place for
+// compacting on KeepState is not shown.
+func TestGuidedOverTheLimitOffersTheChoices(t *testing.T) {
+	run := func(keys string) (*importEnv, string, int) {
+		e := newImportEnv(t)
+		e.ready()
+		e.env = append(e.env, "KS_IMPORT_MAX_BYTES=1000")
+		got, code := e.ptyImport([]keyStep{{"Pick a session", "\r"}, {"What now?", keys}}, "import", "claude-code")
+		return e, got, code
+	}
+	// a summary: the plan is a summary and it is imported
+	e, got, code := func() (*importEnv, string, int) {
+		e := newImportEnv(t)
+		e.ready()
+		e.env = append(e.env, "KS_IMPORT_MAX_BYTES=1000")
+		got, code := e.ptyImport([]keyStep{{"Pick a session", "\r"}, {"What now?", "2\r"}, {"Review the plan", "\r"}}, "import", "claude-code")
+		return e, got, code
+	}()
+	f := flat(got)
+	for _, want := range []string{"too big", "This conversation is too big for a session to resume", "a session can resume up to 1.0 KB", "Compact it in Claude Code first (recommended, costs nothing here)", "Bring a written summary instead (--brief)", "Cancel"} {
+		if !strings.Contains(f, want) {
+			t.Errorf("the screen lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(f, "Go without compacting") || strings.Contains(f, "on KeepState with") {
+		t.Errorf("a choice that does not belong here:\n%s", got)
 	}
 	if code != 0 || len(e.c.applies) != 1 || asStr(asMap(e.c.applies[0]["declaration"])["mode"]) != "brief" {
-		t.Fatalf("over the limit, to a summary: %d\n%s", code, got)
+		t.Fatalf("to a summary: %d\n%s", code, got)
 	}
-	// declining the summary changes nothing
-	e2 := newImportEnv(t)
-	e2.ready()
-	e2.env = append(e2.env, "KS_IMPORT_MAX_BYTES=1000")
-	got, code = e2.ptyImport([]keyStep{{"Pick a session", "\r"}, {"Import a written summary of it instead?", "\r"}}, "import", "claude-code")
-	if code != exitUsage || len(e2.c.creations) != 0 || !strings.Contains(got, "Nothing was created") {
-		t.Fatalf("declined the summary: %d\n%s", code, got)
+	// compact first: the instruction, the command to run again, nothing created
+	e2, got2, code2 := run("\r")
+	if code2 != 0 || len(e2.c.creations) != 0 || !strings.Contains(flat(got2), "/compact Keep: every decision") || !strings.Contains(flat(got2), "Next: ks import claude-code --session "+claudeSID) {
+		t.Fatalf("compact first: %d\n%s", code2, got2)
+	}
+	// cancel
+	e3, got3, code3 := run("3\r")
+	if code3 != exitUsage || len(e3.c.creations) != 0 || !strings.Contains(got3, "Nothing was created") {
+		t.Fatalf("cancel: %d\n%s", code3, got3)
 	}
 }
 

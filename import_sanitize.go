@@ -35,12 +35,13 @@ import (
 )
 
 // importMaxBytes is the most a conversation may be once what must not travel
-// is taken out: 1 GB (1,000,000,000 bytes, the decimal gigabyte, the same cap
-// as every other upload).
-const importMaxBytes = 1_000_000_000
+// is taken out: 120 MB (120,000,000 bytes), what a session can resume. It was
+// measured: on the guest (2 GiB of memory) the pinned runners resume up to about
+// 150 MB and run out of memory above.
+const importMaxBytes = 120_000_000
 
 // importLimit is the limit in force. KS_IMPORT_MAX_BYTES may only lower it,
-// so a test needs no 1 GB file.
+// so a test needs no 120 MB file.
 func importLimit() int64 {
 	if v, err := strconv.ParseInt(os.Getenv("KS_IMPORT_MAX_BYTES"), 10, 64); err == nil && v > 0 && v < importMaxBytes {
 		return v
@@ -296,6 +297,17 @@ type sanitizeResult struct {
 	PathsRewritten int
 	EstTokens      int64 // the first reply reads about this many (see import_estimate.go)
 	EstCompacted   bool  // a compaction boundary cut what the harness sends
+	// Boundary is the index (among the file's non-blank lines) of the last
+	// compaction record kept, or -1. A trim starts there.
+	Boundary int
+}
+
+// trimOpts says to write only what the harness sends the model: from the
+// compaction record at index Start, and, for a Codex rollout, the session's
+// first record before it (a rollout starts with its session_meta).
+type trimOpts struct {
+	On    bool
+	Start int
 }
 
 type sanitizer struct {
@@ -308,6 +320,9 @@ type sanitizer struct {
 	written  int64
 	lastUUID any
 	est      *tokenEstimator
+	trim     trimOpts
+	boundary int  // the last compaction record's index, -1 if none
+	sawMeta  bool // trim: the session_meta has been written
 }
 
 func (s *sanitizer) mapStrings(v any) any {
@@ -409,13 +424,23 @@ func claudeCandidate(r *claudeLight) bool {
 // sanitizeTranscript writes the sanitized transcript to outPath and answers
 // what it holds and what was taken out.
 func sanitizeTranscript(info transcriptInfo, rw *pathRewriter, sb *summaryBuilder, outPath string) (*sanitizeResult, error) {
+	return sanitizeTranscriptTrim(info, rw, sb, outPath, trimOpts{})
+}
+
+// sanitizeTranscriptTrim is sanitizeTranscript, optionally writing only what
+// the harness sends after the last compaction (see trimOpts).
+func sanitizeTranscriptTrim(info transcriptInfo, rw *pathRewriter, sb *summaryBuilder, outPath string, trim trimOpts) (*sanitizeResult, error) {
 	fh, err := os.OpenFile(outPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, err
 	}
 	h := sha256.New()
 	bw := bufio.NewWriterSize(io.MultiWriter(fh, h), 1<<20)
-	s := &sanitizer{rw: rw, red: redactCounts{}, strip: map[string]int{}, summary: sb, id: info.ID, out: bw, est: newTokenEstimator(info.Tool)}
+	s := &sanitizer{rw: rw, red: redactCounts{}, strip: map[string]int{}, summary: sb, id: info.ID, out: bw, est: newTokenEstimator(info.Tool), trim: trim, boundary: -1}
+	rwBefore := 0
+	if rw != nil {
+		rwBefore = rw.Count
+	}
 	switch info.Tool {
 	case "claude-code":
 		err = s.claude(info.Path)
@@ -435,16 +460,21 @@ func sanitizeTranscript(info transcriptInfo, rw *pathRewriter, sb *summaryBuilde
 		return nil, err
 	}
 	res := &sanitizeResult{Info: info, OutPath: outPath, Bytes: s.written, SHA256: hex.EncodeToString(h.Sum(nil)),
-		Stripped: s.strip, Redactions: s.red, EstTokens: s.est.Tokens(), EstCompacted: s.est.compacted}
+		Stripped: s.strip, Redactions: s.red, EstTokens: s.est.Tokens(), EstCompacted: s.est.compacted, Boundary: s.boundary}
 	if rw != nil {
-		res.PathsRewritten = rw.Count
+		res.PathsRewritten = rw.Count - rwBefore
 	}
 	return res, nil
 }
 
 func (s *sanitizer) claude(path string) error {
 	useIDs, resIDs := map[string]bool{}, map[string]bool{}
+	n1 := -1
 	err := readImportLines(path, func(line []byte) error {
+		n1++
+		if s.trim.On && n1 < s.trim.Start {
+			return nil // a trim: what came before the last compaction is not sent
+		}
 		var r struct {
 			claudeLight
 			Message *struct {
@@ -479,7 +509,12 @@ func (s *sanitizer) claude(path string) error {
 	if err != nil {
 		return err
 	}
+	n2 := -1
 	return readImportLines(path, func(line []byte) error {
+		n2++
+		if s.trim.On && n2 < s.trim.Start {
+			return nil
+		}
 		rec, err := decodeImportLine(line)
 		if err != nil {
 			s.strip["unreadable line"]++
@@ -520,9 +555,12 @@ func (s *sanitizer) claude(path string) error {
 					m["content"] = nl
 				}
 			}
-		} else if cm := asMap(rec["compactMetadata"]); cm != nil {
-			delete(cm, "preservedSegment")
-			delete(cm, "preservedMessages")
+		} else {
+			s.boundary = n2
+			if cm := asMap(rec["compactMetadata"]); cm != nil {
+				delete(cm, "preservedSegment")
+				delete(cm, "preservedMessages")
+			}
 		}
 		if _, ok := rec["cwd"]; ok {
 			rec["cwd"] = importGuestWorkspace
@@ -537,7 +575,11 @@ func (s *sanitizer) claude(path string) error {
 			rec["parentUuid"] = s.lastUUID
 		}
 		if _, ok := rec["logicalParentUuid"]; ok {
-			rec["logicalParentUuid"] = s.lastUUID
+			if s.lastUUID == nil {
+				delete(rec, "logicalParentUuid") // a trim's first record has nothing before it
+			} else {
+				rec["logicalParentUuid"] = s.lastUUID
+			}
 		}
 		if u := rec["uuid"]; u != nil {
 			s.lastUUID = u
@@ -584,15 +626,48 @@ func humanTextOf(v any) (string, bool) {
 var codexEventsKept = map[string]bool{"user_message": true, "agent_message": true, "task_started": true, "task_complete": true, "turn_aborted": true}
 
 func (s *sanitizer) codex(path string) error {
+	n := -1
 	return readImportLines(path, func(line []byte) error {
+		n++
 		rec, err := decodeImportLine(line)
 		if err != nil {
-			s.strip["unreadable line"]++
+			if !s.trim.On || n >= s.trim.Start {
+				s.strip["unreadable line"]++
+			}
 			return nil
 		}
 		typ := asStr(rec["type"])
 		p := asMap(rec["payload"])
+		if s.trim.On && n < s.trim.Start {
+			// a trim keeps, of what came before the compaction, only the
+			// session's first record: a rollout starts with its session_meta
+			if typ != "session_meta" || s.sawMeta {
+				return nil
+			}
+		}
+		if typ == "session_meta" {
+			s.sawMeta = true
+		}
 		switch typ {
+		case "compacted":
+			s.boundary = n
+			if !s.trim.On {
+				s.strip["compacted"]++
+				return nil
+			}
+			// kept in a trim: its summary and its replacement history, each
+			// item held to the rules of any other record
+			np := map[string]any{"message": asStr(p["message"])}
+			if hist, ok := p["replacement_history"].([]any); ok {
+				var kept []any
+				for _, it := range hist {
+					if s.codexHistoryItemOK(asMap(it)) {
+						kept = append(kept, it)
+					}
+				}
+				np["replacement_history"] = kept
+			}
+			rec["payload"] = np
 		case "session_meta", "turn_context":
 		case "response_item":
 			pt := asStr(p["type"])
@@ -657,6 +732,40 @@ func (s *sanitizer) codex(path string) error {
 		}
 		return s.write(rec)
 	})
+}
+
+// codexHistoryItemOK: whether an item of a compaction's replacement history may
+// travel. The rules are those of a response_item record: no reasoning, no
+// encrypted compaction item, no tool list, no developer message, no
+// environment message.
+func (s *sanitizer) codexHistoryItemOK(it map[string]any) bool {
+	if it == nil {
+		return false
+	}
+	switch asStr(it["type"]) {
+	case "reasoning":
+		s.strip["reasoning"]++
+		return false
+	case "compaction":
+		s.strip["compaction"]++
+		return false
+	case "additional_tools":
+		s.strip["tool list"]++
+		return false
+	case "message":
+		text, _ := humanTextOf(it["content"])
+		switch asStr(it["role"]) {
+		case "developer":
+			s.strip["developer message"]++
+			return false
+		case "user":
+			if strings.Contains(text, "<environment_context>") {
+				s.strip["environment message"]++
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // strippedWords is what was taken out, in plain words, biggest first.

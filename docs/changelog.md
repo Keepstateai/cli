@@ -22,7 +22,13 @@
   is being placed now stops at once (exit 130) and says the placement may still
   finish on KeepState and to run the same command again. `--yes` at a terminal
   takes the conversation only for the files question instead of asking.
-- The size limit is 1 GB (was 50 MB), the file is read as a stream, and the
+- A conversation over 120 MB (what a session can resume: the pinned runners
+  run out of memory on the 2 GiB guest above about 150 MB) is trimmed to what
+  the harness sends the model, from its last compaction on, with the summary;
+  the plan says "Trimmed to the last compaction: 137 MB to 18 MB". Still over, or
+  with no compaction, it is refused in plain words, and a person at a terminal is
+  offered compacting first, a written summary or cancel.
+- The size limit is 120 MB (was 50 MB), the file is read as a stream, and the
   "Next:" command of an over-limit refusal now runs as given. The plan says
   when the conversation is open in the tool right now.
 - The plan estimates what the first reply will cost (Sonnet 5.5 and Opus 5.5

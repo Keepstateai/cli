@@ -35,10 +35,10 @@ func (e *importEnv) ready() {
 	e.c.runCtl.record = map[string]any{"id": "session_abc123", "runtime_state": "running"}
 }
 
-// The limit is 1 GB, the same as the generic upload cap.
-func TestImportLimitIsOneGB(t *testing.T) {
-	if importMaxBytes != 1_000_000_000 {
-		t.Fatalf("the import limit is %d, want 1,000,000,000", importMaxBytes)
+// The limit is 120 MB: what a session can resume.
+func TestImportLimitIsWhatASessionCanResume(t *testing.T) {
+	if importMaxBytes != 120_000_000 {
+		t.Fatalf("the import limit is %d, want 120,000,000", importMaxBytes)
 	}
 }
 
@@ -108,7 +108,7 @@ func TestImportOverTheLimitSaysTheOneCommandAndItWorks(t *testing.T) {
 	e.ready()
 	e.env = append(e.env, "KS_IMPORT_MAX_BYTES=1000")
 	_, errs, code := e.run("import", "claude-code", "--latest", "--yes")
-	if code != exitConflict || !strings.Contains(errs, "the limit is") || !strings.Contains(errs, "Nothing was sent") {
+	if code != exitConflict || !strings.Contains(errs, "a session can resume up to") || !strings.Contains(errs, "Nothing was sent") {
 		t.Fatalf("over the limit: %d\n%s", code, errs)
 	}
 	nx := nextLines(errs)

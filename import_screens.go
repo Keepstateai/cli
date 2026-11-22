@@ -57,6 +57,9 @@ func importPlanFacts(p *importPrep, set importSettings, svc importServicePlan) [
 	if p.Mode == "conversation" {
 		rows = append(rows, [2]string{"Carries", fmt.Sprintf("the full conversation, %s of your messages and %s records", commas(int64(p.Turns)), commas(int64(p.Info.Messages)))})
 		rows = append(rows, [2]string{"Size", fmt.Sprintf("%s to upload (%s read)", kitBytes(p.Bytes), kitBytes(p.Info.Size))})
+		if p.Trimmed {
+			rows = append(rows, [2]string{"Trimmed", trimmedSentence(p)})
+		}
 		rows = append(rows, [2]string{"Taken out", sanitize(strippedWords(p.Stripped))})
 	} else {
 		rows = append(rows, [2]string{"Carries", fmt.Sprintf("a written summary of %s characters, not the conversation", commas(int64(len([]rune(p.Brief)))))})
@@ -137,4 +140,9 @@ func importLiveSentence(p *importPrep) string {
 		return ""
 	}
 	return fmt.Sprintf("This conversation is open in %s right now; what you say after this point stays behind.", importToolLabel(p.Tool))
+}
+
+// trimmedSentence says what a trim did, in the owner's words.
+func trimmedSentence(p *importPrep) string {
+	return fmt.Sprintf("Trimmed to the last compaction: %s to %s. The earlier part stays on this machine; the agent never saw it again anyway.", kitBytes(p.UntrimmedBytes), kitBytes(p.Bytes))
 }

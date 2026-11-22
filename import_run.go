@@ -75,6 +75,9 @@ func (p *importPrep) localLines(set importSettings) []string {
 	if s := importLiveSentence(p); s != "" {
 		add("%s", s)
 	}
+	if p.Trimmed {
+		add("%s", trimmedSentence(p))
+	}
 	switch p.Tool {
 	case "cursor":
 		add("Cursor chat %s%s: %d turns of text. Cursor's storage is not documented, so reading it is best effort. Cursor is not an agent KeepState runs, so nothing is resumed: the chat goes across as a written summary.", p.Info.ID, nameWords(p.Info.Model, ", model "), p.Turns)
@@ -151,6 +154,8 @@ func serverImportPlan(cr hostedCreds, decl map[string]any) importServicePlan {
 	if src := asMap(decl["source"]); err != nil && src != nil && src["est_tokens"] != nil && unknownFieldRefusal(err) {
 		delete(src, "est_tokens")
 		delete(src, "est_compacted")
+		delete(src, "trimmed") // fields an older service does not know either
+		delete(src, "untrimmed_bytes")
 		env.Data = importServicePlan{}
 		err = hostedCall(cr, "POST", "/api/v2/imports", decl, &env)
 	}
@@ -311,6 +316,10 @@ func importPlanDoc(p *importPrep, set importSettings, svc importServicePlan) map
 		"paths_rewritten": p.Rewritten, "files": files, "best_effort": p.Tool == "cursor",
 		"target": map[string]any{"harness": set.harness, "model": set.model, "key": set.key, "name": set.name},
 		"lines":  lines}
+	if p.Trimmed { // additive: the plan says the conversation was trimmed, and from what
+		doc["trimmed"] = true
+		doc["bytes_before_trim"] = p.UntrimmedBytes
+	}
 	if svc.Plan.Estimate != nil {
 		doc["estimate"] = svc.Plan.Estimate // additive: the service's estimate of the first reply's cost
 	}
@@ -355,7 +364,7 @@ func importWriteOut(p *importPrep, dst string) {
 	if err != nil {
 		fail(&cliError{Code: exitUsage, Kind: "usage", Message: fmt.Sprintf("%s cannot be written (%v); an existing file is never replaced. Nothing else was done", visible(sanitize(dst)), sanitize(err.Error()))})
 	}
-	// a conversation can be 1 GB: it is copied as a stream, never held whole
+	// a conversation can be big: it is copied as a stream, never held whole
 	var n int64
 	if p.Mode == "brief" {
 		k, werr := f.WriteString(p.Brief)

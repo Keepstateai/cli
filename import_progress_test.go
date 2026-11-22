@@ -183,8 +183,9 @@ func TestUploadBarThrottled300MB(t *testing.T) {
 	}
 }
 
-// The 1 GB limit: a sparse file, so the disk is not used and memory stays at a chunk.
-func TestUploadBarAtTheOneGBLimit(t *testing.T) {
+// The import limit (120 MB), and 1 GB, the generic upload cap the same uploader serves:
+// sparse files, so the disk is not used and memory stays at a chunk.
+func TestUploadBarAtTheImportLimitAndAtOneGB(t *testing.T) {
 	if testing.Short() {
 		t.Skip("short")
 	}
@@ -192,10 +193,16 @@ func TestUploadBarAtTheOneGBLimit(t *testing.T) {
 	if err := syscall.Statfs(os.TempDir(), &fs); err != nil || int64(fs.Bavail)*int64(fs.Bsize) < 15<<30 {
 		t.Skip("less than 15 GiB free")
 	}
-	ev, srv, _ := uploadSparse(t, importMaxBytes, 0, true)
-	checkBarRun(t, "1 GB", importMaxBytes, ev, srv)
-	if srv.puts != 60 { // 1,000,000,000 / 16 MiB, rounded up
-		t.Fatalf("%d chunks", srv.puts)
+	for _, c := range []struct {
+		name  string
+		size  int64
+		chunk int
+	}{{"the import limit", importMaxBytes, 8}, {"1 GB", 1_000_000_000, 60}} {
+		ev, srv, _ := uploadSparse(t, c.size, 0, true)
+		checkBarRun(t, c.name, c.size, ev, srv)
+		if srv.puts != c.chunk { // size / 16 MiB, rounded up
+			t.Fatalf("%s: %d chunks, want %d", c.name, srv.puts, c.chunk)
+		}
 	}
 }
 

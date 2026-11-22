@@ -276,7 +276,8 @@ func firstPrompt(t transcriptInfo) string {
 	return found
 }
 
-// igMeasure is what a session would send once cleaned.
+// igMeasure is what a session would send once cleaned (and trimmed to its last
+// compaction when it is over what a session can resume).
 func igMeasure(t transcriptInfo) int64 {
 	dir, err := os.MkdirTemp("", "ks-import-size-")
 	if err != nil {
@@ -289,6 +290,11 @@ func igMeasure(t transcriptInfo) int64 {
 	res, err := sanitizeTranscript(t, rw, sb, filepath.Join(dir, "t.jsonl"))
 	if err != nil {
 		return -1
+	}
+	if res.Bytes > importLimit() && res.Boundary >= 0 {
+		if tr, terr := sanitizeTranscriptTrim(t, rw, nil, filepath.Join(dir, "t-trimmed.jsonl"), trimOpts{On: true, Start: res.Boundary}); terr == nil && tr.Bytes > 0 {
+			return tr.Bytes
+		}
 	}
 	return res.Bytes
 }
@@ -447,24 +453,47 @@ func importGuided(inv *Invocation, tool string) {
 		} else {
 			inv.set["session"], inv.strs["session"] = true, row.ID
 		}
-		if row.Over && tool != "cursor" {
-			_, er := cmdUI()
-			er.Warn("This conversation is too big to carry whole", fmt.Sprintf("It is %s after cleaning and the limit is %s. Nothing was sent or created.", kitBytes(row.Size), kitBytes(importLimit())))
-			if ok, err := er.Confirm("Import a written summary of it instead?", false, "--yes", "Nothing was created."); !ok {
-				if ce, isCE := err.(*cliError); isCE && ce.Kind == "confirmation_declined" {
-					runExitHooks() // the kit has said it
-					os.Exit(exitUsage)
-				}
-				fail(err)
-			}
-			inv.set["brief"] = true
-		}
 	}
 
 	// 2. files
+	importDeferOverLimit = !out.yes // asked below; with --yes there is nobody to ask: it is refused
 	p := prepareImport(inv, tool)
 	closeP := func() { p.Close() }
 	defer func() { closeP() }()
+	if p.OverLimit && p.Mode == "conversation" {
+		// still over what a session can resume after the trim, or nothing to trim to
+		_, er := cmdUI()
+		why := "It holds no compaction to trim to."
+		if p.Trimmed {
+			why = "It was trimmed to its last compaction, and that part alone is still over."
+		}
+		er.Warn("This conversation is too big for a session to resume", fmt.Sprintf("It is %s after cleaning, and a session can resume up to %s. %s Nothing was sent or created.", kitBytes(p.Bytes), kitBytes(importLimit()), why))
+		cs := igOverChoices(tool, p)
+		items := make([]string, len(cs))
+		for i, c := range cs {
+			items[i] = c.Text
+		}
+		i := igChoose("What now?", items, 0)
+		if i < 0 || cs[i].ID == "cancel" {
+			igDeclined()
+		}
+		switch cs[i].ID {
+		case "compact":
+			o, _ := cmdUI()
+			o.Blank()
+			o.Title("", toneOK, "Compact it in "+importToolLabel(tool)+", then import again")
+			for _, l := range compactInstruction(tool) {
+				o.lines("  " + l)
+			}
+			o.Blank()
+			o.NextWhy("ks import "+tool+" "+importFlagsWith(inv, p.Info.ID), "Run this after the compaction has finished.")
+			return
+		case "brief":
+			inv.set["brief"] = true
+			p.Close()
+			p = prepareImport(inv, tool)
+		}
+	}
 	if !inv.Bool("with-files") && !inv.Bool("no-files") && !out.yes { // --yes takes the default: the conversation only
 		if top, plan, ok := guidedFilesProbe(inv, p); ok {
 			total := p.Bytes
@@ -547,6 +576,20 @@ type importChoice struct {
 // igBigChoices are the choices, in the order they are shown. Compacting in
 // Claude Code (or Codex) first comes first because it is the recommended one
 // and costs nothing here; Cursor has no compact, so that choice is left out.
+// igOverChoices are the choices for a conversation that is still over what a
+// session can resume (after a trim, or with nothing to trim to): compact it where
+// it came from, a written summary, cancel. The place for "Compact it on KeepState
+// with <model>" is the comment below.
+func igOverChoices(tool string, p *importPrep) []importChoice {
+	var cs []importChoice
+	if tool != "cursor" {
+		cs = append(cs, importChoice{"compact", "Compact it in " + importToolLabel(tool) + " first (recommended, costs nothing here)"})
+	}
+	cs = append(cs, importChoice{"brief", fmt.Sprintf("Bring a written summary instead (--brief), about %s characters", commas(p.SummaryChars))})
+	// the place for "Compact it on KeepState with <model> (about $X)": not built yet
+	return append(cs, importChoice{"cancel", "Cancel"})
+}
+
 func igBigChoices(tool string, p *importPrep, e *importEstimateAnswer) []importChoice {
 	var cs []importChoice
 	if tool != "cursor" {

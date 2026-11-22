@@ -102,8 +102,10 @@ terminal you are guided and asked before anything is created (pick, files or not
 and without a terminal (or with `--no-input`) the command stops after the plan
 and names the command to run. `--plan` creates nothing and prints a digest,
 and `--execute` names it (a conversation that changed since is refused). A
-conversation over 1 GB (1,000,000,000 bytes) is refused: import it as a written
-summary with `--brief`, or start from a shorter session. A session that was
+conversation over 120 MB (120,000,000 bytes, what a session can resume) is
+trimmed to what the harness sends the model, from its last compaction on, with the
+summary; if it is still over, or holds no compaction, it is refused: compact it in
+the tool first, or import a written summary with `--brief`. A session that was
 written in the last two minutes is open somewhere: the plan says that what you
 say after it stays behind. A
 conversation goes into its own tool only; into the other one (`--harness`) it

@@ -126,7 +126,7 @@ func (c *importCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 		}
 	}
-	if r.Method == "POST" && (r.URL.Path == "/api/v2/imports" || r.URL.Path == "/api/v2/imports/apply") && c.rejectEst && bytes.Contains(body, []byte(`"est_tokens"`)) {
+	if r.Method == "POST" && (r.URL.Path == "/api/v2/imports" || r.URL.Path == "/api/v2/imports/apply") && c.rejectEst && (bytes.Contains(body, []byte(`"est_tokens"`)) || bytes.Contains(body, []byte(`"trimmed"`))) {
 		refuse(400, "ks_body_unknown_field", "the request body carries a field this route does not take: json: unknown field \"est_tokens\"")
 		return
 	}
@@ -472,9 +472,9 @@ func TestImportPlanRefusesAtTheSizeLimitBeforeAskingTheService(t *testing.T) {
 	p := filepath.Join(e.home, ".claude", "projects", "-p", claudeSID+".jsonl")
 	_ = os.MkdirAll(filepath.Dir(p), 0o755)
 	_ = os.WriteFile(p, []byte(b.String()), 0o600)
-	e.env = append(e.env, "KS_IMPORT_MAX_BYTES=50000000") // the limit is 1 GB; a lower one makes a small file enough
+	e.env = append(e.env, "KS_IMPORT_MAX_BYTES=50000000") // the limit is 120 MB; a lower one makes a small file enough
 	_, errs, code := e.run("import", "claude-code", "--latest", "--plan")
-	if code != exitConflict || !strings.Contains(errs, "the limit is 50 MB (50,000,000 bytes)") || !strings.Contains(errs, "Nothing was sent") || !strings.Contains(errs, "--brief") {
+	if code != exitConflict || !strings.Contains(errs, "a session can resume up to 50 MB (50,000,000 bytes)") || !strings.Contains(errs, "Nothing was sent") || !strings.Contains(errs, "--brief") {
 		t.Fatalf("over the limit: %d\n%s", code, errs)
 	}
 	if e.c.index("POST /api/v2/imports") >= 0 {
