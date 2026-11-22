@@ -314,6 +314,10 @@ func createAgentRecord(cr hostedCreds, name, agentName, keyArg string, model, ef
 	// organization's keys only, never yours (org_run.go)
 	org := currentContext(cr)
 	var choice runKeyChoice
+	if org != "" && keyArg == claudePlanKeyArg {
+		// a Claude plan belongs to one person, never to an organization's work
+		return none, customerKey{}, claudePlanPersonalErr()
+	}
 	if org != "" {
 		progress("context: organization %s (ks context use personal for your own account)", org)
 	} else if choice, err = chooseRunKey(cr, keyArg, runnerProvider, spend); err != nil {

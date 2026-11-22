@@ -626,3 +626,19 @@ func TestClaudePlanSourceStringsKeepTheTokenOutOfEveryError(t *testing.T) {
 		}
 	}
 }
+
+func TestRunOnThePlanInAnOrganizationsContextIsRefusedBeforeAnythingExists(t *testing.T) {
+	c := planRunCtl(planRow("9999", "ok"))
+	bin, cfg, _, env := planEnv(t, c)
+	ctx, _ := json.Marshal(map[string]string{c.url: "org_acme"})
+	if err := os.WriteFile(filepath.Join(cfg, "keepstate", "context.json"), ctx, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, errs, code := runPlan(t, bin, env, "", "run", "--agent", "--key", "claude-plan")
+	if code != exitUsage || !strings.Contains(errs, "belongs to one person") || !strings.Contains(errs, "Next: ks context use personal") {
+		t.Fatalf("exit %d\n%s", code, errs)
+	}
+	if c.asked("POST /api/v2/sessions") || c.asked("POST /api/v2/preflight") {
+		t.Errorf("something was asked of the service: %v", c.requests)
+	}
+}
