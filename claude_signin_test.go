@@ -81,8 +81,8 @@ func TestMachineSignInUnderAnOrganizationAsksForThatContext(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d\n%s%s", code, out, errs)
 	}
-	if len(c.signin.queries) != 1 || c.signin.queries[0] != "context=org_acme" {
-		t.Errorf("the sign-in was started with %q", c.signin.queries)
+	if q := c.signinQueries(); len(q) != 1 || q[0] != "context=org_acme" {
+		t.Errorf("the sign-in was started with %q", q)
 	}
 }
 

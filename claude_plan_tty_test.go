@@ -339,12 +339,12 @@ func TestLoginClaudeOrgPlanKeysAndRemove(t *testing.T) {
 	}
 	// removal names the member, asks, and ends only that permission
 	_, errs, code = runPlan(t, bin, env, "", "organization", "plan-keys", "remove", "grace@example.com", "--org", "org_acme", "--no-input")
-	if code != exitUsage || !strings.Contains(errs, "--yes") || len(c.removed) != 0 {
-		t.Fatalf("a removal went ahead without a yes: exit %d removed %v\n%s", code, c.removed, errs)
+	if code != exitUsage || !strings.Contains(errs, "--yes") || len(c.removedList()) != 0 {
+		t.Fatalf("a removal went ahead without a yes: exit %d removed %v\n%s", code, c.removedList(), errs)
 	}
 	out, errs, code = runPlan(t, bin, env, "", "organization", "plan-keys", "remove", "grace@example.com", "--org", "org_acme", "--yes")
-	if code != 0 || len(c.removed) != 1 || c.removed[0] != "/api/v2/orgs/org_acme/plan-keys/mem_two" {
-		t.Fatalf("exit %d removed %v\n%s%s", code, c.removed, out, errs)
+	if rm := c.removedList(); code != 0 || len(rm) != 1 || rm[0] != "/api/v2/orgs/org_acme/plan-keys/mem_two" {
+		t.Fatalf("exit %d removed %v\n%s%s", code, rm, out, errs)
 	}
 	if !strings.Contains(out, "Ended Grace Hopper's Claude plan") {
 		t.Errorf("the card does not say what ended:\n%s", out)

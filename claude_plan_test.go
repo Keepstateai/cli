@@ -383,8 +383,8 @@ func TestLoginClaudeInAnOrganizationStoresItUnderThatOrganization(t *testing.T) 
 		if code != 0 {
 			t.Fatalf("%s: exit %d\n%s%s", tc.name, code, out, errs)
 		}
-		if len(c.keysQ) != 1 || c.keysQ[0] != "context=org_acme" {
-			t.Errorf("%s: the sign-in was stored with query %q, want context=org_acme", tc.name, c.keysQ)
+		if q := c.keysQuery(); len(q) != 1 || q[0] != "context=org_acme" {
+			t.Errorf("%s: the sign-in was stored with query %q, want context=org_acme", tc.name, q)
 		}
 		if !strings.Contains(out, "agents in org_acme") {
 			t.Errorf("%s: the card does not say where it is used:\n%s", tc.name, out)
@@ -880,4 +880,22 @@ func (c *planCtl) signinWas() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.signin != nil && c.signin.cancelled
+}
+
+func (c *planCtl) removedList() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.removed...)
+}
+
+func (c *planCtl) keysQuery() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.keysQ...)
+}
+
+func (c *planCtl) signinQueries() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.signin.queries...)
 }
