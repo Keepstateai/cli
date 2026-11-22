@@ -27,6 +27,9 @@ type setupResult struct {
 	// Hidden: the child printed something shaped like a token, and it was
 	// kept off the screen, whether or not it could be read whole.
 	Hidden bool
+	// Uncertain says why a token that was hidden was not kept: cut, overflow,
+	// unreadable or partial. Empty when it was kept or none was seen.
+	Uncertain string
 	// ChildErr is how the child ended, nil for a clean exit.
 	ChildErr error
 }

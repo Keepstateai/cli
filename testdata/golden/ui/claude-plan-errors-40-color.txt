@@ -29,6 +29,14 @@
 
 <ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks login claude<ESC>[0m
 
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mThis terminal cannot hide what you<ESC>[0m
+  <ESC>[38;2;255;107;128mpaste<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was read, so the token was
+<ESC>[38;2;255;107;128m│<ESC>[0m never shown.
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks login claude --no-input<ESC>[0m
+
 <ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mYou are not signed in to a Claude plan<ESC>[0m
 <ESC>[38;2;255;107;128m│<ESC>[0m There is no usable Claude plan sign-in
 <ESC>[38;2;255;107;128m│<ESC>[0m on your account.

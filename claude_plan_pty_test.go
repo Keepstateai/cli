@@ -158,8 +158,8 @@ func TestSetupTokenALineThatWrapsInsideTheChildIsHiddenAndNotKept(t *testing.T) 
 	if leaks(display.String(), tok) {
 		t.Errorf("a piece of the folded token reached the screen: %q", display.String())
 	}
-	if res.Token != nil {
-		t.Errorf("a token cut by the child's fold was kept (%d bytes)", len(res.Token))
+	if res.Token != nil || res.Uncertain != "cut" {
+		t.Errorf("a token cut by the child's fold: kept=%v reason=%q", res.Token != nil, res.Uncertain)
 	}
 	if !res.Hidden {
 		t.Error("the token was hidden, and the result should say so")

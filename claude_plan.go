@@ -51,6 +51,7 @@ var claudePlanFindRE = regexp.MustCompile(`sk-ant-oat[0-9]*-[A-Za-z0-9_\-]{16,}`
 var (
 	claudeLookPath = exec.LookPath
 	claudeCapture  = captureSetupToken
+	claudeNoEcho   = noEcho
 )
 
 // ---- the stored sign-in as the key list shows it -------------------------
@@ -225,6 +226,36 @@ func claudePlanNotFinishedErr() *cliError {
 		Why:        []string{"Claude Code ended before it made a token."},
 		Message:    "the Claude Code sign-in did not finish: Claude Code ended before it made a token. Nothing was stored",
 		NextAction: "ks login claude"}
+}
+
+// renderClaudePlanUnread is the notice before the hidden paste takes over from
+// a sign-in whose token this client was not sure it read whole.
+func renderClaudePlanUnread(u *ui, why string) {
+	u.Warn("This client could not read the token safely", "It was hidden and not kept"+uncertainWords(why)+". Run claude setup-token yourself, in another terminal, and paste the token it prints.")
+	u.Blank()
+}
+
+// uncertainWords says in plain words why a hidden token was not kept.
+func uncertainWords(why string) string {
+	switch why {
+	case "cut":
+		return " because a line break or a screen code may have cut it"
+	case "overflow":
+		return " because it was longer than any token should be"
+	case "partial":
+		return " because the output ended in the middle of it"
+	case "unreadable":
+		return " because what was hidden is too short to be a token"
+	}
+	return ""
+}
+
+func claudePlanNoEchoErr() *cliError {
+	return &cliError{Code: exitUsage, Kind: "claude_plan_no_echo", WorkStarted: workNo,
+		Title:      "This terminal cannot hide what you paste",
+		Why:        []string{"Nothing was read, so the token was never shown."},
+		Message:    "this terminal cannot hide what you paste, so nothing was read and the token was never shown; pipe it in on standard input instead (ks login claude --no-input < token.txt). Nothing was stored",
+		NextAction: "ks login claude --no-input"}
 }
 
 func claudePlanUnreadErr() *cliError {
@@ -402,7 +433,12 @@ func readClaudePlanToken(ue *ui, quiet bool) ([]byte, error) {
 		}
 		return res.Token, nil
 	case res.Hidden:
-		return nil, claudePlanUnreadErr()
+		// a token was made and hidden, and this client is not sure it read it
+		// whole: nothing is kept, and the person is asked to paste one instead
+		if !quiet {
+			renderClaudePlanUnread(ue, res.Uncertain)
+		}
+		return readPastedToken(ue, true)
 	}
 	return nil, claudePlanNotFinishedErr()
 }
@@ -419,7 +455,7 @@ func pasteWithReason(ue *ui, why string) ([]byte, error) {
 // sign-in takes the screen.
 func renderClaudePlanIntro(u *ui) {
 	u.Title("", toneNeutral, "Sign in to your Claude plan")
-	u.Note("Claude Code's own sign-in runs below. Approve it in your browser and, if it asks, paste the code it shows. The token it makes is hidden here and kept by KeepState; nobody sees it, you included.")
+	u.Note("Claude Code's own sign-in runs below. Approve it in your browser and, if it asks, paste the code it shows. As the screen passes, this client hides anything shaped like the token Claude Code makes, keeps it in memory and sends it to KeepState once. It cannot hide a token it does not recognise, and when it is not sure it read the token whole it keeps nothing.")
 	u.Blank()
 }
 
@@ -442,13 +478,13 @@ func readPastedToken(ue *ui, tty bool) ([]byte, error) {
 	restore := func() {}
 	if tty {
 		var off bool
-		restore, off = noEcho()
+		restore, off = claudeNoEcho()
 		defer restore()
 		if !off {
-			fmt.Fprintln(os.Stderr, "this terminal will show the token as you paste it; it is not kept")
-		} else {
-			fmt.Fprint(os.Stderr, "Token: ")
+			// never read what cannot be hidden
+			return nil, claudePlanNoEchoErr()
 		}
+		fmt.Fprint(os.Stderr, "Token: ")
 	}
 	line, err := readBoundedLine(r, 8192)
 	if tty {

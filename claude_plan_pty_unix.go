@@ -129,11 +129,20 @@ func captureSetupToken(bin string, in io.Reader, userTTY *os.File, display io.Wr
 	// process when the child is done, which is the end of this command. Three
 	// Ctrl-C in two seconds stop a child that ignores the first.
 	interrupted := make(chan struct{}, 1)
+	stopRelay := make(chan struct{})
+	relayDone := make(chan struct{})
+	// the relay is over before this function returns, so it can never take a
+	// keystroke that belongs to what comes next (a pasted token at a prompt)
+	defer func() {
+		close(stopRelay)
+		<-relayDone
+	}()
 	go func() {
+		defer close(relayDone)
 		buf := make([]byte, 1024)
 		var presses []time.Time
 		for {
-			n, rerr := in.Read(buf)
+			n, rerr := readInput(in, buf, stopRelay)
 			if n > 0 {
 				for _, b := range buf[:n] {
 					if b != 0x03 {
@@ -229,8 +238,8 @@ loop:
 		}
 	}
 	_, _ = display.Write(m.Flush())
-	res.Token = m.Token()
-	res.Hidden = m.done || len(m.tok) > 0
+	res.Token, res.Uncertain = m.Result()
+	res.Hidden = m.started || res.Uncertain != ""
 	m.Wipe()
 	return res, nil
 }
@@ -253,4 +262,47 @@ func setWinsize(f *os.File, rows, cols int) error {
 	return ioctlOn(f, func(fd int) error {
 		return unix.IoctlSetWinsize(fd, unix.TIOCSWINSZ, &unix.Winsize{Row: uint16(rows), Col: uint16(cols)})
 	})
+}
+
+// readInput reads what the person typed. From a terminal or any file it waits
+// for input in short polls, so the relay can be stopped without a keystroke
+// arriving; from any other reader it reads as usual.
+func readInput(in io.Reader, buf []byte, stop <-chan struct{}) (int, error) {
+	f, ok := in.(*os.File)
+	if !ok {
+		type got struct {
+			n   int
+			err error
+		}
+		tmp, ch := make([]byte, len(buf)), make(chan got, 1)
+		go func() {
+			n, err := in.Read(tmp)
+			ch <- got{n, err}
+		}()
+		select {
+		case g := <-ch:
+			copy(buf, tmp[:g.n])
+			return g.n, g.err
+		case <-stop:
+			return 0, io.EOF
+		}
+	}
+	for {
+		select {
+		case <-stop:
+			return 0, io.EOF
+		default:
+		}
+		fds := []unix.PollFd{{Fd: int32(f.Fd()), Events: unix.POLLIN}}
+		n, err := unix.Poll(fds, 100)
+		if err == unix.EINTR {
+			continue
+		}
+		if err != nil {
+			return 0, err
+		}
+		if n > 0 {
+			return f.Read(buf)
+		}
+	}
 }

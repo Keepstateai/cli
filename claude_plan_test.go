@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -25,7 +26,7 @@ type planCtl struct {
 	requests []string
 	bodies   map[string][]string
 	listed   bool             // the registry lists claude_plan_key as available
-	listedTo map[string]bool // when set, the answer per bearer token instead (the switch may be a list of accounts)
+	listedTo map[string]bool  // when set, the answer per bearer token instead (the switch may be a list of accounts)
 	capsDown bool             // the registry cannot be read
 	keys     []map[string]any // GET /api/v2/keys
 	fail     *planFail        // a refusal for POST /api/v2/keys
@@ -734,5 +735,25 @@ func TestTheOfferIsNeverTakenFromAnotherAccountsRegistry(t *testing.T) {
 	_ = os.WriteFile(capabilitiesCachePath(), raw, 0o600)
 	if claudePlanListed(a) {
 		t.Error("a cache that names no account was trusted")
+	}
+}
+
+type mustNotRead struct{ t *testing.T }
+
+func (r mustNotRead) Read(p []byte) (int, error) {
+	r.t.Error("the paste was read although the terminal could not hide it")
+	return 0, io.EOF
+}
+
+func TestPasteIsRefusedWhenTheTerminalCannotHideIt(t *testing.T) {
+	old := claudeNoEcho
+	claudeNoEcho = func() (func(), bool) { return func() {}, false }
+	defer func() { claudeNoEcho = old }()
+	u := newUI(io.Discard, appTheme{}, 80, false)
+	u.in = bufio.NewReader(mustNotRead{t})
+	tok, err := readPastedToken(u, true)
+	ce, ok := err.(*cliError)
+	if tok != nil || !ok || ce.Kind != "claude_plan_no_echo" || !strings.HasPrefix(ce.NextAction, "ks ") {
+		t.Fatalf("token=%v err=%+v", tok != nil, err)
 	}
 }

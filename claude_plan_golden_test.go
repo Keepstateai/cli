@@ -33,11 +33,13 @@ func claudePlanScreens(u *ui, clk *fakeClock) {
 	renderClaudePlanSuccess(u, claudePlanKey("expiring", "Your Claude plan sign-in ends on 3 Dec 2026. Run ks login claude to renew it."), claudePlanGoldenNow)
 	u.Blank()
 	renderClaudePlanPasteIntro(u, "Claude Code is not installed on this computer.")
+	u.Blank()
+	renderClaudePlanUnread(u, "cut")
 }
 
 func claudePlanErrors(u *ui) {
 	for i, ce := range []*cliError{
-		claudePlanPersonalErr(), claudePlanTokenInvalidErr(), claudePlanUnavailableErr(), claudePlanUnconfirmedErr(), claudePlanNoneErr(),
+		claudePlanPersonalErr(), claudePlanTokenInvalidErr(), claudePlanUnavailableErr(), claudePlanUnconfirmedErr(), claudePlanNoEchoErr(), claudePlanNoneErr(),
 		claudePlanRunnerErr("this agent calls OpenAI, not a Claude model"), claudePlanNotFinishedErr(), claudePlanUnreadErr(),
 		claudePlanTimedOutErr(), claudePlanStoppedErr(), claudePlanUnusableErr(claudePlanKey("invalid", "")), claudePlanUnusableErr(claudePlanKey("expired", "")),
 	} {

@@ -2,6 +2,10 @@ package main
 
 import (
 	"bytes"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"os"
 	"strings"
 	"testing"
 )
@@ -180,18 +184,27 @@ func TestMaskerStartsAgainInsideReleasedBytes(t *testing.T) {
 	}
 }
 
-func TestMaskerCapsARunAndWipes(t *testing.T) {
-	long := "sk-ant" + "-oat01-" + strings.Repeat("A", 400)
-	shown, _ := maskAll(1000, long)
-	// the first claudePlanTokenMaxLen characters of a run are hidden; a run
-	// longer than any token can be is not swallowed whole
-	if got := strings.Count(shown, "A"); got >= 400 || got < 400-claudePlanTokenMaxLen {
-		t.Errorf("shown %d of 400 characters; the cap hides at most %d", got, claudePlanTokenMaxLen)
+func TestMaskerRefusesATokenLongerThanTheBoundAndHidesItWhole(t *testing.T) {
+	long := "sk-ant" + "-oat01-" + strings.Repeat("A", claudePlanTokenMaxLen+88)
+	shown, got := maskAll(1000, "x "+long+" y")
+	if got != "" {
+		t.Errorf("a token over the bound was kept (%d bytes); it is refused, never cut", len(got))
 	}
+	if strings.Contains(shown, "AAAA") || !strings.HasSuffix(shown, " y") {
+		t.Errorf("the long run was not hidden whole, or the text after it was lost: %q", shown)
+	}
+	m := newTokenMasker(1000)
+	m.Write([]byte(long + "\r\n\r\n"))
+	m.Flush()
+	if _, why := m.Result(); why != "overflow" {
+		t.Errorf("reason = %q, want overflow", why)
+	}
+}
+
+func TestMaskerWipes(t *testing.T) {
 	m := newTokenMasker(300)
 	m.Write([]byte(fixtureClaudeToken() + "\r\n\r\n"))
-	tok := m.Token()
-	if len(tok) == 0 {
+	if len(m.Token()) == 0 {
 		t.Fatal("no token captured")
 	}
 	m.Wipe()
@@ -203,7 +216,46 @@ func TestMaskerCapsARunAndWipes(t *testing.T) {
 	}
 }
 
-func TestMaskerRefusesAShortTokenShape(t *testing.T) {
+// Anything the filter is not sure of is hidden and not kept, with its reason.
+func TestMaskerFailsClosedWithAReasonForEveryDoubt(t *testing.T) {
+	tok := fixtureClaudeToken()
+	for _, tc := range []struct{ name, in, why string }{
+		{"an erase inside the token", "a\r\n" + tok[:40] + "\x1b[K" + tok[40:] + "\r\n\r\nafter", "cut"},
+		{"a cursor move inside the token", tok[:30] + "\x1b[9G" + tok[30:] + "\r\n\r\n", "cut"},
+		{"a break that is not a wrap", tok[:50] + "\r\n" + tok[50:] + "\r\n\r\n", "cut"},
+		{"too short to be a token", "sk-ant" + "-oat01-" + "abc\r\n\r\n", "unreadable"},
+		{"a prefix at the end of the output", "token: sk-ant-oa", "partial"},
+		{"a prefix of three characters at the end", "ask-", "partial"},
+	} {
+		m := newTokenMasker(300)
+		out := append(m.Write([]byte(tc.in)), m.Flush()...)
+		got, why := m.Result()
+		if got != nil || why != tc.why {
+			t.Errorf("%s: kept=%v reason=%q, want nothing kept and %q", tc.name, got != nil, why, tc.why)
+		}
+		if tc.why != "partial" && leaks(string(out), tok[13:]) {
+			t.Errorf("%s: a piece of the token reached the screen: %q", tc.name, out)
+		}
+	}
+	// and the doubts that are not doubts
+	for _, in := range []string{
+		"\x1b[1m" + tok + "\x1b[22m\r\n\r\n",         // a colour code around
+		tok[:40] + "\x1b[2m" + tok[40:] + "\r\n\r\n", // a colour code inside
+		tok + "\x1b[9Gto\x1b[12Gnext\r\n",            // words placed by a cursor move after it
+		tok + "\r\nStore this token securely.\r\n",   // a short word on the next line
+	} {
+		if got, why := func() ([]byte, string) {
+			m := newTokenMasker(300)
+			m.Write([]byte(in))
+			m.Flush()
+			return m.Result()
+		}(); string(got) != tok || why != "" {
+			t.Errorf("%q: kept=%v reason=%q", in, string(got) == tok, why)
+		}
+	}
+}
+
+func TestMaskerDoesNotKeepAShortToken(t *testing.T) {
 	shown, got := maskAll(300, "sk-ant"+"-oat01-"+"abc\r\n\r\n")
 	if got != "" {
 		t.Errorf("a token shorter than the service accepts was kept: %q", got)
@@ -219,4 +271,98 @@ func TestMaskerKeepsATokenWhoseNextLineStartsWithAShortWord(t *testing.T) {
 	if got != tok || leaks(shown, tok) {
 		t.Errorf("a short word after the token made the capture suspect: ok=%v shown %q", got == tok, shown)
 	}
+}
+
+// ---- the real screen -------------------------------------------------------------
+
+// recordedSetupFrames are the bytes the real claude setup-token wrote, from
+// its start to the sign-in URL and the code prompt, recorded offline with no
+// sign-in and so no token (testdata/setup-token). The screen after a token is
+// NOT recorded: no token was ever made. The tail used below is written by
+// hand in the same style (words placed by cursor moves, a colour code around
+// the token) and is labelled as synthetic.
+func recordedSetupFrames(t *testing.T) [][]byte {
+	t.Helper()
+	raw, err := os.ReadFile("testdata/setup-token/frames-2.1.316-300.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var d struct {
+		Frames []string `json:"frames"`
+	}
+	if err := json.Unmarshal(raw, &d); err != nil || len(d.Frames) < 10 {
+		t.Fatalf("the recording is unreadable: %v", err)
+	}
+	var out [][]byte
+	for _, h := range d.Frames {
+		b, err := hex.DecodeString(h)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, b)
+	}
+	return out
+}
+
+func TestMaskerLeavesTheRecordedRealScreenUntouched(t *testing.T) {
+	var all []byte
+	m := newTokenMasker(300)
+	var shown []byte
+	for _, f := range recordedSetupFrames(t) {
+		all = append(all, f...)
+		shown = append(shown, m.Write(f)...)
+	}
+	shown = append(shown, m.Flush()...)
+	if !bytes.Equal(shown, all) {
+		t.Fatalf("the filter changed a screen that holds no token (%d bytes in, %d out)", len(all), len(shown))
+	}
+	if tok, why := m.Result(); tok != nil || why != "" {
+		t.Errorf("a token was read from a screen with none: %q", why)
+	}
+	if !bytes.Contains(shown, []byte("https://claude.com/cai/oauth/authorize")) || !bytes.Contains(shown, []byte("Paste")) {
+		t.Error("the recording lacks the sign-in URL or the code prompt")
+	}
+}
+
+func TestMaskerHidesATokenAfterTheRecordedRealScreenAtEverySplit(t *testing.T) {
+	tok := fixtureClaudeToken()
+	// SYNTHETIC: what Claude Code would print once a sign-in finished, in the
+	// style of the recorded screen: words placed by cursor moves, the token in
+	// a colour, a blank line, and the closing words
+	tail := "\r\r\n\x1b[2G\x1b[1mYour\x1b[7GOAuth\x1b[13Gtoken\x1b[19G(valid\x1b[26Gfor\x1b[30G1\x1b[32Gyear):\x1b[22m\r\r\n\r\r\n" +
+		"\x1b[2G\x1b[38;5;231m" + tok + "\x1b[39m\r\r\n\r\r\n\x1b[2GStore\x1b[8Gthis\x1b[13Gtoken\x1b[19Gsecurely.\r\r\n"
+	var stream []byte
+	for _, f := range recordedSetupFrames(t) {
+		stream = append(stream, f...)
+	}
+	stream = append(stream, tail...)
+	check := func(label string, chunks [][]byte) {
+		m := newTokenMasker(300)
+		var shown []byte
+		for _, c := range chunks {
+			shown = append(shown, m.Write(c)...)
+		}
+		shown = append(shown, m.Flush()...)
+		got, why := m.Result()
+		if leaks(string(shown), tok) || bytes.Contains(shown, []byte("sk-ant-oat")) {
+			t.Fatalf("%s: a piece of the token reached the screen", label)
+		}
+		if string(got) != tok || why != "" {
+			t.Fatalf("%s: kept=%v reason=%q", label, string(got) == tok, why)
+		}
+		if !bytes.Contains(shown, []byte("Store")) || !bytes.Contains(shown, []byte(claudePlanMask)) {
+			t.Fatalf("%s: the words around the token were lost", label)
+		}
+	}
+	for cut := 0; cut <= len(tail); cut++ {
+		split := len(stream) - len(tail) + cut
+		check(fmt.Sprintf("split at %d", cut), [][]byte{stream[:split], stream[split:]})
+	}
+	var bytewise [][]byte
+	for i := range stream {
+		bytewise = append(bytewise, stream[i:i+1])
+	}
+	check("byte by byte", bytewise)
+	// and in the chunks the child wrote them, with the tail as one more read
+	check("as recorded", append(recordedSetupFrames(t), []byte(tail)))
 }

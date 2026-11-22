@@ -1,10 +1,14 @@
 <ESC>[1mSign in to your Claude plan<ESC>[0m
   <ESC>[38;2;138;138;138mClaude Code's own sign-in runs below.<ESC>[0m
   <ESC>[38;2;138;138;138mApprove it in your browser and, if it<ESC>[0m
-  <ESC>[38;2;138;138;138masks, paste the code it shows. The<ESC>[0m
-  <ESC>[38;2;138;138;138mtoken it makes is hidden here and kept<ESC>[0m
-  <ESC>[38;2;138;138;138mby KeepState; nobody sees it, you<ESC>[0m
-  <ESC>[38;2;138;138;138mincluded.<ESC>[0m
+  <ESC>[38;2;138;138;138masks, paste the code it shows. As the<ESC>[0m
+  <ESC>[38;2;138;138;138mscreen passes, this client hides<ESC>[0m
+  <ESC>[38;2;138;138;138manything shaped like the token Claude<ESC>[0m
+  <ESC>[38;2;138;138;138mCode makes, keeps it in memory and<ESC>[0m
+  <ESC>[38;2;138;138;138msends it to KeepState once. It cannot<ESC>[0m
+  <ESC>[38;2;138;138;138mhide a token it does not recognise,<ESC>[0m
+  <ESC>[38;2;138;138;138mand when it is not sure it read the<ESC>[0m
+  <ESC>[38;2;138;138;138mtoken whole it keeps nothing.<ESC>[0m
 
   ✓ Opened Claude Code's sign-in
   ✓ Read the token (it was hidden from
@@ -45,4 +49,13 @@
   <ESC>[38;2;138;138;138msign in there, and paste the token it<ESC>[0m
   <ESC>[38;2;138;138;138mprints here. Nothing is shown as you<ESC>[0m
   <ESC>[38;2;138;138;138mpaste.<ESC>[0m
+
+
+<ESC>[38;2;229;181;103m!<ESC>[0m <ESC>[1mThis client could not read the token<ESC>[0m
+  <ESC>[1msafely<ESC>[0m
+  It was hidden and not kept because a
+  line break or a screen code may have
+  cut it. Run claude setup-token
+  yourself, in another terminal, and
+  paste the token it prints.
 

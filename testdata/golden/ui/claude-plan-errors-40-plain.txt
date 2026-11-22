@@ -29,6 +29,14 @@ Next: ks key add --provider anthropic
 
 Next: ks login claude
 
+✗ This terminal cannot hide what you
+  paste
+│ Nothing was read, so the token was
+│ never shown.
+│ Nothing was sent or created.
+
+Next: ks login claude --no-input
+
 ✗ You are not signed in to a Claude plan
 │ There is no usable Claude plan sign-in
 │ on your account.

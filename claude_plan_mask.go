@@ -10,10 +10,16 @@ package main
 // still hidden: bytes that could be the start of the token's prefix are held
 // back until the next read says what they are. A token that the child's
 // terminal wrapped onto a second line is followed across the break when the
-// first line was full to the terminal's width, and everything after a token
-// is hidden up to a space, a blank line or claudePlanTokenMaxLen characters,
-// whichever comes first, so a break or a colour code inside a token can show
-// at worst a harmless word that follows it, never a piece of the token.
+// first line was full to the terminal's width. Colour codes inside a token are
+// passed through and the token goes on; a cursor move, an erase or a break
+// that is not a wrap ends the capture, and what follows it is hidden up to a
+// space or a blank line, so no piece of a token shows.
+//
+// The filter fails closed. A token it cannot be sure it read whole (cut by a
+// wrap or an erase, longer than claudePlanTokenMaxLen, shorter than a token,
+// or a prefix that the output ended on) is hidden and never kept: Result says
+// why, and the caller stores nothing. It hides what looks like a token as it
+// passes; it cannot hide a token it does not recognise.
 
 import (
 	"bytes"
@@ -23,8 +29,9 @@ import (
 const (
 	// claudePlanTokenPrefix starts every token `claude setup-token` prints.
 	claudePlanTokenPrefix = "sk-ant-oat"
-	// claudePlanTokenMaxLen caps how many characters one masked run can take.
-	claudePlanTokenMaxLen = 200
+	// claudePlanTokenMaxLen bounds the token this filter will keep. A longer
+	// run is hidden whole and refused, never cut.
+	claudePlanTokenMaxLen = 512
 	// claudePlanTailSuspect: this many token characters hidden after a break
 	// that ended the capture make the capture suspect. A word of the text
 	// after the token is shorter.
@@ -54,19 +61,23 @@ const (
 
 // tokenMasker is not safe for concurrent use.
 type tokenMasker struct {
-	cols    int // the width of the terminal the child draws for
-	phase   maskPhase
-	resume  maskPhase // the phase an escape sequence returns to
-	hold    []byte    // a possible prefix of the token's prefix, not yet shown
-	tok     []byte    // the first complete run of the token, captured
-	done    bool      // a token was captured; later ones are only hidden
-	runLen  int       // hidden characters in the current run, against the cap
-	col     int       // visible columns on the current line
-	pending []byte    // line breaks seen while hiding, shown if the token ended
-	decided bool      // the current break has been judged
-	tail    int       // token characters hidden after the capture ended
-	breaks  int       // consecutive line breaks while hiding
-	escBuf  []byte    // the escape sequence being passed through
+	cols     int // the width of the terminal the child draws for
+	phase    maskPhase
+	resume   maskPhase // the phase an escape sequence returns to
+	hold     []byte    // a possible prefix of the token's prefix, not yet shown
+	tok      []byte    // the first complete run of the token, captured
+	done     bool      // a token was captured; later ones are only hidden
+	runLen   int       // hidden characters in the current run, against the cap
+	col      int       // visible columns on the current line
+	pending  []byte    // line breaks seen while hiding, shown if the token ended
+	decided  bool      // the current break has been judged
+	tailRun  int       // token characters hidden since the last break or code
+	tailMax  int       // the longest such run after the capture ended
+	started  bool      // a token's prefix was seen
+	overflow bool      // the run was longer than the bound
+	partial  bool      // the output ended on a prefix of the token's prefix
+	breaks   int       // consecutive line breaks while hiding
+	escBuf   []byte    // the escape sequence being passed through
 }
 
 func newTokenMasker(cols int) *tokenMasker {
@@ -94,24 +105,40 @@ func (m *tokenMasker) Flush() []byte {
 	if len(m.escBuf) > 0 {
 		out = append(out, m.escBuf...)
 	}
+	if len(m.hold) >= 3 {
+		m.partial = true
+	}
 	m.hold, m.pending, m.escBuf = nil, nil, nil
 	m.phase = maskScan
 	return out
 }
 
-// Token returns a copy of the captured token, or nil when none was seen or
-// what was seen is not a whole token.
+// Result is the token, or nil with the reason it is not kept: "" when no
+// token was seen, otherwise "cut", "overflow", "unreadable" or "partial".
+// Call it after Flush.
+func (m *tokenMasker) Result() ([]byte, string) {
+	switch {
+	case m.overflow:
+		return nil, "overflow"
+	case m.started && m.tailMax >= claudePlanTailSuspect:
+		// the capture stopped at a break or a code and a long run of token
+		// characters followed it: the token was probably cut by a wrap or an
+		// erase this filter could not tell from the end of the token
+		return nil, "cut"
+	case m.started && !claudePlanTokenRE.Match(m.tok):
+		return nil, "unreadable"
+	case m.started:
+		return append([]byte(nil), m.tok...), ""
+	case m.partial:
+		return nil, "partial"
+	}
+	return nil, ""
+}
+
+// Token returns a copy of the captured token, nil when none is kept.
 func (m *tokenMasker) Token() []byte {
-	if !claudePlanTokenRE.Match(m.tok) {
-		return nil
-	}
-	if m.tail >= claudePlanTailSuspect {
-		// the capture stopped at a break and a long run of token characters
-		// followed it: the token was probably cut by a wrap this filter could
-		// not tell from the end of the token. A cut token is never kept.
-		return nil
-	}
-	return append([]byte(nil), m.tok...)
+	t, _ := m.Result()
+	return t
 }
 
 // Wipe overwrites the captured token and every buffer that may hold a piece.
@@ -147,8 +174,10 @@ func (m *tokenMasker) startRun(out []byte) []byte {
 	m.decided = false
 	m.breaks = 0
 	m.col += len(claudePlanTokenPrefix) // the prefix was held, not counted
+	m.tailRun = 0
 	if !m.done {
-		m.tail = 0
+		m.started = true
+		m.tailMax = 0
 		m.tok = append(m.tok[:0], claudePlanTokenPrefix...)
 	}
 	return append(out, claudePlanMask...)
@@ -208,13 +237,21 @@ func (m *tokenMasker) step(out []byte, b byte) []byte {
 	return out
 }
 
-// finishEscape ends an escape sequence met while hiding. The sequence is
-// shown if the token ended, and hiding goes on as it was: a colour change in
-// the middle of a token does not end its capture.
+// finishEscape ends an escape sequence met while hiding. A colour code
+// (SGR) in the middle of a token changes nothing: the token goes on. Any other
+// sequence (a cursor move, an erase, a link) is a break in what the child drew,
+// so the capture ends there and what follows is hidden, not kept.
 func (m *tokenMasker) finishEscape(out []byte) []byte {
+	sgr := len(m.escBuf) >= 3 && m.escBuf[1] == '[' && m.escBuf[len(m.escBuf)-1] == 'm'
 	m.pending = append(m.pending, m.escBuf...)
 	m.escBuf = m.escBuf[:0]
 	m.phase = m.resume
+	if !sgr {
+		if m.phase == maskToken {
+			m.phase = maskTail
+		}
+		m.tailRun = 0
+	}
 	return out
 }
 
@@ -262,6 +299,7 @@ func (m *tokenMasker) hiding(out []byte, b byte) []byte {
 				m.phase = maskTail
 			}
 		}
+		m.tailRun = 0
 		if b == '\n' {
 			m.breaks++
 		}
@@ -281,12 +319,14 @@ func (m *tokenMasker) hiding(out []byte, b byte) []byte {
 		out = append(out, m.pending...)
 		m.pending = m.pending[:0]
 		if m.phase == maskToken && !m.done {
-			m.tok = append(m.tok, b)
+			if len(m.tok) >= claudePlanTokenMaxLen {
+				m.overflow = true
+			} else {
+				m.tok = append(m.tok, b)
+			}
 		} else if m.phase == maskTail && !m.done {
-			m.tail++
-		}
-		if m.runLen >= claudePlanTokenMaxLen {
-			return m.endRun(out)
+			m.tailRun++
+			m.tailMax = max(m.tailMax, m.tailRun)
 		}
 		return out
 	default:

@@ -163,21 +163,28 @@ func TestLoginClaudeWhenClaudeCodeEndsWithoutATokenStoresNothing(t *testing.T) {
 	}
 }
 
-func TestLoginClaudeWhenTheTokenCannotBeReadSaysSoAndStoresNothing(t *testing.T) {
-	// a token cut by a fold the filter cannot read: hidden, not kept, said
+func TestLoginClaudeWhenTheTokenCannotBeReadSafelyAsksForAPasteInstead(t *testing.T) {
+	// a token cut by a fold the filter cannot read: hidden, not kept, said in
+	// plain words, and the hidden paste takes over; a pasted token is stored
 	tok := fixtureClaudeToken()
 	c := newPlanCtl()
 	bin, _, _, env := planEnv(t, c)
-	fake := fakeClaude(t, fmt.Sprintf("printf '%%s\\n%%s\\n%%s\\n\\n' '%s' '%s' '%s'\n", tok[:40], tok[40:80], tok[80:]))
+	fake := fakeClaude(t, fmt.Sprintf("printf '%%s\n%%s\n%%s\n\n' '%s' '%s' '%s'\n", tok[:40], tok[40:80], tok[80:]))
 	env = ttyEnv(env, filepath.Dir(fake)+":/usr/bin:/bin")
-	out, code := inPTYWithInput(t, env, "", 100*time.Millisecond, bin, "login", "claude")
-	if code != exitFailed || !strings.Contains(out, "could not read") || !strings.Contains(out, "hidden and not kept") || !strings.Contains(out, "Next: ks login claude") {
-		t.Errorf("exit %d\n%s", code, out)
+	out, code := inPTYWithInput(t, env, tok+"\r", 2500*time.Millisecond, bin, "login", "claude")
+	if code != 0 {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
+	for _, want := range []string{"could not read the token safely", "hidden and not kept", "claude setup-token", "Token:", "Signed in to your Claude plan"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the terminal never showed %q:\n%s", want, out)
+		}
 	}
 	if leaks(out, tok[13:]) {
-		t.Errorf("a piece of the token reached the terminal:\n%q", out)
+		t.Errorf("a piece of a token reached the terminal:\n%q", out)
 	}
-	if n := len(c.posts("/api/v2/keys")); n != 0 {
-		t.Errorf("%d requests carried a cut token", n)
+	posts := c.posts("/api/v2/keys")
+	if len(posts) != 1 || strings.Count(posts[0], tok) != 1 {
+		t.Errorf("%d requests; the one that stored a token must carry the pasted one once", len(posts))
 	}
 }
