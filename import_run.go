@@ -134,6 +134,26 @@ func nounCount(n int, one, many string) string {
 	return fmt.Sprintf("%s %s", commas(int64(n)), noun(n, one, many))
 }
 
+// importNewFields are the declaration's source fields an older service does not know.
+var importNewFields = []string{"est_tokens", "est_compacted", "trimmed", "untrimmed_bytes"}
+
+// retryWithoutNewFields: when err is a service's refusal of a field it does not know and
+// the declaration carries any of the newer ones, it takes them out (in place) and says so.
+func retryWithoutNewFields(decl map[string]any, err error) bool {
+	src := asMap(decl["source"])
+	if err == nil || src == nil || !unknownFieldRefusal(err) {
+		return false
+	}
+	had := false
+	for _, f := range importNewFields {
+		if _, ok := src[f]; ok {
+			had = true
+			delete(src, f)
+		}
+	}
+	return had
+}
+
 // unknownFieldRefusal: the service refused the request body for a field it does not take.
 func unknownFieldRefusal(err error) bool {
 	var he *hostedErr
@@ -148,14 +168,10 @@ func serverImportPlan(cr hostedCreds, decl map[string]any) importServicePlan {
 		Data importServicePlan `json:"data"`
 	}
 	err := hostedCall(cr, "POST", "/api/v2/imports", decl, &env)
-	// deploy order: a service that knows no est_tokens refuses the field. Ask once
-	// more without the count (and so with no estimate): the declaration is
-	// changed in place, so the apply carries the one that was planned.
-	if src := asMap(decl["source"]); err != nil && src != nil && src["est_tokens"] != nil && unknownFieldRefusal(err) {
-		delete(src, "est_tokens")
-		delete(src, "est_compacted")
-		delete(src, "trimmed") // fields an older service does not know either
-		delete(src, "untrimmed_bytes")
+	// deploy order: a service that does not know the newer fields refuses them. Ask once
+	// more without them (and so with no estimate): the declaration is changed in place, so
+	// the apply carries the one that was planned.
+	if retryWithoutNewFields(decl, err) {
 		env.Data = importServicePlan{}
 		err = hostedCall(cr, "POST", "/api/v2/imports", decl, &env)
 	}

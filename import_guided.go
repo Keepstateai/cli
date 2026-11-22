@@ -292,9 +292,11 @@ func igMeasure(t transcriptInfo) int64 {
 		return -1
 	}
 	if res.Bytes > importLimit() && res.Boundary >= 0 {
-		if tr, terr := sanitizeTranscriptTrim(t, rw, nil, filepath.Join(dir, "t-trimmed.jsonl"), trimOpts{On: true, Start: res.Boundary}); terr == nil && tr.Bytes > 0 {
-			return tr.Bytes
+		tr, terr := trimTranscript(t, rw, res, filepath.Join(dir, "t-trimmed.jsonl"))
+		if terr != nil {
+			return -1 // not known: the row says so, it does not claim the whole size
 		}
+		return tr.Bytes
 	}
 	return res.Bytes
 }
@@ -456,8 +458,8 @@ func importGuided(inv *Invocation, tool string) {
 	}
 
 	// 2. files
-	importDeferOverLimit = !out.yes // asked below; with --yes there is nobody to ask: it is refused
-	p := prepareImport(inv, tool)
+	deferOver := !out.yes // asked below; with --yes there is nobody to ask: it is refused
+	p := prepareImportOpts(inv, tool, deferOver)
 	closeP := func() { p.Close() }
 	defer func() { closeP() }()
 	if p.OverLimit && p.Mode == "conversation" {
@@ -466,6 +468,8 @@ func importGuided(inv *Invocation, tool string) {
 		why := "It holds no compaction to trim to."
 		if p.Trimmed {
 			why = "It was trimmed to its last compaction, and that part alone is still over."
+		} else if p.NoTrimWhy != "" {
+			why = "It holds a compaction, but " + p.NoTrimWhy + ", so there is nothing to trim to."
 		}
 		er.Warn("This conversation is too big for a session to resume", fmt.Sprintf("It is %s after cleaning, and a session can resume up to %s. %s Nothing was sent or created.", kitBytes(p.Bytes), kitBytes(importLimit()), why))
 		cs := igOverChoices(tool, p)
@@ -491,7 +495,7 @@ func importGuided(inv *Invocation, tool string) {
 		case "brief":
 			inv.set["brief"] = true
 			p.Close()
-			p = prepareImport(inv, tool)
+			p = prepareImportOpts(inv, tool, deferOver)
 		}
 	}
 	if !inv.Bool("with-files") && !inv.Bool("no-files") && !out.yes { // --yes takes the default: the conversation only

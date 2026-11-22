@@ -300,6 +300,13 @@ type sanitizeResult struct {
 	// Boundary is the index (among the file's non-blank lines) of the last
 	// compaction record kept, or -1. A trim starts there.
 	Boundary int
+	// NoTrimWhy: the file holds a compaction but there is nothing to trim to (and Boundary
+	// is then -1): its summary cannot travel, or it is not in the file.
+	NoTrimWhy string
+	// Records and Prompts are what the written file holds: its records, and the person's
+	// own messages among them.
+	Records int
+	Prompts int
 }
 
 // trimOpts says to write only what the harness sends the model: from the
@@ -321,8 +328,14 @@ type sanitizer struct {
 	lastUUID any
 	est      *tokenEstimator
 	trim     trimOpts
-	boundary int  // the last compaction record's index, -1 if none
-	sawMeta  bool // trim: the session_meta has been written
+	boundary int // the last compaction record's index, -1 if none
+	// the last compaction's summary: whether it can travel in a trim, and if not why
+	boundaryOK  bool
+	boundaryWhy string
+	afterBound  bool // a Claude Code boundary was just kept: the next record must be its summary
+	records     int
+	prompts     int
+	sawMeta     bool // trim: the session_meta has been written
 }
 
 func (s *sanitizer) mapStrings(v any) any {
@@ -349,9 +362,34 @@ func (s *sanitizer) write(rec map[string]any) error {
 		return err
 	}
 	s.est.add(rec) // the record as it is written: what the harness will read
+	s.records++
+	if s.isPrompt(rec) {
+		s.prompts++
+	}
 	n, err := s.out.Write(b)
 	s.written += int64(n)
 	return err
+}
+
+// isPrompt: a record that is the person's own message.
+func (s *sanitizer) isPrompt(rec map[string]any) bool {
+	switch asStr(rec["type"]) {
+	case "user":
+		if c, _ := rec["isCompactSummary"].(bool); c {
+			return false
+		}
+		if m := asMap(rec["message"]); m != nil {
+			text, ok := humanTextOf(m["content"])
+			return ok && !notAPrompt(text)
+		}
+	case "response_item":
+		p := asMap(rec["payload"])
+		if asStr(p["type"]) == "message" && asStr(p["role"]) == "user" {
+			text, ok := humanTextOf(p["content"])
+			return ok && !notAPrompt(text)
+		}
+	}
+	return false
 }
 
 func asMap(v any) map[string]any { m, _ := v.(map[string]any); return m }
@@ -460,7 +498,10 @@ func sanitizeTranscriptTrim(info transcriptInfo, rw *pathRewriter, sb *summaryBu
 		return nil, err
 	}
 	res := &sanitizeResult{Info: info, OutPath: outPath, Bytes: s.written, SHA256: hex.EncodeToString(h.Sum(nil)),
-		Stripped: s.strip, Redactions: s.red, EstTokens: s.est.Tokens(), EstCompacted: s.est.compacted, Boundary: s.boundary}
+		Stripped: s.strip, Redactions: s.red, EstTokens: s.est.Tokens(), EstCompacted: s.est.compacted, Boundary: s.boundary, NoTrimWhy: s.boundaryWhy, Records: s.records, Prompts: s.prompts}
+	if s.boundary >= 0 && !s.boundaryOK { // a compaction the harness reads, but whose summary cannot travel
+		res.Boundary = -1
+	}
 	if rw != nil {
 		res.PathsRewritten = rw.Count - rwBefore
 	}
@@ -539,6 +580,12 @@ func (s *sanitizer) claude(path string) error {
 			return nil
 		}
 		if typ == "user" || typ == "assistant" {
+			if s.afterBound { // the record right after a boundary must be its summary
+				s.afterBound = false
+				if c, _ := rec["isCompactSummary"].(bool); c {
+					s.boundaryOK, s.boundaryWhy = true, ""
+				}
+			}
 			if _, ok := rec["toolUseResult"]; ok {
 				s.strip["tool result detail"]++
 			}
@@ -556,7 +603,8 @@ func (s *sanitizer) claude(path string) error {
 				}
 			}
 		} else {
-			s.boundary = n2
+			s.boundary, s.boundaryOK, s.afterBound = n2, false, true
+			s.boundaryWhy = "its compaction summary is not in the file, after the boundary"
 			if cm := asMap(rec["compactMetadata"]); cm != nil {
 				delete(cm, "preservedSegment")
 				delete(cm, "preservedMessages")
@@ -651,6 +699,16 @@ func (s *sanitizer) codex(path string) error {
 		switch typ {
 		case "compacted":
 			s.boundary = n
+			hist, hasHist := p["replacement_history"].([]any)
+			_ = hist
+			switch {
+			case !hasHist:
+				s.boundaryOK, s.boundaryWhy = false, "it has no replacement history (Codex rebuilds it from the earlier messages, which a trim would drop)"
+			case strings.TrimSpace(asStr(p["message"])) == "":
+				s.boundaryOK, s.boundaryWhy = false, "its summary is kept by Codex only in an encrypted form that cannot be carried"
+			default:
+				s.boundaryOK, s.boundaryWhy = true, ""
+			}
 			if !s.trim.On {
 				s.strip["compacted"]++
 				return nil
@@ -792,4 +850,22 @@ func strippedWords(m map[string]int) string {
 		parts = append(parts, fmt.Sprintf("%d %s", x.n, x.k))
 	}
 	return strings.Join(parts, ", ")
+}
+
+// trimTranscript cleans a session again from its last compaction on (see trimOpts),
+// into outPath, and answers the trim. A failure is an error, never a quiet fallback to
+// the whole conversation: the file is read a second time and may have changed or gone.
+func trimTranscript(info transcriptInfo, rw *pathRewriter, full *sanitizeResult, outPath string) (*sanitizeResult, error) {
+	if full.Boundary < 0 {
+		return nil, fmt.Errorf("there is no compaction to trim to")
+	}
+	tr, err := sanitizeTranscriptTrim(info, rw, nil, outPath, trimOpts{On: true, Start: full.Boundary})
+	if err != nil {
+		return nil, fmt.Errorf("the session could not be read again to trim it to its last compaction: %w", err)
+	}
+	if tr.Bytes == 0 || tr.Boundary < 0 {
+		os.Remove(outPath)
+		return nil, fmt.Errorf("the trim to the last compaction came out empty (the file changed between the two readings)")
+	}
+	return tr, nil
 }

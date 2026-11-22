@@ -28,6 +28,13 @@
   the plan says "Trimmed to the last compaction: 137 MB to 18 MB". Still over, or
   with no compaction, it is refused in plain words, and a person at a terminal is
   offered compacting first, a written summary or cancel.
+- A trim is made only when the last compaction's summary can travel. Codex keeps
+  its summary in an encrypted item (the compacted record's message is empty), so a
+  Codex session over 120 MB is not trimmed: it is refused in plain words with that
+  reason, and a terminal offers compacting first, a written summary or cancel. A
+  trim that fails says so instead of falling back to the whole conversation. When
+  a conversation is trimmed the plan shows the trim's own counts. An older service
+  is asked again without the new fields whenever any of them was sent.
 - The size limit is 120 MB (was 50 MB), the file is read as a stream, and the
   "Next:" command of an over-limit refusal now runs as given. The plan says
   when the conversation is open in the tool right now.

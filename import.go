@@ -199,10 +199,6 @@ func chooseTranscript(tool string, inv *Invocation) transcriptInfo {
 
 // ---- the preparation: everything the plan says ----------------------------------
 
-// importDeferOverLimit: a person at a terminal is offered choices for a
-// conversation that is still too big, instead of a refusal (set by importGuided).
-var importDeferOverLimit bool
-
 // importCleanSeen, when a test sets it, keeps what the cleaning bar was told.
 var importCleanSeen *[]int64
 
@@ -231,6 +227,9 @@ type importPrep struct {
 	// over what a session can resume (a person at a terminal is offered the choices).
 	Trimmed        bool
 	UntrimmedBytes int64
+	TrimPrompts    int    // of the trim: the person's own messages in it
+	TrimRecords    int    // and its records
+	NoTrimWhy      string // a compaction is in the file but there is nothing to trim to, and why
 	OverLimit      bool
 	EstTokens      int64 // see import_estimate.go
 	EstCompacted   bool
@@ -304,6 +303,12 @@ func importSettingsOf(inv *Invocation, tool string) importSettings {
 }
 
 func prepareImport(inv *Invocation, tool string) *importPrep {
+	return prepareImportOpts(inv, tool, false)
+}
+
+// prepareImportOpts: deferOver is for a person at a terminal, who is offered choices
+// for a conversation that is still too big, instead of a refusal (importGuided).
+func prepareImportOpts(inv *Invocation, tool string, deferOver bool) *importPrep {
 	set := importSettingsOf(inv, tool)
 	p := &importPrep{Tool: tool, Mode: set.mode, Harness: set.harness, Redactions: redactCounts{}, Stripped: map[string]int{}}
 	tmp, err := os.MkdirTemp("", "ks-import-")
@@ -380,19 +385,24 @@ func prepareImport(inv *Invocation, tool string) *importPrep {
 		// over what a session can resume, with a compaction in it: keep only what
 		// the harness sends the model (from the last compaction on). Before the size
 		// check, the estimate and the digest.
+		noTrimWhy := res.NoTrimWhy
+		p.NoTrimWhy = noTrimWhy
 		if set.mode == "conversation" && res.Bytes > importLimit() && res.Boundary >= 0 {
 			tbar := newImportBar("Trimming to the last compaction", p.Info.Size, 0, importCleanSeen)
 			var tread int64
 			importReadProg = func(n int64) { tread += n; tbar.Set(min(tread/passes, p.Info.Size)) }
-			tr, terr := sanitizeTranscriptTrim(p.Info, rw, nil, filepath.Join(tmp, "transcript-trimmed.jsonl"), trimOpts{On: true, Start: res.Boundary})
+			tr, terr := trimTranscript(p.Info, rw, res, filepath.Join(tmp, "transcript-trimmed.jsonl"))
 			importReadProg = nil
-			if terr == nil && tr.Bytes > 0 {
-				tbar.Set(p.Info.Size)
-				tbar.Done("Trimmed to the last compaction")
-				p.Trimmed, p.UntrimmedBytes = true, res.Bytes
-				os.Remove(res.OutPath)
-				res = tr
+			if terr != nil {
+				fail(&cliError{Code: exitFailed, Kind: "trim_failed", Message: sanitize(terr.Error()) + ". Nothing was sent. Run the same command again, or import a written summary with --brief",
+					NextAction: importSessionCommand(inv, tool, p.Info.ID, "--brief")})
 			}
+			tbar.Set(p.Info.Size)
+			tbar.Done("Trimmed to the last compaction")
+			p.Trimmed, p.UntrimmedBytes = true, res.Bytes
+			p.TrimPrompts, p.TrimRecords = tr.Prompts, tr.Records
+			os.Remove(res.OutPath)
+			res = tr
 		}
 		p.Bytes, p.SHA256, p.Stripped, p.Rewritten = res.Bytes, res.SHA256, res.Stripped, res.PathsRewritten
 		p.Redactions.add(res.Redactions)
@@ -405,11 +415,14 @@ func prepareImport(inv *Invocation, tool string) *importPrep {
 		}
 		if limit := importLimit(); set.mode == "conversation" && p.Bytes > limit {
 			p.OverLimit = true
-			if !importDeferOverLimit { // a person at a terminal is offered the choices instead (importGuided)
+			if !deferOver { // a person at a terminal is offered the choices instead (importGuided)
 				how := "once what must not travel is taken out"
-				if p.Trimmed {
+				switch {
+				case p.Trimmed:
 					how = "once what must not travel is taken out and it is trimmed to its last compaction"
-				} else if res.Boundary < 0 {
+				case noTrimWhy != "":
+					how += " (it holds a compaction, but " + noTrimWhy + ", so there is nothing to trim to)"
+				case res.Boundary < 0:
 					how += " (it holds no compaction to trim to)"
 				}
 				fail(&cliError{Code: exitConflict, Kind: "import_too_large",

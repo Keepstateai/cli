@@ -55,7 +55,11 @@ func importPlanFacts(p *importPrep, set importSettings, svc importServicePlan) [
 		rows = append(rows, [2]string{"Spend limit", fmt.Sprintf("$%.2f on KeepState's key", float64(*set.spend)/1e6)})
 	}
 	if p.Mode == "conversation" {
-		rows = append(rows, [2]string{"Carries", fmt.Sprintf("the full conversation, %s of your messages and %s records", commas(int64(p.Turns)), commas(int64(p.Info.Messages)))})
+		if p.Trimmed {
+			rows = append(rows, [2]string{"Carries", fmt.Sprintf("the conversation from its last compaction on, %s of your messages and %s records (trimmed: the earlier part is not carried)", commas(int64(p.TrimPrompts)), commas(int64(p.TrimRecords)))})
+		} else {
+			rows = append(rows, [2]string{"Carries", fmt.Sprintf("the full conversation, %s of your messages and %s records", commas(int64(p.Turns)), commas(int64(p.Info.Messages)))})
+		}
 		rows = append(rows, [2]string{"Size", fmt.Sprintf("%s to upload (%s read)", kitBytes(p.Bytes), kitBytes(p.Info.Size))})
 		if p.Trimmed {
 			rows = append(rows, [2]string{"Trimmed", trimmedSentence(p)})
