@@ -4,6 +4,7 @@
  "replacement": "[redacted:%s]",
  "rules": [
   {"kind": "private_key_block", "pattern": "-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----[\\s\\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----|$)"},
+  {"kind": "claude_plan_token", "pattern": "\\bsk-ant-oat[0-9]*-[A-Za-z0-9_\\-]{16,}"},
   {"kind": "anthropic_key", "pattern": "\\bsk-ant-[A-Za-z0-9_\\-]{16,}"},
   {"kind": "openrouter_key", "pattern": "\\bsk-or-[A-Za-z0-9_\\-]{16,}"},
   {"kind": "openai_key", "pattern": "\\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_\\-]{20,}"},

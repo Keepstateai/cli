@@ -25,6 +25,10 @@ var registry = []*Command{
 				die(err)
 			}
 		}},
+	{Path: []string{"login", "claude"}, Summary: "sign in to your Claude plan once; your Claude Code agents then use it instead of an API key", Surface: "hosted",
+		Effects:  "runs claude setup-token on this computer (Claude Code must be installed; otherwise you paste a token made elsewhere), hides the token it prints, and stores it as your Claude plan sign-in, which replaces an earlier one; the token is never shown, written to a file or sent anywhere but your account's keys. Your agents' Claude Code calls then go on your plan, which your Claude plan bills and limits, and KeepState adds no charge for them; ks key delete removes it",
+		Examples: []string{"ks login claude", "ks run --agent --key claude-plan"},
+		Nothing:  "Nothing was stored.", Run: hosted(hostedLoginClaude)},
 	{Path: []string{"run"}, Summary: "start a hosted session; with --agent, an agent session whose main agent is running and supervised", Surface: "hosted",
 		Effects:  "starts a session on the fleet: session time is metered from this moment until the session is killed or parked. With --agent: preflight first (nothing is created on a blocker), the key the agent calls with chosen before anything exists (--key, your account's default for its provider, or your one enabled key for it; several is refused, never guessed), then one session bound to that key, its primary agent and a machine; the answer says supervised (running, waiting for its first instruction) or Ready only as the agent reports it, a setup that does not complete is destroyed and said so, and no model is called unless --task gives it work. With --key keepstate the agent's model calls go on KeepState's key where the service offers it: each call is held before it is sent and charged at the provider's list price plus the spread, from your purchased credit (free credit does not pay for it), up to the session's spend limit",
 		Examples: []string{"ks run", "ks run --budget-tokens 750000", "ks run --agent", "ks run --agent --name checkout --task \"run the tests\" --open", "ks run --agent --harness codex", "ks run --agent --key keepstate --spend-limit 20", "ks run --agent --model claude-sonnet-5-5 --effort high"},
@@ -34,7 +38,7 @@ var registry = []*Command{
 			{Name: "agent", Kind: flagBool, Summary: "start an agent session: a session, its primary agent and a machine, Ready only when the agent says so"},
 			{Name: "name", Kind: flagString, Value: "NAME", Summary: "the agent session's name (with --agent), quoted if it has spaces; default: the service names it after the agent, \"<agent name> session\", then \"<agent name> session 2\" if that name is taken"},
 			{Name: "agent-name", Kind: flagString, Value: "NAME", Summary: "the primary agent's name (with --agent); default main"},
-			{Name: "key", Kind: flagString, Value: "KEY", Summary: "the key the agent calls with (with --agent): a key's id or alias, own for your own key, or keepstate for KeepState's key (charged from your purchased credit at the provider's list price plus the spread); default your account's default for the agent's provider, else your one enabled key for it. The provider is the model's: the harness's, or OpenRouter for an open model, which calls an OpenRouter key"},
+			{Name: "key", Kind: flagString, Value: "KEY", Summary: "the key the agent calls with (with --agent): a key's id or alias, own for your own key, keepstate for KeepState's key (charged from your purchased credit at the provider's list price plus the spread), or claude-plan for your Claude plan sign-in (ks login claude; Claude Code with a Claude model only, billed and limited by your plan, no KeepState charge); default your account's default for the agent's provider, else your one enabled key for it. The provider is the model's: the harness's, or OpenRouter for an open model, which calls an OpenRouter key"},
 			{Name: "spend-limit", Kind: flagString, Value: "DOLLARS", Summary: "the session's spend limit on KeepState's key, in dollars (with --key keepstate); default the service's for a session"},
 			{Name: "task", Kind: flagString, Value: "TEXT", Summary: "a first task for the agent, submitted once the agent is supervised (with --agent)"},
 			{Name: "open", Kind: flagBool, Summary: "open the agent's window once the agent is supervised (with --agent)"},
@@ -213,7 +217,7 @@ var registry = []*Command{
 	{Path: []string{"session", "key", "set"}, Summary: "bind a session's provider to one of your keys by id, or to KeepState's key; that key is used or nothing is", Surface: "hosted",
 		Args: []Arg{{Name: "session", Required: true}},
 		Flags: []Flag{
-			{Name: "key", Kind: flagString, Value: "KEY", Summary: "the key's id or alias, or keepstate for KeepState's key"},
+			{Name: "key", Kind: flagString, Value: "KEY", Summary: "the key's id or alias, keepstate for KeepState's key, or claude-plan for your Claude plan sign-in"},
 			{Name: "provider", Kind: flagString, Value: "PROVIDER", Summary: "with --key keepstate: the provider whose calls go on KeepState's key, anthropic, openai or openrouter; default the provider the session's model calls (its harness's, or openrouter for an open model)"},
 			{Name: "spend-limit", Kind: flagString, Value: "DOLLARS", Summary: "the session's spend limit on KeepState's key, in dollars"},
 		},
@@ -1228,7 +1232,7 @@ var registry = []*Command{
 			{Name: "harness", Kind: flagString, Value: "HARNESS", Summary: "the runner the child works inside, as for ks run --agent; default the role's, else claude-code"},
 			{Name: "model", Kind: flagString, Value: "MODEL", Summary: "the model the child calls, one ks cruise models lists as offered for its harness (an open model via OpenRouter calls an OpenRouter key); default the role's, else the service's"},
 			{Name: "effort", Kind: flagString, Value: "LEVEL", Summary: "how hard the child's model thinks: low, medium, high, xhigh or max, one the model takes (ks cruise models); default the harness's own level. Higher effort spends more output tokens at the same per-token price"},
-			{Name: "key", Kind: flagString, Value: "KEY", Summary: "the key the child calls with: a key's id or alias, own, or keepstate for KeepState's key; default the role's, else as for ks run --agent"},
+			{Name: "key", Kind: flagString, Value: "KEY", Summary: "the key the child calls with: a key's id or alias, own, keepstate for KeepState's key, or claude-plan for your Claude plan sign-in; default the role's, else as for ks run --agent"},
 			{Name: "spend-limit", Kind: flagString, Value: "DOLLARS", Summary: "the child's spend limit on KeepState's key, in dollars (with --key keepstate)"},
 			{Name: "parent", Kind: flagString, Value: "AGENT", Summary: "a hosted agent as the parent, by id or name, instead of this caller: the child is paused when that agent is stopped or removed or its session is deleted"},
 			{Name: "no-parent", Kind: flagBool, Summary: "start the child with no parent: nothing ends it but you"},

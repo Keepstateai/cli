@@ -185,6 +185,19 @@ func bytesText(b int64) string {
 // keySourceText says whose key the model calls went on.
 func keySourceText(ks string) string {
 	byok, house := strings.Contains(ks, "byok"), strings.Contains(ks, "managed") || strings.Contains(ks, "house")
+	if strings.Contains(ks, claudePlanProvider) {
+		// calls on the Claude plan sign-in: billed and limited by the plan,
+		// no KeepState charge
+		parts := []string{}
+		if byok {
+			parts = append(parts, "your key")
+		}
+		parts = append(parts, claudePlanSourceWords)
+		if house {
+			parts = append(parts, "KeepState's key")
+		}
+		return "on " + strings.Join(parts, " and ") + " (" + sanitize(ks) + ")"
+	}
 	switch {
 	case byok && house:
 		return "on your key and KeepState's key (" + sanitize(ks) + ")"
@@ -379,6 +392,9 @@ func onKeepStatesKey(entries []usageEntryRow) bool {
 // keySourceLabel is an entry's key source as a person reads it: KeepState's
 // key for a provider, or the service's word as it is.
 func keySourceLabel(ks string) string {
+	if strings.HasPrefix(ks, claudePlanProvider) {
+		return claudePlanSourceWords
+	}
 	if p, ok := strings.CutPrefix(ks, "managed:"); ok {
 		return "KeepState's key (" + sanitize(p) + ")"
 	}

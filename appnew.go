@@ -125,6 +125,8 @@ func appNewSession(cr hostedCreds, scr *screen, keys <-chan keyEvent) (*homeRow,
 			step(sessState, "Creating the session…", "Session created")
 			if k := st["key"]; k == keepstateKeyArg {
 				step("done", "", "Model calls use KeepState's key, paid from your purchased credit")
+			} else if k == claudePlanKeyArg {
+				step("done", "", "Model calls use your Claude plan, which your plan bills and limits")
 			} else if k != "" {
 				step("done", "", "Model calls use your "+providerName(runnerProvider)+" key ending "+k)
 			}
