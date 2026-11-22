@@ -82,3 +82,4 @@ its file.
 - Stream contract (plain error bytes, `--json` bytes unchanged under any colour setting): `ui_test.go` `TestPlainErrorBytesAndJSONBytesIgnoreColour`; a real terminal: `ui_pty_test.go`.
 - Output goldens of the verbs (JSON and human): `output_test.go` `TestGoldenOutputs`, `goldenServer`; files in `testdata/golden`.
 - Anchor check for this map: `pointers_test.go` `TestPointerAnchorsExist`.
+- The publication scan (a workstation home path or a private tracker id anywhere in the repository fails CI, the same two rules the release gate runs; build such a string in pieces, or use /home/you in a comment; only the fictional homes alice and bob are allowed): `publication_scan_test.go` `homeHits`, `TestRepositoryHasNoWorkstationPathOrTrackerID`, `TestPublicationScanRules`.
