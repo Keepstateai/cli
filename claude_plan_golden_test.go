@@ -37,7 +37,7 @@ func claudePlanScreens(u *ui, clk *fakeClock) {
 
 func claudePlanErrors(u *ui) {
 	for i, ce := range []*cliError{
-		claudePlanPersonalErr(), claudePlanTokenInvalidErr(), claudePlanUnavailableErr(), claudePlanNoneErr(),
+		claudePlanPersonalErr(), claudePlanTokenInvalidErr(), claudePlanUnavailableErr(), claudePlanUnconfirmedErr(), claudePlanNoneErr(),
 		claudePlanRunnerErr("this agent calls OpenAI, not a Claude model"), claudePlanNotFinishedErr(), claudePlanUnreadErr(),
 		claudePlanTimedOutErr(), claudePlanStoppedErr(), claudePlanUnusableErr(claudePlanKey("invalid", "")), claudePlanUnusableErr(claudePlanKey("expired", "")),
 	} {

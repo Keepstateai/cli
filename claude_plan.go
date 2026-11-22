@@ -156,8 +156,8 @@ func planKeyLine(k customerKey, now time.Time) string {
 // client, by the registry the last verb refreshed. It asks nothing.
 func claudePlanListed(cr hostedCreds) bool {
 	set := cachedCapabilities()
-	if set == nil || set.ControlPlane != cr.CTL {
-		return false
+	if set == nil || set.ControlPlane != cr.CTL || set.Holder == "" || set.Holder != capsHolder(cr) {
+		return false // a copy read for another account, or for none, is not this account's answer
 	}
 	row := set.find(claudePlanCapability)
 	return row != nil && row.Availability == "available" && row.SinceProtocol <= clientProtocol
@@ -190,9 +190,17 @@ func claudePlanTokenInvalidErr() *cliError {
 func claudePlanUnavailableErr() *cliError {
 	return &cliError{Code: exitFailed, Kind: "claude_plan_unavailable", WorkStarted: workNo,
 		Title:      "Claude plan sign-in is not available yet",
-		Why:        []string{"This KeepState service has not turned it on.", "An API key works as before."},
-		Message:    "Claude plan sign-in is not available on this service yet; an API key works as before",
+		Why:        []string{"KeepState has not turned it on for your account.", "An API key works as before."},
+		Message:    "Claude plan sign-in is not available for your account yet; an API key works as before. Nothing was started",
 		NextAction: "ks key add --provider anthropic"}
+}
+
+func claudePlanUnconfirmedErr() *cliError {
+	return &cliError{Code: exitTemporary, Kind: "claude_plan_unconfirmed", WorkStarted: workNo,
+		Title:      "Could not check that Claude plan sign-in is available",
+		Why:        []string{"KeepState did not answer, so nothing was started and no token was made."},
+		Message:    "could not check that Claude plan sign-in is available, so nothing was started and no token was made",
+		NextAction: "ks login claude"}
 }
 
 func claudePlanNoneErr() *cliError {
@@ -286,6 +294,12 @@ func hostedLoginClaude(cr hostedCreds, inv *Invocation) {
 func signInClaudePlan(cr hostedCreds) (customerKey, error) {
 	if keyContext(cr) != "" {
 		return customerKey{}, claudePlanPersonalErr()
+	}
+	// the service says yes for this account, live, before a token exists:
+	// the switch may be on for some accounts only, and a token made first
+	// would be a real credential for a sign-in that cannot be stored
+	if err := claudePlanAvailable(cr); err != nil {
+		return customerKey{}, err
 	}
 	_, ue := cmdUI()
 	quiet := out.quiet || out.json || appChild()
@@ -622,4 +636,22 @@ func hasKeyBlocker(checks any) bool {
 		}
 	}
 	return false
+}
+
+// claudePlanAvailable reads the registry live, with the account's own
+// credential, and says whether the sign-in is switched on for this account.
+// A registry that cannot be read is no answer: nothing is started.
+func claudePlanAvailable(cr hostedCreds) error {
+	set, err := fetchCapabilities(cr)
+	if err != nil {
+		if errors.Is(err, errNoCapabilities) {
+			return claudePlanUnavailableErr()
+		}
+		return claudePlanUnconfirmedErr()
+	}
+	row := set.find(claudePlanCapability)
+	if row == nil || row.Availability != "available" || row.SinceProtocol > clientProtocol {
+		return claudePlanUnavailableErr()
+	}
+	return nil
 }

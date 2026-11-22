@@ -25,6 +25,8 @@ type planCtl struct {
 	requests []string
 	bodies   map[string][]string
 	listed   bool             // the registry lists claude_plan_key as available
+	listedTo map[string]bool // when set, the answer per bearer token instead (the switch may be a list of accounts)
+	capsDown bool             // the registry cannot be read
 	keys     []map[string]any // GET /api/v2/keys
 	fail     *planFail        // a refusal for POST /api/v2/keys
 	mk       *mkCtl           // the run's other routes
@@ -38,7 +40,7 @@ type planFail struct {
 }
 
 func newPlanCtl() *planCtl {
-	return &planCtl{bodies: map[string][]string{}, mk: newMKCtl()}
+	return &planCtl{bodies: map[string][]string{}, mk: newMKCtl(), listed: true}
 }
 
 func planRow(last4, state string) map[string]any {
@@ -83,7 +85,15 @@ func (c *planCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			map[string]any{"id": "preflight", "availability": "available", "summary": "s", "surface": "api"},
 			map[string]any{"id": "budget.admission", "availability": "available", "summary": "s", "surface": "api"},
 		}
-		if c.listed {
+		on := c.listed
+		if c.listedTo != nil {
+			on = c.listedTo[strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")]
+		}
+		if c.capsDown {
+			w.WriteHeader(503)
+			return
+		}
+		if on {
 			rows = append(rows, map[string]any{"id": "claude_plan_key", "availability": "available", "summary": "s", "surface": "api", "since_protocol": 1})
 		}
 		env(200, map[string]any{"registry_version": "t", "build": "b", "fetched_at": "x", "price_book": "v1.4", "capabilities": rows, "limits": map[string]any{},
@@ -258,7 +268,7 @@ func TestLoginClaudeRefusalsOfTheServiceAreDesigned(t *testing.T) {
 		code       int
 		says, next string
 	}{
-		{"switched off", planFail{404, "ks_claude_plan_off", "the flag is off"}, exitFailed, "not available on this service yet", "Next: ks key add --provider anthropic"},
+		{"switched off", planFail{404, "ks_claude_plan_off", "the flag is off"}, exitFailed, "not available for your account yet", "Next: ks key add --provider anthropic"},
 		{"an organization", planFail{422, "ks_claude_plan_personal", "organization"}, exitUsage, "belongs to one person", "Next: ks context use personal"},
 		{"not a token", planFail{422, "ks_claude_plan_token_invalid", "bad shape"}, exitUsage, "not a Claude plan token", "Next: ks login claude"},
 		{"not signed in", planFail{401, "ks_unauthorized", "sign in first"}, exitAuth, "sign in first", "Next: ks login"},
@@ -618,7 +628,7 @@ func TestUsageAndRunnerWordsNameTheClaudePlan(t *testing.T) {
 func TestClaudePlanSourceStringsKeepTheTokenOutOfEveryError(t *testing.T) {
 	// every refusal this feature can make is built from fixed words; none
 	// takes the text a person typed
-	for _, ce := range []*cliError{claudePlanPersonalErr(), claudePlanTokenInvalidErr(), claudePlanUnavailableErr(), claudePlanNoneErr(),
+	for _, ce := range []*cliError{claudePlanPersonalErr(), claudePlanTokenInvalidErr(), claudePlanUnavailableErr(), claudePlanUnconfirmedErr(), claudePlanNoneErr(),
 		claudePlanRunnerErr("this agent calls OpenAI, not a Claude model"), claudePlanNotFinishedErr(), claudePlanUnreadErr(), claudePlanTimedOutErr(),
 		claudePlanUnusableErr(customerKey{State: "invalid"})} {
 		if ce.Title == "" || ce.NextAction == "" || !strings.HasPrefix(ce.NextAction, "ks ") || strings.Contains(ce.Message, "sk-ant-oat01") {
@@ -640,5 +650,89 @@ func TestRunOnThePlanInAnOrganizationsContextIsRefusedBeforeAnythingExists(t *te
 	}
 	if c.asked("POST /api/v2/sessions") || c.asked("POST /api/v2/preflight") {
 		t.Errorf("something was asked of the service: %v", c.requests)
+	}
+}
+
+// ---- the sign-in is judged by the service, for this account, before a token exists ----
+
+func TestLoginClaudeAsksTheServiceForThisAccountBeforeAnyTokenExists(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(c *planCtl)
+		says  string
+		code  int
+	}{
+		{"off for this account", func(c *planCtl) { c.listedTo = map[string]bool{"someone-else": true} }, "not available", exitFailed},
+		{"no row at all", func(c *planCtl) { c.listed = false }, "not available", exitFailed},
+		{"registry unreadable", func(c *planCtl) { c.capsDown = true }, "could not", exitTemporary},
+	} {
+		for _, mode := range []string{"piped", "pty"} {
+			if mode == "pty" && tc.name == "registry unreadable" {
+				continue
+			}
+			c := newPlanCtl()
+			tc.setup(c)
+			bin, _, home, env := planEnv(t, c)
+			log := filepath.Join(t.TempDir(), "fake.log")
+			fake := fakeClaude(t, fakeSetupScript())
+			env = append(env, "PATH="+filepath.Dir(fake)+":"+os.Getenv("PATH"), "FAKE_LOG="+log)
+			var errs string
+			var code int
+			if mode == "piped" {
+				_, errs, code = runPlan(t, bin, env, fixtureClaudeToken()+"\n", "login", "claude")
+			} else {
+				errs, code = inPTYWithInput(t, ttyEnv(env, filepath.Dir(fake)+":/usr/bin:/bin", "FAKE_LOG="+log), "1\r", 1500*time.Millisecond, bin, "login", "claude")
+			}
+			if code != tc.code || !strings.Contains(strings.ToLower(errs), tc.says) || strings.Count(errs, "Next:") != 1 {
+				t.Errorf("%s/%s: exit %d, want %d\n%s", tc.name, mode, code, tc.code, errs)
+			}
+			if _, err := os.Stat(log); err == nil {
+				t.Errorf("%s/%s: setup-token was run although the service had not said yes", tc.name, mode)
+			}
+			if n := len(c.posts("/api/v2/keys")); n != 0 {
+				t.Errorf("%s/%s: %d requests carried a token", tc.name, mode, n)
+			}
+			_ = home
+		}
+	}
+}
+
+func TestLoginClaudeGoesAheadWhenTheServiceSaysYesForThisAccount(t *testing.T) {
+	c := newPlanCtl()
+	c.listedTo = map[string]bool{"guard-test-token": true}
+	bin, _, _, env := planEnv(t, c)
+	_, errs, code := runPlan(t, bin, env, fixtureClaudeToken()+"\n", "login", "claude")
+	if code != 0 || len(c.posts("/api/v2/keys")) != 1 {
+		t.Fatalf("exit %d\n%s", code, errs)
+	}
+}
+
+func TestTheOfferIsNeverTakenFromAnotherAccountsRegistry(t *testing.T) {
+	// the cached registry belongs to one account of one service
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	a := hostedCreds{CTL: "http://x.test", Token: "token-of-a"}
+	b := hostedCreds{CTL: "http://x.test", Token: "token-of-b"}
+	set := capabilitySet{RegistryVersion: "t", ControlPlane: a.CTL, Holder: capsHolder(a),
+		Capabilities: []capabilityRow{{ID: claudePlanCapability, Availability: "available"}}}
+	raw, _ := json.Marshal(set)
+	if err := os.MkdirAll(filepath.Join(dir, "keepstate"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(capabilitiesCachePath(), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !claudePlanListed(a) {
+		t.Error("the account the registry was read for does not see it")
+	}
+	if claudePlanListed(b) {
+		t.Error("another account was offered the sign-in from a registry read for the first")
+	}
+	// an older cache with no holder is nobody's
+	set.Holder = ""
+	raw, _ = json.Marshal(set)
+	_ = os.WriteFile(capabilitiesCachePath(), raw, 0o600)
+	if claudePlanListed(a) {
+		t.Error("a cache that names no account was trusted")
 	}
 }

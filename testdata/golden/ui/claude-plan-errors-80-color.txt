@@ -11,11 +11,17 @@
 <ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks login claude<ESC>[0m
 
 <ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mClaude plan sign-in is not available yet<ESC>[0m
-<ESC>[38;2;255;107;128m│<ESC>[0m This KeepState service has not turned it on.
+<ESC>[38;2;255;107;128m│<ESC>[0m KeepState has not turned it on for your account.
 <ESC>[38;2;255;107;128m│<ESC>[0m An API key works as before.
 <ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
 
 <ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks key add --provider anthropic<ESC>[0m
+
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mCould not check that Claude plan sign-in is available<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m KeepState did not answer, so nothing was started and no token was made.
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks login claude<ESC>[0m
 
 <ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mYou are not signed in to a Claude plan<ESC>[0m
 <ESC>[38;2;255;107;128m│<ESC>[0m There is no usable Claude plan sign-in on your account.

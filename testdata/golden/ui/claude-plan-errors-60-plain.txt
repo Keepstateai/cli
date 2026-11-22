@@ -12,11 +12,18 @@ Next: ks context use personal
 Next: ks login claude
 
 ✗ Claude plan sign-in is not available yet
-│ This KeepState service has not turned it on.
+│ KeepState has not turned it on for your account.
 │ An API key works as before.
 │ Nothing was sent or created.
 
 Next: ks key add --provider anthropic
+
+✗ Could not check that Claude plan sign-in is available
+│ KeepState did not answer, so nothing was started and no
+│ token was made.
+│ Nothing was sent or created.
+
+Next: ks login claude
 
 ✗ You are not signed in to a Claude plan
 │ There is no usable Claude plan sign-in on your account.
