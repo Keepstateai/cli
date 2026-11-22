@@ -17,6 +17,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -299,6 +300,21 @@ func claudePlanErr(err error) error {
 		case "ks_claude_plan_runner":
 			ce := claudePlanRunnerErr(strings.TrimSuffix(sanitize(he.Message), "."))
 			return ce
+		case "ks_claude_plan_org":
+			next := "ks login claude --org <organization>"
+			var doc struct {
+				Error struct {
+					NextAction string `json:"next_action"`
+				} `json:"error"`
+			}
+			if json.Unmarshal(he.Raw, &doc) == nil && strings.HasPrefix(doc.Error.NextAction, "ks ") {
+				next = sanitize(doc.Error.NextAction)
+			}
+			return &cliError{Code: exitConflict, Kind: "claude_plan_org", WorkStarted: workNo,
+				Title:      "You have no Claude plan in this organization",
+				Why:        []string{"Sign in under this organization first, then ask again."},
+				Message:    "you have no Claude plan in this organization; sign in under it first. Nothing was created",
+				NextAction: next}
 		}
 	}
 	return err
@@ -309,23 +325,38 @@ func claudePlanErr(err error) error {
 // hostedLoginClaude signs in once and stores the sign-in.
 func hostedLoginClaude(cr hostedCreds, inv *Invocation) {
 	uo, _ := cmdUI()
-	k, err := signInClaudePlan(cr)
+	org := keyContext(cr)
+	if inv.Set("org") {
+		o, err := resolveOrgArg(cr, inv.Str("org"))
+		if err != nil {
+			fail(err)
+		}
+		org = o
+	}
+	k, err := signInClaudePlan(cr, signInOptions{org: org, machine: inv.Bool("machine")})
 	if err != nil {
 		fail(err)
 	}
 	now := time.Now()
 	emit(map[string]any{"ok": true, "key_id": k.ID, "last4": k.Last4, "expires_at": k.ExpiresAt, "state": planState(k, now)}, func() {
-		renderClaudePlanSuccess(uo, k, now)
+		renderClaudePlanSuccess(uo, k, now, org)
 	})
 }
 
-// signInClaudePlan reads a token from the person and stores it as their
-// Claude plan sign-in. It returns errors rather than exiting, so ks run can
-// offer it in the middle of starting an agent.
-func signInClaudePlan(cr hostedCreds) (customerKey, error) {
-	if keyContext(cr) != "" {
-		return customerKey{}, claudePlanPersonalErr()
-	}
+// signInOptions say where the sign-in is stored (an organization's id, or ""
+// for your own account) and whether to use the service's machine even where
+// Claude Code is installed here.
+type signInOptions struct {
+	org     string
+	machine bool
+}
+
+// signInClaudePlan signs in and stores the sign-in. Where Claude Code is
+// installed it runs Claude Code's own sign-in here; where it is not (or with
+// --machine) the service runs it on a short-lived machine. It returns errors
+// rather than exiting, so ks run can offer it in the middle of starting an
+// agent.
+func signInClaudePlan(cr hostedCreds, opt signInOptions) (customerKey, error) {
 	// the service says yes for this account, live, before a token exists:
 	// the switch may be on for some accounts only, and a token made first
 	// would be a real credential for a sign-in that cannot be stored
@@ -334,10 +365,34 @@ func signInClaudePlan(cr hostedCreds) (customerKey, error) {
 	}
 	_, ue := cmdUI()
 	quiet := out.quiet || out.json || appChild()
+	interactive := stdinIsTerminal() && !out.noInput
+	_, lerr := claudeLookPath("claude")
+	if opt.machine || (interactive && lerr != nil) {
+		k, err := machineSignIn(cr, opt.org)
+		if !errors.Is(err, errMachineUnavailable) {
+			return k, err
+		}
+		if !interactive {
+			return customerKey{}, signinErr("claude_signin_unavailable", "A sign-in machine could not be started", exitTemporary,
+				[]string{"KeepState could not start one just now.", "Make a token with claude setup-token elsewhere and pipe it in."},
+				"KeepState could not start a sign-in machine just now; make a token with claude setup-token on a computer that has Claude Code and pipe it in", "ks login claude --no-input")
+		}
+		tok, perr := pasteWithReason(ue, "KeepState could not start a sign-in machine just now, so there is no link to give you.")
+		if perr != nil {
+			return customerKey{}, perr
+		}
+		return storeClaudePlanToken(cr, opt.org, tok, quiet)
+	}
 	tok, err := readClaudePlanToken(ue, quiet)
 	if err != nil {
 		return customerKey{}, err
 	}
+	return storeClaudePlanToken(cr, opt.org, tok, quiet)
+}
+
+// storeClaudePlanToken sends a token to the account's keys once and wipes it.
+func storeClaudePlanToken(cr hostedCreds, org string, tok []byte, quiet bool) (customerKey, error) {
+	_, ue := cmdUI()
 	// the request body is built as bytes so it can be wiped; the token is
 	// only token characters, so it needs no escaping
 	body := claudePlanBody(tok)
@@ -351,7 +406,7 @@ func signInClaudePlan(cr hostedCreds) (customerKey, error) {
 	var env struct {
 		Data customerKey `json:"data"`
 	}
-	err = hostedCall(cr, "POST", "/api/v2/keys", body, &env)
+	err := hostedCall(cr, "POST", keyPath(org, "/api/v2/keys"), body, &env)
 	wipe(body)
 	if err != nil {
 		if st != nil {
@@ -376,15 +431,21 @@ func claudePlanBody(tok []byte) []byte {
 }
 
 // renderClaudePlanSuccess is the card that says the sign-in is stored.
-func renderClaudePlanSuccess(u *ui, k customerKey, now time.Time) {
+func renderClaudePlanSuccess(u *ui, k customerKey, now time.Time, org string) {
 	facts := [][2]string{
 		{"Token", "ends …" + sanitize(k.Last4) + "; it is never shown again"},
 	}
 	if e := planEndsWords(k); e != "" {
 		facts = append(facts, [2]string{"Ends", e})
 	}
-	facts = append(facts, [2]string{"Used by", "your Claude Code agents, instead of an API key; no KeepState charge"})
-	u.Success("Signed in to your Claude plan", facts, "ks run --agent --key claude-plan")
+	used := "your Claude Code agents, instead of an API key; no KeepState charge"
+	next := "ks run --agent --key claude-plan"
+	if org != "" {
+		used = "your Claude Code agents in " + sanitize(org) + ", instead of an API key; no KeepState charge"
+		next = "ks run --agent --key claude-plan"
+	}
+	facts = append(facts, [2]string{"Used by", used})
+	u.Success("Signed in to your Claude plan", facts, next)
 	if w := planStateWords(k, now); w != "" {
 		u.Blank()
 		u.Warn("Check this sign-in", w)
@@ -628,7 +689,7 @@ func offerPlanSignIn(cr hostedCreds) (customerKey, bool, error) {
 	if a := strings.ToLower(strings.TrimSpace(line)); a != "y" && a != "yes" {
 		return customerKey{}, false, nil
 	}
-	k, err := signInClaudePlan(cr)
+	k, err := signInClaudePlan(cr, signInOptions{})
 	if err != nil {
 		return customerKey{}, false, err
 	}

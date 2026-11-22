@@ -1,0 +1,49 @@
+Sign in to your Claude plan
+  KeepState starts a private machine that runs Claude Code's own sign-in for
+  you. You open a link, sign in to Claude, and paste the code it shows. The
+  machine is destroyed afterwards, and the token is never shown to you or kept
+  here.
+
+  Starting a private sign-in machine and asking Claude for a sign-in link. This
+  takes about a minute.
+  • Start a private sign-in machine...
+  This is taking longer than usual. It is still working, and Ctrl-C cancels it
+  and cleans up.
+  ✓ Start a private sign-in machine (1m15s)
+Sign in at Claude
+  Open this link and sign in to the Claude account whose plan you want to use.
+  Claude then shows a code to paste here.
+
+https://claude.com/cai/oauth/authorize?code=true&client_id=test&state=abc123
+
+  ✓ Sign in at Claude
+  ✓ Paste the code it shows
+  Checking your code with Claude.
+  • Save your sign-in...
+  ✓ Save your sign-in (4.0s)
+
+✓ Signed in to your Claude plan
+  Token: ends …9999; it is never shown again
+  Ends: 22 Nov 2027
+  Used by: your Claude Code agents in org_acme, instead of an API key; no
+           KeepState charge
+
+Next: ks run --agent --key claude-plan
+
+! Claude did not accept that code
+  The code only works once and for a short time. Start again to get a new link.
+
+Claude plans in org_acme  3
+  MEMBER              LAST4  STANDING         ENDS
+  Ada Lovelace (you)  …9999  working          22 Nov 2027
+  Grace Hopper        …1234  ends soon        3 Dec 2026
+  mem_three           …5678  no longer works  5 Jan 2027
+
+Claude plans in org_acme  0
+  No member has put a Claude plan in this organization yet.
+
+Next: ks login claude --org org_acme
+
+✓ Ended Grace Hopper's Claude plan in this organization
+  Still there: the person's own sign-in, and their personal sessions that use it
+  Ended: its use by agents in this organization

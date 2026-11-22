@@ -32,6 +32,59 @@ type planCtl struct {
 	fail     *planFail        // a refusal for POST /api/v2/keys
 	mk       *mkCtl           // the run's other routes
 	url      string           // where the fake listens
+	signin   *signinScript    // the sign-in machine, when scripted
+	orgRows  []map[string]any // GET /api/v2/orgs/{id}/plan-keys
+	keysQ    []string         // the query of each POST /api/v2/keys
+	removed  []string         // each DELETE /api/v2/orgs/{id}/plan-keys/{member}
+}
+
+// signinScript is a sign-in machine: the views it answers, in order (the
+// start, then each poll; the last repeats), what it did with codes and
+// cancels.
+type signinScript struct {
+	startFail *planFail
+	views     []map[string]any
+	codeFail  *planFail
+	at        int
+	codes     []string
+	cancelled bool
+	starts    int
+	queries   []string
+}
+
+func sview(state string, step int, extra map[string]any) map[string]any {
+	names := []string{"Start a private sign-in machine", "Sign in at Claude", "Paste the code it shows", "Save your sign-in"}
+	steps := []any{}
+	for i, n := range names {
+		st := "todo"
+		if i+1 < step {
+			st = "done"
+		} else if i+1 == step {
+			st = "active"
+		}
+		if state == "done" {
+			st = "done"
+		}
+		steps = append(steps, map[string]any{"name": n, "state": st})
+	}
+	v := map[string]any{"id": "signin_0001", "state": state, "step": step, "steps": steps, "elapsed_seconds": 3, "expires_at": "2026-11-22T12:30:00Z",
+		"words": map[string]string{"starting": "Starting a private sign-in machine and asking Claude for a sign-in link. This takes about a minute.",
+			"link_ready": "Open the link, sign in to Claude, and copy the code it shows. Then paste the code here.", "checking": "Checking your code with Claude."}[state]}
+	for k, x := range extra {
+		v[k] = x
+	}
+	return v
+}
+
+const signinTestLink = "https://claude.com/cai/oauth/authorize?code=true&client_id=test&state=abc123"
+
+func goodSignin() *signinScript {
+	return &signinScript{views: []map[string]any{
+		sview("starting", 1, nil), sview("starting", 1, nil),
+		sview("link_ready", 2, map[string]any{"url": signinTestLink}),
+		sview("checking", 4, nil),
+		sview("done", 4, map[string]any{"key": map[string]any{"id": "vlt_plan0001", "last4": "9999", "expires_at": "2027-11-22T10:00:00Z"}}),
+	}}
 }
 
 type planFail struct {
@@ -104,7 +157,21 @@ func (c *planCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		items := append([]map[string]any(nil), c.keys...)
 		c.mu.Unlock()
 		env(200, map[string]any{"items": items, "next_cursor": ""})
+	case strings.HasPrefix(r.URL.Path, "/api/v2/claude-signins") && c.signin != nil:
+		c.serveSignin(w, r, raw)
+	case r.Method == "GET" && r.URL.Path == "/api/v2/orgs":
+		env(200, map[string]any{"items": []any{map[string]any{"id": "org_acme", "name": "Acme", "your_role": "member", "your_seat": "assigned"}}, "next_cursor": ""})
+	case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/plan-keys"):
+		env(200, map[string]any{"items": c.orgRows})
+	case r.Method == "DELETE" && strings.Contains(r.URL.Path, "/plan-keys/"):
+		c.mu.Lock()
+		c.removed = append(c.removed, r.URL.Path)
+		c.mu.Unlock()
+		env(200, map[string]any{"removed": true})
 	case r.Method == "POST" && r.URL.Path == "/api/v2/keys":
+		c.mu.Lock()
+		c.keysQ = append(c.keysQ, r.URL.RawQuery)
+		c.mu.Unlock()
 		var body map[string]any
 		_ = json.Unmarshal(raw, &body)
 		if c.fail != nil {
@@ -149,7 +216,7 @@ func planEnv(t *testing.T, c *planCtl) (bin, cfg, home string, env []string) {
 	c.url = srv.URL
 	bin, cfg = buildAndAuth(t, srv)
 	home = t.TempDir()
-	env = append(fastEnv(cfg), "HOME="+home, "TMPDIR="+home, "KS_UPDATE_BASE="+srv.URL, "NO_COLOR=1")
+	env = append(fastEnv(cfg), "KS_SIGNIN_POLL_MS=40", "HOME="+home, "TMPDIR="+home, "KS_UPDATE_BASE="+srv.URL, "NO_COLOR=1")
 	return bin, cfg, home, env
 }
 
@@ -293,19 +360,36 @@ func TestLoginClaudeRefusalsOfTheServiceAreDesigned(t *testing.T) {
 	}
 }
 
-func TestLoginClaudeInAnOrganizationContextStoresNothing(t *testing.T) {
-	c := newPlanCtl()
-	bin, cfg, _, env := planEnv(t, c)
-	ctx, _ := json.Marshal(map[string]string{c.url: "org_acme"})
-	if err := os.WriteFile(filepath.Join(cfg, "keepstate", "context.json"), ctx, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	out, errs, code := runPlan(t, bin, env, fixtureClaudeToken()+"\n", "login", "claude")
-	if code != exitUsage || !strings.Contains(errs, "belongs to one person") || !strings.Contains(errs, "Next: ks context use personal") {
-		t.Fatalf("exit %d\n%s%s", code, out, errs)
-	}
-	if n := len(c.posts("/api/v2/keys")); n != 0 {
-		t.Errorf("%d requests were sent in an organization's context", n)
+func TestLoginClaudeInAnOrganizationStoresItUnderThatOrganization(t *testing.T) {
+	tok := fixtureClaudeToken()
+	for _, tc := range []struct {
+		name string
+		args []string
+		ctx  bool
+	}{
+		{"by flag, an id", []string{"login", "claude", "--org", "org_acme"}, false},
+		{"by flag, a name", []string{"login", "claude", "--org", "Acme"}, false},
+		{"by context", []string{"login", "claude"}, true},
+	} {
+		c := newPlanCtl()
+		bin, cfg, _, env := planEnv(t, c)
+		if tc.ctx {
+			ctx, _ := json.Marshal(map[string]string{c.url: "org_acme"})
+			if err := os.WriteFile(filepath.Join(cfg, "keepstate", "context.json"), ctx, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		out, errs, code := runPlan(t, bin, env, tok+"\n", tc.args...)
+		if code != 0 {
+			t.Fatalf("%s: exit %d\n%s%s", tc.name, code, out, errs)
+		}
+		if len(c.keysQ) != 1 || c.keysQ[0] != "context=org_acme" {
+			t.Errorf("%s: the sign-in was stored with query %q, want context=org_acme", tc.name, c.keysQ)
+		}
+		if !strings.Contains(out, "agents in org_acme") {
+			t.Errorf("%s: the card does not say where it is used:\n%s", tc.name, out)
+		}
+		noToken(t, tc.name, out+errs)
 	}
 }
 
@@ -638,22 +722,6 @@ func TestClaudePlanSourceStringsKeepTheTokenOutOfEveryError(t *testing.T) {
 	}
 }
 
-func TestRunOnThePlanInAnOrganizationsContextIsRefusedBeforeAnythingExists(t *testing.T) {
-	c := planRunCtl(planRow("9999", "ok"))
-	bin, cfg, _, env := planEnv(t, c)
-	ctx, _ := json.Marshal(map[string]string{c.url: "org_acme"})
-	if err := os.WriteFile(filepath.Join(cfg, "keepstate", "context.json"), ctx, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	_, errs, code := runPlan(t, bin, env, "", "run", "--agent", "--key", "claude-plan")
-	if code != exitUsage || !strings.Contains(errs, "belongs to one person") || !strings.Contains(errs, "Next: ks context use personal") {
-		t.Fatalf("exit %d\n%s", code, errs)
-	}
-	if c.asked("POST /api/v2/sessions") || c.asked("POST /api/v2/preflight") {
-		t.Errorf("something was asked of the service: %v", c.requests)
-	}
-}
-
 // ---- the sign-in is judged by the service, for this account, before a token exists ----
 
 func TestLoginClaudeAsksTheServiceForThisAccountBeforeAnyTokenExists(t *testing.T) {
@@ -756,4 +824,60 @@ func TestPasteIsRefusedWhenTheTerminalCannotHideIt(t *testing.T) {
 	if tok != nil || !ok || ce.Kind != "claude_plan_no_echo" || !strings.HasPrefix(ce.NextAction, "ks ") {
 		t.Fatalf("token=%v err=%+v", tok != nil, err)
 	}
+}
+
+func (c *planCtl) serveSignin(w http.ResponseWriter, r *http.Request, raw []byte) {
+	sc := c.signin
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	env := func(code int, data any) {
+		w.WriteHeader(code)
+		_ = json.NewEncoder(w).Encode(map[string]any{"schema_version": 2, "request_id": "r", "data": data})
+	}
+	refuse := func(f *planFail) {
+		w.WriteHeader(f.status)
+		_ = json.NewEncoder(w).Encode(map[string]any{"schema_version": 2, "error": map[string]any{"type": f.typ, "message": f.msg}})
+	}
+	switch {
+	case r.Method == "POST" && r.URL.Path == "/api/v2/claude-signins":
+		sc.starts++
+		sc.queries = append(sc.queries, r.URL.RawQuery)
+		if sc.startFail != nil {
+			refuse(sc.startFail)
+			return
+		}
+		sc.at = 0
+		env(201, sc.views[0])
+	case r.Method == "GET":
+		if sc.at < len(sc.views)-1 {
+			sc.at++
+		}
+		env(200, sc.views[sc.at])
+	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/code"):
+		var b map[string]string
+		_ = json.Unmarshal(raw, &b)
+		sc.codes = append(sc.codes, b["code"])
+		if sc.codeFail != nil {
+			refuse(sc.codeFail)
+			return
+		}
+		env(200, map[string]any{})
+	case r.Method == "DELETE":
+		sc.cancelled = true
+		env(200, map[string]any{"state": "cancelled"})
+	default:
+		env(404, nil)
+	}
+}
+
+func (c *planCtl) signinState() (starts int, codes []string, cancelled bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.signin.starts, append([]string(nil), c.signin.codes...), c.signin.cancelled
+}
+
+func (c *planCtl) signinWas() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.signin != nil && c.signin.cancelled
 }

@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 )
 
 type provisionPhaseRow struct {
@@ -168,6 +169,7 @@ func startedWord(p provisionAnswer) string {
 // account's single enabled key for the runner's provider. None or several is
 // refused before anything is created; a key is never guessed.
 func runKey(cr hostedCreds, arg, runnerProvider string) (customerKey, error) {
+	runKeyPlanAlt = nil
 	if arg != "" {
 		k, err := resolveKey(cr, arg)
 		if err != nil {
@@ -189,6 +191,9 @@ func runKey(cr hostedCreds, arg, runnerProvider string) (customerKey, error) {
 			usable = append(usable, k)
 		}
 	}
+	if p := planKeyOf(keys); p != nil && runnerProvider == claudePlanAnthropic && planUsable(*p, time.Now()) {
+		runKeyPlanAlt = p // an API key stays the default; the plan is a choice
+	}
 	switch len(usable) {
 	case 1:
 		return usable[0], nil
@@ -208,6 +213,10 @@ func runKey(cr hostedCreds, arg, runnerProvider string) (customerKey, error) {
 		Message:    fmt.Sprintf("you have %d enabled %s keys (%s); name the one this agent calls with. Nothing was created", len(usable), runnerProvider, strings.Join(ids, ", ")),
 		NextAction: "ks run --agent --key <id>"}
 }
+
+// runKeyPlanAlt is a usable Claude plan sign-in seen while choosing an API
+// key, so the run can say the plan is a choice too (nil otherwise).
+var runKeyPlanAlt *customerKey
 
 // openRouterWhy says, beside a key refusal, why the agent calls an
 // OpenRouter key: its model is an open model via OpenRouter. Nothing for
@@ -315,10 +324,12 @@ func createAgentRecord(cr hostedCreds, name, agentName, keyArg string, model, ef
 	org := currentContext(cr)
 	var choice runKeyChoice
 	if org != "" && keyArg == claudePlanKeyArg {
-		// a Claude plan belongs to one person, never to an organization's work
-		return none, customerKey{}, claudePlanPersonalErr()
-	}
-	if org != "" {
+		// a member's Claude plan under the organization, never anyone else's
+		if choice, err = chooseClaudePlanInOrg(cr, org, runnerProvider); err != nil {
+			return none, customerKey{}, err
+		}
+		progress("context: organization %s", org)
+	} else if org != "" {
 		progress("context: organization %s (ks context use personal for your own account)", org)
 	} else if choice, err = chooseRunKey(cr, keyArg, runnerProvider, spend); err != nil {
 		// ---- 2. your own key or KeepState's key, chosen before anything exists ----
@@ -381,14 +392,14 @@ func createAgentRecord(cr hostedCreds, name, agentName, keyArg string, model, ef
 	}
 	var key customerKey
 	switch {
+	case choice.plan:
+		key = choice.planKey
 	case org != "":
 		if key, err = orgRunKey(pf.Data, org, keyArg, runnerProvider); err != nil {
 			return none, customerKey{}, err
 		}
 	case choice.managed:
 		key = customerKey{ID: keepstateKeyArg, Provider: runnerProvider}
-	case choice.plan:
-		key = choice.planKey
 	default:
 		if key, err = runKey(cr, choice.keyArg, runnerProvider); err != nil {
 			// a service whose preflight does not name the missing key still
@@ -508,9 +519,12 @@ func createAgentRecord(cr hostedCreds, name, agentName, keyArg string, model, ef
 	case choice.managed:
 		progress("  %s", choice.line(runnerProvider))
 	case choice.plan:
-		progress("  %s calls go on your Claude plan (…%s), which your plan bills and limits; KeepState adds no charge", runnerProvider, key.Last4)
+		progress("This agent will use your Claude plan (…%s), which your plan bills and limits; KeepState adds no charge", key.Last4)
 	default:
 		progress("  %s calls go through your key %s (…%s)", runnerProvider, key.ID, key.Last4)
+		if runKeyPlanAlt != nil && keyArg == "" {
+			progress("  Your Claude plan is also a choice: --key claude-plan")
+		}
 	}
 
 	return rec, key, nil

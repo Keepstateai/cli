@@ -1,0 +1,89 @@
+✗ Too many sign-in attempts
+│ Too many sign-ins were started in a
+│ short time.
+│ Wait a little, then try again.
+│ Nothing was sent or created.
+
+Next: ks login claude
+
+✗ You cannot sign in for this
+  organization
+│ Your role or seat there does not allow
+│ it.
+│ Nothing was sent or created.
+
+Next: ks organization list
+
+✗ The Claude plan sign-in did not finish
+│ Claude did not accept that code. Start
+│ again to get a new link, and paste the
+│ new code.
+│ No sign-in was saved and the sign-in
+│ machine is gone.
+│ Nothing was sent or created.
+
+Next: ks login claude
+
+✗ The Claude plan sign-in did not finish
+│ The sign-in machine did not start.
+│ No sign-in was saved and the sign-in
+│ machine is gone.
+│ Nothing was sent or created.
+
+Next: ks login claude
+
+✗ The Claude plan sign-in took too long
+  and ended
+│ The sign-in took too long and ended.
+│ No sign-in was saved and the sign-in
+│ machine is gone.
+│ Nothing was sent or created.
+
+Next: ks login claude
+
+✗ The Claude plan sign-in was cancelled
+│ The sign-in was cancelled.
+│ No sign-in was saved and the sign-in
+│ machine is gone.
+│ Nothing was sent or created.
+
+Next: ks login claude
+
+✗ Lost contact with KeepState
+│ The sign-in may still be running. It
+│ ends on its own, and nothing is saved
+│ unless it finishes.
+│ Nothing was sent or created.
+
+Next: ks login claude
+
+✗ The sign-in took too long
+│ It was cancelled. Nothing was saved.
+│ Nothing was sent or created.
+
+Next: ks login claude
+
+✗ No code was read
+│ Claude shows a code after you sign in
+│ at the link.
+│ Nothing was sent or created.
+
+Next: ks login claude
+
+✗ This terminal cannot hide the code
+│ Nothing was read, so the code was
+│ never shown. The sign-in was
+│ cancelled.
+│ Nothing was sent or created.
+
+Next:
+  ks login claude --machine --no-input
+
+✗ You have no Claude plan in this
+  organization
+│ Sign in under this organization first,
+│ then ask again.
+│ Nothing was sent or created.
+
+Next:
+  ks login claude --org <organization>

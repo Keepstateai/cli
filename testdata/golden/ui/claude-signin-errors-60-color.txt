@@ -1,0 +1,73 @@
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mToo many sign-in attempts<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m Too many sign-ins were started in a short time.
+<ESC>[38;2;255;107;128m│<ESC>[0m Wait a little, then try again.
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks login claude<ESC>[0m
+
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mYou cannot sign in for this organization<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m Your role or seat there does not allow it.
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks organization list<ESC>[0m
+
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mThe Claude plan sign-in did not finish<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m Claude did not accept that code. Start again to get a new
+<ESC>[38;2;255;107;128m│<ESC>[0m link, and paste the new code.
+<ESC>[38;2;255;107;128m│<ESC>[0m No sign-in was saved and the sign-in machine is gone.
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks login claude<ESC>[0m
+
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mThe Claude plan sign-in did not finish<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m The sign-in machine did not start.
+<ESC>[38;2;255;107;128m│<ESC>[0m No sign-in was saved and the sign-in machine is gone.
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks login claude<ESC>[0m
+
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mThe Claude plan sign-in took too long and ended<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m The sign-in took too long and ended.
+<ESC>[38;2;255;107;128m│<ESC>[0m No sign-in was saved and the sign-in machine is gone.
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks login claude<ESC>[0m
+
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mThe Claude plan sign-in was cancelled<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m The sign-in was cancelled.
+<ESC>[38;2;255;107;128m│<ESC>[0m No sign-in was saved and the sign-in machine is gone.
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks login claude<ESC>[0m
+
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mLost contact with KeepState<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m The sign-in may still be running. It ends on its own, and
+<ESC>[38;2;255;107;128m│<ESC>[0m nothing is saved unless it finishes.
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks login claude<ESC>[0m
+
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mThe sign-in took too long<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m It was cancelled. Nothing was saved.
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks login claude<ESC>[0m
+
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mNo code was read<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m Claude shows a code after you sign in at the link.
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks login claude<ESC>[0m
+
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mThis terminal cannot hide the code<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was read, so the code was never shown. The sign-in
+<ESC>[38;2;255;107;128m│<ESC>[0m was cancelled.
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks login claude --machine --no-input<ESC>[0m
+
+<ESC>[38;2;255;107;128m✗<ESC>[0m <ESC>[38;2;255;107;128mYou have no Claude plan in this organization<ESC>[0m
+<ESC>[38;2;255;107;128m│<ESC>[0m Sign in under this organization first, then ask again.
+<ESC>[38;2;255;107;128m│<ESC>[0m Nothing was sent or created.
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks login claude --org <organization><ESC>[0m

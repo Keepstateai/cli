@@ -10,20 +10,41 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
-// inPTYWithInput runs bin under script(1) at 80 columns, writes input to its
-// terminal after delay, and returns what the terminal received and the exit
-// code.
-func inPTYWithInput(t *testing.T, env []string, input string, delay time.Duration, bin string, args ...string) (string, int) {
+// ptyStep writes input to the terminal once the terminal has shown waitFor
+// (or at once when waitFor is empty), after delay.
+type ptyStep struct {
+	waitFor string
+	delay   time.Duration
+	input   string
+}
+
+type ptyOutBuf struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *ptyOutBuf) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+func (l *ptyOutBuf) String() string { l.mu.Lock(); defer l.mu.Unlock(); return l.b.String() }
+
+// inPTYSteps runs bin under script(1) at 80 columns, feeds the steps in order,
+// and returns what the terminal received and the exit code.
+func inPTYSteps(t *testing.T, env []string, steps []ptyStep, bin string, args ...string) (string, int) {
 	t.Helper()
 	if _, err := exec.LookPath("script"); err != nil {
 		t.Skip("script(1) is not installed: no PTY without a dependency")
@@ -46,14 +67,21 @@ func inPTYWithInput(t *testing.T, env []string, input string, delay time.Duratio
 	if err != nil {
 		t.Fatal(err)
 	}
-	var buf bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &buf, &buf
+	buf := &ptyOutBuf{}
+	cmd.Stdout, cmd.Stderr = buf, buf
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
 	go func() {
-		time.Sleep(delay)
-		_, _ = stdin.Write([]byte(input))
+		for _, st := range steps {
+			if st.waitFor != "" {
+				for end := time.Now().Add(40 * time.Second); !strings.Contains(buf.String(), st.waitFor) && time.Now().Before(end); {
+					time.Sleep(50 * time.Millisecond)
+				}
+			}
+			time.Sleep(st.delay)
+			_, _ = stdin.Write([]byte(st.input))
+		}
 	}()
 	werr := cmd.Wait()
 	code := 0
@@ -61,6 +89,12 @@ func inPTYWithInput(t *testing.T, env []string, input string, delay time.Duratio
 		code = ee.ExitCode()
 	}
 	return buf.String(), code
+}
+
+// inPTYWithInput is one write after one pause.
+func inPTYWithInput(t *testing.T, env []string, input string, delay time.Duration, bin string, args ...string) (string, int) {
+	t.Helper()
+	return inPTYSteps(t, env, []ptyStep{{delay: delay, input: input}}, bin, args...)
 }
 
 func ttyEnv(env []string, path string, extra ...string) []string {
@@ -121,9 +155,10 @@ func TestLoginClaudeRunsClaudeCodesSignInAndNeverShowsTheToken(t *testing.T) {
 	}
 }
 
-func TestLoginClaudeWithoutClaudeCodeAsksForAPasteThatShowsNothing(t *testing.T) {
+func TestLoginClaudeWhenTheMachineIsUnavailableAsksForAPasteThatShowsNothing(t *testing.T) {
 	tok := fixtureClaudeToken()
 	c := newPlanCtl()
+	c.signin = &signinScript{startFail: &planFail{503, "ks_fleet_unavailable", "no fleet"}}
 	bin, cfg, home, env := planEnv(t, c)
 	env = ttyEnv(env, "/usr/bin:/bin")
 	out, code := inPTYWithInput(t, env, tok+"\r", 2500*time.Millisecond, bin, "login", "claude")
@@ -133,7 +168,7 @@ func TestLoginClaudeWithoutClaudeCodeAsksForAPasteThatShowsNothing(t *testing.T)
 	if leaks(out, tok) || strings.Contains(out, "sk-ant-oat") {
 		t.Fatalf("the pasted token was shown:\n%q", out)
 	}
-	for _, want := range []string{"Claude Code is not installed on this computer.", "claude setup-token", "Nothing is shown as you paste", "Token:", "Signed in to your Claude plan"} {
+	for _, want := range []string{"could not start a sign-in machine just now", "claude setup-token", "Nothing is shown as you paste", "Token:", "Signed in to your Claude plan"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the terminal never showed %q:\n%s", want, out)
 		}
@@ -186,5 +221,169 @@ func TestLoginClaudeWhenTheTokenCannotBeReadSafelyAsksForAPasteInstead(t *testin
 	posts := c.posts("/api/v2/keys")
 	if len(posts) != 1 || strings.Count(posts[0], tok) != 1 {
 		t.Errorf("%d requests; the one that stored a token must carry the pasted one once", len(posts))
+	}
+}
+
+// ---- the sign-in machine on a terminal -------------------------------------------
+
+func ttyPlanEnv(t *testing.T, c *planCtl) (string, string, string, []string) {
+	bin, cfg, home, env := planEnv(t, c)
+	// no Claude Code on PATH: the machine is the way
+	return bin, cfg, home, ttyEnv(env, "/usr/bin:/bin")
+}
+
+func TestMachineCodePromptShowsNothingAndLeavesNothing(t *testing.T) {
+	c := newPlanCtl()
+	c.signin = goodSignin()
+	bin, cfg, home, env := ttyPlanEnv(t, c)
+	out, code := inPTYSteps(t, env, []ptyStep{
+		{waitFor: "Open it in your browser?", delay: 200 * time.Millisecond, input: "n\r"},
+		{waitFor: "Code (nothing is shown", delay: 300 * time.Millisecond, input: machineCode + "\r"},
+	}, bin, "login", "claude")
+	if code != 0 {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
+	if strings.Contains(out, machineCode) {
+		t.Fatalf("the code was shown on the terminal:\n%q", out)
+	}
+	for _, want := range []string{signinTestLink, "Code (nothing is shown as you paste)", "Signed in to your Claude plan", "…9999"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the terminal never showed %q:\n%s", want, out)
+		}
+	}
+	if _, codes, _ := c.signinState(); len(codes) != 1 || codes[0] != machineCode {
+		t.Errorf("the service received %v", codes)
+	}
+	for _, dir := range []string{home, cfg} {
+		if hits := treeHoldsText(t, dir, machineCode); len(hits) > 0 {
+			t.Errorf("the code was written to a file: %v", hits)
+		}
+	}
+}
+
+func TestMachineCtrlCCancelsTheMachineAtEveryStage(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		views   []map[string]any
+		waitFor string
+	}{
+		{"while the machine starts", []map[string]any{sview("starting", 1, nil)}, "Starting a private sign-in machine"},
+		{"at the link", []map[string]any{sview("link_ready", 2, map[string]any{"url": signinTestLink})}, "Open it in your browser?"},
+		{"at the code prompt", []map[string]any{sview("link_ready", 2, map[string]any{"url": signinTestLink})}, "Code (nothing is shown"},
+	} {
+		c := newPlanCtl()
+		c.signin = &signinScript{views: tc.views}
+		bin, _, _, env := ttyPlanEnv(t, c)
+		steps := []ptyStep{}
+		if tc.waitFor == "Code (nothing is shown" {
+			steps = append(steps, ptyStep{waitFor: "Open it in your browser?", delay: 200 * time.Millisecond, input: "n\r"})
+		}
+		steps = append(steps, ptyStep{waitFor: tc.waitFor, delay: 300 * time.Millisecond, input: "\x03"})
+		out, code := inPTYSteps(t, env, steps, bin, "login", "claude")
+		if code != 130 || !strings.Contains(out, "Cancelled. The sign-in machine is gone and nothing was saved.") || !c.signinWas() {
+			t.Errorf("%s: exit %d, cancelled on the service: %v\n%s", tc.name, code, c.signinWas(), out)
+		}
+	}
+}
+
+func TestMachineRefusedCodeOffersToStartAgain(t *testing.T) {
+	refused := sview("failed", 4, map[string]any{"error": map[string]any{"code": "ks_signin_code_refused", "words": "Claude did not accept that code. Start again to get a new link, and paste the new code.", "next": "ks login claude"}})
+	c := newPlanCtl()
+	c.signin = &signinScript{views: []map[string]any{sview("link_ready", 2, map[string]any{"url": signinTestLink}), sview("checking", 4, nil), refused}}
+	bin, _, _, env := ttyPlanEnv(t, c)
+	out, code := inPTYSteps(t, env, []ptyStep{
+		{waitFor: "Open it in your browser?", delay: 200 * time.Millisecond, input: "n\r"},
+		{waitFor: "Code (nothing is shown", delay: 300 * time.Millisecond, input: machineCode + "\r"},
+		{waitFor: "Start again with a new link?", delay: 200 * time.Millisecond, input: "n\r"},
+	}, bin, "login", "claude")
+	if code != exitFailed || !strings.Contains(out, "did not accept that code") || !strings.Contains(out, "Next: ks login claude") || strings.Contains(out, machineCode) {
+		t.Errorf("exit %d\n%s", code, out)
+	}
+	if starts, _, _ := c.signinState(); starts != 1 {
+		t.Errorf("a second sign-in was started although the answer was no (%d starts)", starts)
+	}
+}
+
+func TestMachineRefusedCodeStartsAgainWhenAsked(t *testing.T) {
+	refused := sview("failed", 4, map[string]any{"error": map[string]any{"code": "ks_signin_code_refused", "words": "Claude did not accept that code.", "next": "ks login claude"}})
+	c := newPlanCtl()
+	c.signin = &signinScript{views: []map[string]any{sview("link_ready", 2, map[string]any{"url": signinTestLink}), sview("checking", 4, nil), refused}}
+	bin, _, _, env := ttyPlanEnv(t, c)
+	out, _ := inPTYSteps(t, env, []ptyStep{
+		{waitFor: "Open it in your browser?", delay: 200 * time.Millisecond, input: "n\r"},
+		{waitFor: "Code (nothing is shown", delay: 300 * time.Millisecond, input: machineCode + "\r"},
+		{waitFor: "Start again with a new link?", delay: 200 * time.Millisecond, input: "y\r"},
+		{waitFor: "Open it in your browser?", delay: 200 * time.Millisecond, input: "\x03"},
+	}, bin, "login", "claude")
+	starts, _, _ := c.signinState()
+	if starts != 2 {
+		t.Errorf("starts = %d, want a second sign-in after yes\n%s", starts, out)
+	}
+}
+
+func TestLoginClaudeOrgPlanKeysAndRemove(t *testing.T) {
+	c := newPlanCtl()
+	c.orgRows = []map[string]any{
+		{"member_id": "mem_you", "who": map[string]any{"name": "Ada Lovelace", "email": "ada@example.com"}, "last4": "9999", "state": "ok", "expires_at": "2027-11-22T10:00:00Z", "since": "2026-11-22T10:00:00Z", "you": true},
+		{"member_id": "mem_two", "who": map[string]any{"name": "Grace Hopper", "email": "grace@example.com"}, "last4": "1234", "state": "expiring", "expires_at": "2026-12-03T10:00:00Z", "since": "2026-11-01T10:00:00Z"},
+	}
+	bin, _, _, env := planEnv(t, c)
+	out, errs, code := runPlan(t, bin, env, "", "organization", "plan-keys", "--org", "org_acme")
+	if code != 0 {
+		t.Fatalf("exit %d\n%s%s", code, out, errs)
+	}
+	for _, want := range []string{"MEMBER", "Ada Lovelace (you)", "…9999", "working", "Grace Hopper", "…1234", "ends soon", "3 Dec 2026"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the list does not say %q:\n%s", want, out)
+		}
+	}
+	// removal names the member, asks, and ends only that permission
+	_, errs, code = runPlan(t, bin, env, "", "organization", "plan-keys", "remove", "grace@example.com", "--org", "org_acme", "--no-input")
+	if code != exitUsage || !strings.Contains(errs, "--yes") || len(c.removed) != 0 {
+		t.Fatalf("a removal went ahead without a yes: exit %d removed %v\n%s", code, c.removed, errs)
+	}
+	out, errs, code = runPlan(t, bin, env, "", "organization", "plan-keys", "remove", "grace@example.com", "--org", "org_acme", "--yes")
+	if code != 0 || len(c.removed) != 1 || c.removed[0] != "/api/v2/orgs/org_acme/plan-keys/mem_two" {
+		t.Fatalf("exit %d removed %v\n%s%s", code, c.removed, out, errs)
+	}
+	if !strings.Contains(out, "Ended Grace Hopper's Claude plan") {
+		t.Errorf("the card does not say what ended:\n%s", out)
+	}
+	_, errs, code = runPlan(t, bin, env, "", "organization", "plan-keys", "remove", "nobody", "--org", "org_acme", "--yes")
+	if code != exitUsage || !strings.Contains(errs, "no member with a Claude plan") {
+		t.Errorf("an unknown member: exit %d\n%s", code, errs)
+	}
+}
+
+func TestRunOnAMembersPlanInAnOrganization(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		rows []map[string]any
+		ok   bool
+		says string
+	}{
+		{"the member put a plan there", []map[string]any{{"member_id": "mem_you", "last4": "9999", "state": "ok", "expires_at": "2027-11-22T10:00:00Z", "you": true}}, true, ""},
+		{"only someone else did", []map[string]any{{"member_id": "mem_two", "last4": "1234", "state": "ok", "expires_at": "2027-11-22T10:00:00Z"}}, false, "no claude plan in this organization"},
+		{"no plan at all", nil, false, "ks login claude --org"},
+	} {
+		c := planRunCtl()
+		c.orgRows = tc.rows
+		bin, cfg, _, env := planEnv(t, c)
+		ctx, _ := json.Marshal(map[string]string{c.url: "org_acme"})
+		if err := os.WriteFile(filepath.Join(cfg, "keepstate", "context.json"), ctx, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		out, errs, code := runPlan(t, bin, env, "", "run", "--agent", "--key", "claude-plan")
+		if tc.ok {
+			var body map[string]any
+			posts := c.posts("/api/v2/sessions")
+			if code != 0 || len(posts) != 1 || json.Unmarshal([]byte(posts[0]), &body) != nil || body["claude_plan"] != true || body["org_id"] != "org_acme" {
+				t.Errorf("%s: exit %d body %v\n%s%s", tc.name, code, posts, out, errs)
+			}
+			continue
+		}
+		if code == 0 || !strings.Contains(strings.ToLower(errs), tc.says) || c.asked("POST /api/v2/sessions") {
+			t.Errorf("%s: exit %d\n%s", tc.name, code, errs)
+		}
 	}
 }

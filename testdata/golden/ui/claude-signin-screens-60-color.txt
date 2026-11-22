@@ -1,0 +1,53 @@
+<ESC>[1mSign in to your Claude plan<ESC>[0m
+  <ESC>[38;2;138;138;138mKeepState starts a private machine that runs Claude Code's<ESC>[0m
+  <ESC>[38;2;138;138;138mown sign-in for you. You open a link, sign in to Claude,<ESC>[0m
+  <ESC>[38;2;138;138;138mand paste the code it shows. The machine is destroyed<ESC>[0m
+  <ESC>[38;2;138;138;138mafterwards, and the token is never shown to you or kept<ESC>[0m
+  <ESC>[38;2;138;138;138mhere.<ESC>[0m
+
+  <ESC>[38;2;138;138;138mStarting a private sign-in machine and asking Claude for a<ESC>[0m
+  <ESC>[38;2;138;138;138msign-in link. This takes about a minute.<ESC>[0m
+  <ESC>[38;2;138;138;138m•<ESC>[0m Start a private sign-in machine...
+  <ESC>[38;2;138;138;138mThis is taking longer than usual. It is still working, and<ESC>[0m
+  <ESC>[38;2;138;138;138mCtrl-C cancels it and cleans up.<ESC>[0m
+  <ESC>[38;2;78;186;101m✓<ESC>[0m Start a private sign-in machine                    <ESC>[38;2;138;138;138m1m15s<ESC>[0m
+<ESC>[1mSign in at Claude<ESC>[0m
+  <ESC>[38;2;138;138;138mOpen this link and sign in to the Claude account whose<ESC>[0m
+  <ESC>[38;2;138;138;138mplan you want to use. Claude then shows a code to paste<ESC>[0m
+  <ESC>[38;2;138;138;138mhere.<ESC>[0m
+
+https://claude.com/cai/oauth/authorize?code=true&client_id=test&state=abc123
+
+  <ESC>[38;2;78;186;101m✓<ESC>[0m Sign in at Claude
+  <ESC>[38;2;78;186;101m✓<ESC>[0m Paste the code it shows
+  <ESC>[38;2;138;138;138mChecking your code with Claude.<ESC>[0m
+  <ESC>[38;2;138;138;138m•<ESC>[0m Save your sign-in...
+  <ESC>[38;2;78;186;101m✓<ESC>[0m Save your sign-in                                   <ESC>[38;2;138;138;138m4.0s<ESC>[0m
+
+<ESC>[38;2;78;186;101m✓<ESC>[0m <ESC>[1mSigned in to your Claude plan<ESC>[0m
+  <ESC>[38;2;138;138;138mToken<ESC>[0m    ends …9999; it is never shown again
+  <ESC>[38;2;138;138;138mEnds<ESC>[0m     22 Nov 2027
+  <ESC>[38;2;138;138;138mUsed by<ESC>[0m  your Claude Code agents in org_acme, instead of
+           an API key; no KeepState charge
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks run --agent --key claude-plan<ESC>[0m
+
+<ESC>[38;2;229;181;103m!<ESC>[0m <ESC>[1mClaude did not accept that code<ESC>[0m
+  The code only works once and for a short time. Start again
+  to get a new link.
+
+<ESC>[1mClaude plans in org_acme<ESC>[0m  <ESC>[38;2;138;138;138m3<ESC>[0m
+  <ESC>[38;2;138;138;138mMEMBER            <ESC>[0m  <ESC>[38;2;138;138;138mLAST4<ESC>[0m  <ESC>[38;2;138;138;138mSTANDING       <ESC>[0m  <ESC>[38;2;138;138;138mENDS<ESC>[0m
+  Ada Lovelace (you)  …9999  working          22 Nov 2027
+  Grace Hopper        …1234  ends soon        3 Dec 2026
+  mem_three           …5678  no longer works  5 Jan 2027
+
+<ESC>[1mClaude plans in org_acme<ESC>[0m  <ESC>[38;2;138;138;138m0<ESC>[0m
+  <ESC>[38;2;138;138;138mNo member has put a Claude plan in this organization yet.<ESC>[0m
+
+<ESC>[38;2;138;138;138mNext:<ESC>[0m <ESC>[38;2;215;95;120mks login claude --org org_acme<ESC>[0m
+
+<ESC>[38;2;78;186;101m✓<ESC>[0m <ESC>[1mEnded Grace Hopper's Claude plan in this organization<ESC>[0m
+  <ESC>[38;2;138;138;138mStill there<ESC>[0m  the person's own sign-in, and their personal
+               sessions that use it
+  <ESC>[38;2;138;138;138mEnded<ESC>[0m        its use by agents in this organization
