@@ -95,7 +95,7 @@ func TestMaskerFollowsATokenTheTerminalWrapped(t *testing.T) {
 	}
 }
 
-func TestMaskerHidesACutTokenEvenWhenItsCaptureIsShort(t *testing.T) {
+func TestMaskerHidesACutTokenAndKeepsNone(t *testing.T) {
 	// a break inside the token on a line that is not full: the capture stops
 	// at the break, and the rest is hidden all the same
 	tok := fixtureClaudeToken()
@@ -104,8 +104,8 @@ func TestMaskerHidesACutTokenEvenWhenItsCaptureIsShort(t *testing.T) {
 	if leaks(shown, tok) {
 		t.Errorf("a piece of the token reached the screen: %q", shown)
 	}
-	if got != tok[:50] {
-		t.Errorf("captured %d bytes", len(got))
+	if got != "" {
+		t.Errorf("a token cut by a break this filter could not read as a wrap was kept (%d bytes); a cut token is never kept", len(got))
 	}
 	if !strings.Contains(shown, "done") {
 		t.Errorf("text after the blank line was lost: %q", shown)
@@ -210,5 +210,13 @@ func TestMaskerRefusesAShortTokenShape(t *testing.T) {
 	}
 	if strings.Contains(shown, "abc") {
 		t.Errorf("a short token was shown: %q", shown)
+	}
+}
+
+func TestMaskerKeepsATokenWhoseNextLineStartsWithAShortWord(t *testing.T) {
+	tok := fixtureClaudeToken()
+	shown, got := maskAll(300, tok+"\r\nStore this token securely.\r\n")
+	if got != tok || leaks(shown, tok) {
+		t.Errorf("a short word after the token made the capture suspect: ok=%v shown %q", got == tok, shown)
 	}
 }

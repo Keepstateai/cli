@@ -126,8 +126,38 @@ func captureSetupToken(bin string, in io.Reader, userTTY *os.File, display io.Wr
 	}()
 
 	// the person's keystrokes go to the child; this goroutine ends with the
-	// process when the child is done, which is the end of this command
-	go func() { _, _ = io.Copy(master, in) }()
+	// process when the child is done, which is the end of this command. Three
+	// Ctrl-C in two seconds stop a child that ignores the first.
+	interrupted := make(chan struct{}, 1)
+	go func() {
+		buf := make([]byte, 1024)
+		var presses []time.Time
+		for {
+			n, rerr := in.Read(buf)
+			if n > 0 {
+				for _, b := range buf[:n] {
+					if b != 0x03 {
+						continue
+					}
+					now := time.Now()
+					presses = append(presses, now)
+					for len(presses) > 0 && now.Sub(presses[0]) > 2*time.Second {
+						presses = presses[1:]
+					}
+					if len(presses) >= 3 {
+						select {
+						case interrupted <- struct{}{}:
+						default:
+						}
+					}
+				}
+				_, _ = master.Write(buf[:n])
+			}
+			if rerr != nil {
+				return
+			}
+		}
+	}()
 
 	m := newTokenMasker(cols)
 	chunks := make(chan []byte, 16)
@@ -172,6 +202,14 @@ loop:
 			drain = time.After(400 * time.Millisecond)
 		case <-drain:
 			break loop
+		case <-interrupted:
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			if !exited {
+				<-waitCh
+			}
+			_, _ = display.Write(m.Flush())
+			m.Wipe()
+			return res, errSetupInterrupted
 		case <-deadline:
 			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 			if !exited {

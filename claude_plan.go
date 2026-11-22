@@ -182,7 +182,7 @@ func claudePlanPersonalErr() *cliError {
 func claudePlanTokenInvalidErr() *cliError {
 	return &cliError{Code: exitUsage, Kind: "claude_plan_token_invalid", WorkStarted: workNo,
 		Title:      "That is not a Claude plan token",
-		Why:        []string{"A token made by claude setup-token starts with sk-ant-oat.", "Nothing was stored."},
+		Why:        []string{"A token made by claude setup-token starts with sk-ant-oat."},
 		Message:    "that is not a Claude plan token; one made by claude setup-token starts with sk-ant-oat. Nothing was stored",
 		NextAction: "ks login claude"}
 }
@@ -198,7 +198,7 @@ func claudePlanUnavailableErr() *cliError {
 func claudePlanNoneErr() *cliError {
 	return &cliError{Code: exitConflict, Kind: "claude_plan_none", WorkStarted: workNo,
 		Title:      "You are not signed in to a Claude plan",
-		Why:        []string{"There is no usable Claude plan sign-in on your account.", "Nothing was created."},
+		Why:        []string{"There is no usable Claude plan sign-in on your account."},
 		Message:    "you have no usable Claude plan sign-in on your account. Nothing was created",
 		NextAction: "ks login claude"}
 }
@@ -206,7 +206,7 @@ func claudePlanNoneErr() *cliError {
 func claudePlanRunnerErr(what string) *cliError {
 	return &cliError{Code: exitUsage, Kind: "claude_plan_runner", WorkStarted: workNo,
 		Title:      "A Claude plan runs Claude Code only",
-		Why:        []string{what, "Nothing was created."},
+		Why:        []string{capFirst(strings.TrimSuffix(what, ".")) + "."},
 		Message:    "a Claude plan runs Claude Code with a Claude model only; " + what + ". Nothing was created",
 		NextAction: "ks run --agent --key own"}
 }
@@ -214,7 +214,7 @@ func claudePlanRunnerErr(what string) *cliError {
 func claudePlanNotFinishedErr() *cliError {
 	return &cliError{Code: exitFailed, Kind: "claude_plan_not_finished", WorkStarted: workNo,
 		Title:      "The Claude Code sign-in did not finish",
-		Why:        []string{"Claude Code ended before it made a token.", "Nothing was stored."},
+		Why:        []string{"Claude Code ended before it made a token."},
 		Message:    "the Claude Code sign-in did not finish: Claude Code ended before it made a token. Nothing was stored",
 		NextAction: "ks login claude"}
 }
@@ -222,15 +222,23 @@ func claudePlanNotFinishedErr() *cliError {
 func claudePlanUnreadErr() *cliError {
 	return &cliError{Code: exitFailed, Kind: "claude_plan_unread", WorkStarted: workNo,
 		Title:      "Claude Code made a token this client could not read",
-		Why:        []string{"It was hidden from the screen and not kept.", "Nothing was stored. Make a new one."},
+		Why:        []string{"It was hidden from the screen and not kept.", "Make a new one."},
 		Message:    "Claude Code made a token this client could not read; it was hidden and not kept. Nothing was stored",
+		NextAction: "ks login claude"}
+}
+
+func claudePlanStoppedErr() *cliError {
+	return &cliError{Code: exitInterrupt, Kind: "claude_plan_stopped", WorkStarted: workNo,
+		Title:      "The Claude Code sign-in was stopped",
+		Why:        []string{"You pressed Ctrl-C."},
+		Message:    "the Claude Code sign-in was stopped. Nothing was stored",
 		NextAction: "ks login claude"}
 }
 
 func claudePlanTimedOutErr() *cliError {
 	return &cliError{Code: exitTemporary, Kind: "claude_plan_timed_out", WorkStarted: workNo,
 		Title:      "The Claude Code sign-in took too long",
-		Why:        []string{"It was stopped after 20 minutes.", "Nothing was stored."},
+		Why:        []string{"It was stopped after 20 minutes."},
 		Message:    "the Claude Code sign-in took too long and was stopped. Nothing was stored",
 		NextAction: "ks login claude"}
 }
@@ -356,9 +364,7 @@ func readClaudePlanToken(ue *ui, quiet bool) ([]byte, error) {
 		display = os.Stderr // standard output stays the answer
 	}
 	if !quiet {
-		ue.Title("", toneNeutral, "Sign in to your Claude plan")
-		ue.Note("Claude Code's own sign-in runs below. Approve it in your browser and, if it asks, paste the code it shows. The token it makes is hidden here and kept by KeepState; nobody sees it, you included.")
-		ue.Blank()
+		renderClaudePlanIntro(ue)
 	}
 	rows := 50
 	res, err := claudeCapture(bin, os.Stdin, os.Stdin, display, termColumns(), rows, claudePlanLimit)
@@ -371,6 +377,8 @@ func readClaudePlanToken(ue *ui, quiet bool) ([]byte, error) {
 	switch {
 	case errors.Is(err, errSetupTimedOut):
 		return nil, claudePlanTimedOutErr()
+	case errors.Is(err, errSetupInterrupted):
+		return nil, claudePlanStoppedErr()
 	case err != nil:
 		return nil, claudePlanNotFinishedErr()
 	case res.Token != nil:
@@ -388,11 +396,25 @@ func readClaudePlanToken(ue *ui, quiet bool) ([]byte, error) {
 // pasteWithReason says why the person is asked to paste, and asks.
 func pasteWithReason(ue *ui, why string) ([]byte, error) {
 	if !out.quiet && !out.json {
-		ue.Title("", toneNeutral, "Sign in to your Claude plan")
-		ue.Note(why + " On a computer that has Claude Code, run claude setup-token, sign in there, and paste the token it prints here. Nothing is shown as you paste.")
-		ue.Blank()
+		renderClaudePlanPasteIntro(ue, why)
 	}
 	return readPastedToken(ue, true)
+}
+
+// renderClaudePlanIntro is what the person reads before Claude Code's own
+// sign-in takes the screen.
+func renderClaudePlanIntro(u *ui) {
+	u.Title("", toneNeutral, "Sign in to your Claude plan")
+	u.Note("Claude Code's own sign-in runs below. Approve it in your browser and, if it asks, paste the code it shows. The token it makes is hidden here and kept by KeepState; nobody sees it, you included.")
+	u.Blank()
+}
+
+// renderClaudePlanPasteIntro is what the person reads when they are asked to
+// paste a token instead.
+func renderClaudePlanPasteIntro(u *ui, why string) {
+	u.Title("", toneNeutral, "Sign in to your Claude plan")
+	u.Note(why + " On a computer that has Claude Code, run claude setup-token, sign in there, and paste the token it prints here. Nothing is shown as you paste.")
+	u.Blank()
 }
 
 // readPastedToken reads one line that holds a token, with echo off at a
@@ -504,7 +526,7 @@ func claudePlanUnusableErr(k customerKey) *cliError {
 	}
 	return &cliError{Code: exitConflict, Kind: "claude_plan_unusable", WorkStarted: workNo,
 		Title:      "Your Claude plan sign-in cannot be used",
-		Why:        []string{why, "Nothing was created."},
+		Why:        []string{why},
 		Message:    "your Claude plan sign-in cannot be used: " + strings.TrimSuffix(why, ".") + ". Nothing was created",
 		NextAction: "ks login claude"}
 }

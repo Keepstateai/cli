@@ -13,6 +13,9 @@ import (
 // errSetupTimedOut says the browser step took longer than claudePlanLimit.
 var errSetupTimedOut = errors.New("claude setup-token did not finish in time")
 
+// errSetupInterrupted says the person stopped the sign-in with Ctrl-C.
+var errSetupInterrupted = errors.New("the sign-in was stopped")
+
 // errNoPTY says no pseudo-terminal could be made, so nothing was run.
 var errNoPTY = errors.New("no pseudo-terminal could be made")
 

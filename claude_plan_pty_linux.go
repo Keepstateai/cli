@@ -16,19 +16,19 @@ func ptyPair() (master, slave *os.File, err error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	var n int
+	var n uint32
 	if err := ioctlOn(m, func(fd int) error {
 		if err := unix.IoctlSetPointerInt(fd, unix.TIOCSPTLCK, 0); err != nil {
 			return err
 		}
 		var gerr error
-		n, gerr = unix.IoctlGetInt(fd, unix.TIOCGPTN)
+		n, gerr = unix.IoctlGetUint32(fd, unix.TIOCGPTN)
 		return gerr
 	}); err != nil {
 		m.Close()
 		return nil, nil, err
 	}
-	s, err := os.OpenFile("/dev/pts/"+strconv.Itoa(n), os.O_RDWR|unix.O_NOCTTY, 0)
+	s, err := os.OpenFile("/dev/pts/"+strconv.FormatUint(uint64(n), 10), os.O_RDWR|unix.O_NOCTTY, 0)
 	if err != nil {
 		m.Close()
 		return nil, nil, err

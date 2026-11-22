@@ -25,6 +25,10 @@ const (
 	claudePlanTokenPrefix = "sk-ant-oat"
 	// claudePlanTokenMaxLen caps how many characters one masked run can take.
 	claudePlanTokenMaxLen = 200
+	// claudePlanTailSuspect: this many token characters hidden after a break
+	// that ended the capture make the capture suspect. A word of the text
+	// after the token is shorter.
+	claudePlanTailSuspect = 12
 	// claudePlanMask is what the person sees where the token was.
 	claudePlanMask = "[token hidden]"
 )
@@ -60,6 +64,7 @@ type tokenMasker struct {
 	col     int       // visible columns on the current line
 	pending []byte    // line breaks seen while hiding, shown if the token ended
 	decided bool      // the current break has been judged
+	tail    int       // token characters hidden after the capture ended
 	breaks  int       // consecutive line breaks while hiding
 	escBuf  []byte    // the escape sequence being passed through
 }
@@ -100,6 +105,12 @@ func (m *tokenMasker) Token() []byte {
 	if !claudePlanTokenRE.Match(m.tok) {
 		return nil
 	}
+	if m.tail >= claudePlanTailSuspect {
+		// the capture stopped at a break and a long run of token characters
+		// followed it: the token was probably cut by a wrap this filter could
+		// not tell from the end of the token. A cut token is never kept.
+		return nil
+	}
 	return append([]byte(nil), m.tok...)
 }
 
@@ -137,6 +148,7 @@ func (m *tokenMasker) startRun(out []byte) []byte {
 	m.breaks = 0
 	m.col += len(claudePlanTokenPrefix) // the prefix was held, not counted
 	if !m.done {
+		m.tail = 0
 		m.tok = append(m.tok[:0], claudePlanTokenPrefix...)
 	}
 	return append(out, claudePlanMask...)
@@ -270,6 +282,8 @@ func (m *tokenMasker) hiding(out []byte, b byte) []byte {
 		m.pending = m.pending[:0]
 		if m.phase == maskToken && !m.done {
 			m.tok = append(m.tok, b)
+		} else if m.phase == maskTail && !m.done {
+			m.tail++
 		}
 		if m.runLen >= claudePlanTokenMaxLen {
 			return m.endRun(out)

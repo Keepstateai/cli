@@ -367,8 +367,12 @@ func createAgentRecord(cr hostedCreds, name, agentName, keyArg string, model, ef
 		if choice.answered {
 			next += " --key " + map[bool]string{true: keepstateKeyArg, false: ownKeyArg}[choice.managed]
 		}
+		hint := ""
+		if planWorthTrying(org, keyArg, choice, runnerProvider) && hasKeyBlocker(pf.Data["checks"]) && claudePlanListed(cr) {
+			hint = " (or sign in with your Claude plan: ks login claude)"
+		}
 		return none, customerKey{}, &cliError{Code: exitConflict, Kind: "preflight_blocked",
-			Message:    "preflight found blockers, so nothing was created: " + strings.Join(lines, "; "),
+			Message:    "preflight found blockers, so nothing was created: " + strings.Join(lines, "; ") + hint,
 			NextAction: next}
 	}
 	var key customerKey
