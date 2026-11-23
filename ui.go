@@ -399,6 +399,17 @@ func errorWords(ce *cliError) (string, []string) {
 	return title, why
 }
 
+// saysNothingHappened: the reasons already say that nothing was sent or
+// created, so the block does not say it a second time.
+func saysNothingHappened(why []string) bool {
+	for _, w := range why {
+		if strings.Contains(w, "Nothing was sent") || strings.Contains(w, "Nothing was created") || strings.Contains(w, "Nothing was done") {
+			return true
+		}
+	}
+	return false
+}
+
 // renderError draws a failure for a person at a terminal. fail() calls it
 // when stderr is a terminal with colour on; every other stream gets the
 // contract lines (error:, operation:, Remote work started:, Next:), byte for
@@ -416,7 +427,7 @@ func renderError(u *ui, ce *cliError) {
 		why = append(why, "It is not known whether the work started.")
 		warn = append(warn, "Don't run the same command again blindly.")
 	default:
-		if ce.Kind != "usage" {
+		if ce.Kind != "usage" && !saysNothingHappened(why) {
 			why = append(why, "Nothing was sent or created.")
 		}
 	}
@@ -678,7 +689,12 @@ func (b *bar) redraw() {
 }
 
 // Done replaces the bar by one step line that stays in the scrollback.
-func (b *bar) Done(doneLabel string) {
+func (b *bar) Done(doneLabel string) { b.DoneWith(doneLabel, kitBytes(b.total)) }
+
+// DoneWith is Done with the words for the right-hand column in place of the
+// bar's own size, for a step whose result is not its input ("537 MB down to
+// 2.4 MB"). The time follows.
+func (b *bar) DoneWith(doneLabel, detail string) {
 	dur := b.u.now().Sub(b.start)
 	if b.drawn {
 		b.u.mu.Lock()
@@ -690,7 +706,7 @@ func (b *bar) Done(doneLabel string) {
 		b.u.mu.Unlock()
 	}
 	b.drawn = false
-	b.u.lines(b.u.stepLine(iconDone, doneLabel, kitBytes(b.total)+" in "+kitDuration(dur), 0, false))
+	b.u.lines(b.u.stepLine(iconDone, doneLabel, detail+" in "+kitDuration(dur), 0, false))
 }
 
 // kitBytes is a size as people say it: 137 MB, 3.1 MB, 61.2 MB.

@@ -4204,7 +4204,7 @@
   {
    "verb": "import claude-code",
    "aliases": [],
-   "usage": "ks import claude-code [--latest] [--session ID] [--project DIR] [--no-files] [--with-files] [--name NAME] [--model MODEL] [--key KEY] [--budget DOLLARS] [--harness H] [--brief] [--plan] [--execute DIGEST] [--out FILE]",
+   "usage": "ks import claude-code [--latest] [--session ID] [--project DIR] [--no-files] [--with-files] [--with-git] [--without-git] [--name NAME] [--model MODEL] [--key KEY] [--budget DOLLARS] [--harness H] [--brief] [--plan] [--execute DIGEST] [--out FILE]",
    "summary": "a Claude Code session on this machine as a new agent session that continues the same conversation (or, with --brief, a written summary of it)",
    "status": "available",
    "surface": "hosted",
@@ -4227,7 +4227,15 @@
     },
     {
      "flag": "--with-files",
-     "summary": "bring the project's git repository at the session's folder (its files and history) into the new session's workspace, under the upload policy: .env files, credential-named files, node_modules and what .gitignore lists are left out"
+     "summary": "bring the project's git repository at the session's folder into the new session's workspace, under the upload policy: .env files, credential-named files, node_modules and what .gitignore lists are left out. The history (.git) goes too when the whole fits in 1 GB; a terminal is asked which, and without one the part that fits goes"
+    },
+    {
+     "flag": "--with-git",
+     "summary": "bring the project's files and their history (.git); implies --with-files. Refused, with the flag that works, when it is over 1 GB"
+    },
+    {
+     "flag": "--without-git",
+     "summary": "bring the project's files only, without the history (.git); implies --with-files"
     },
     {
      "flag": "--name NAME",
@@ -4270,7 +4278,7 @@
   {
    "verb": "import codex",
    "aliases": [],
-   "usage": "ks import codex [--latest] [--session ID] [--project DIR] [--no-files] [--with-files] [--name NAME] [--model MODEL] [--key KEY] [--budget DOLLARS] [--harness H] [--brief] [--plan] [--execute DIGEST] [--out FILE]",
+   "usage": "ks import codex [--latest] [--session ID] [--project DIR] [--no-files] [--with-files] [--with-git] [--without-git] [--name NAME] [--model MODEL] [--key KEY] [--budget DOLLARS] [--harness H] [--brief] [--plan] [--execute DIGEST] [--out FILE]",
    "summary": "a Codex CLI session on this machine as a new agent session that continues the same conversation (or, with --brief, a written summary of it)",
    "status": "available",
    "surface": "hosted",
@@ -4293,7 +4301,15 @@
     },
     {
      "flag": "--with-files",
-     "summary": "bring the project's git repository at the session's folder (its files and history) into the new session's workspace, under the upload policy: .env files, credential-named files, node_modules and what .gitignore lists are left out"
+     "summary": "bring the project's git repository at the session's folder into the new session's workspace, under the upload policy: .env files, credential-named files, node_modules and what .gitignore lists are left out. The history (.git) goes too when the whole fits in 1 GB; a terminal is asked which, and without one the part that fits goes"
+    },
+    {
+     "flag": "--with-git",
+     "summary": "bring the project's files and their history (.git); implies --with-files. Refused, with the flag that works, when it is over 1 GB"
+    },
+    {
+     "flag": "--without-git",
+     "summary": "bring the project's files only, without the history (.git); implies --with-files"
     },
     {
      "flag": "--name NAME",
@@ -4336,7 +4352,7 @@
   {
    "verb": "import cursor",
    "aliases": [],
-   "usage": "ks import cursor [--latest] [--chat ID] [--store FILE] [--project DIR] [--no-files] [--with-files] [--name NAME] [--model MODEL] [--key KEY] [--budget DOLLARS] [--harness H] [--brief] [--plan] [--execute DIGEST] [--out FILE]",
+   "usage": "ks import cursor [--latest] [--chat ID] [--store FILE] [--project DIR] [--no-files] [--with-files] [--with-git] [--without-git] [--name NAME] [--model MODEL] [--key KEY] [--budget DOLLARS] [--harness H] [--brief] [--plan] [--execute DIGEST] [--out FILE]",
    "summary": "a Cursor chat as a written summary for a new agent session (best effort: Cursor's chat store is not documented)",
    "status": "available",
    "surface": "hosted",
@@ -4363,7 +4379,15 @@
     },
     {
      "flag": "--with-files",
-     "summary": "bring the project's git repository at the session's folder (its files and history) into the new session's workspace, under the upload policy: .env files, credential-named files, node_modules and what .gitignore lists are left out"
+     "summary": "bring the project's git repository at the session's folder into the new session's workspace, under the upload policy: .env files, credential-named files, node_modules and what .gitignore lists are left out. The history (.git) goes too when the whole fits in 1 GB; a terminal is asked which, and without one the part that fits goes"
+    },
+    {
+     "flag": "--with-git",
+     "summary": "bring the project's files and their history (.git); implies --with-files. Refused, with the flag that works, when it is over 1 GB"
+    },
+    {
+     "flag": "--without-git",
+     "summary": "bring the project's files only, without the history (.git); implies --with-files"
     },
     {
      "flag": "--name NAME",

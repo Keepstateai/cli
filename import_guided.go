@@ -127,60 +127,138 @@ func igReadKey(r *igRaw) (igKey, byte) {
 	return igOther, b[0]
 }
 
+// igItem is one choice. An Off item is shown, dim and without a number key
+// that works, so a person sees that it exists and why it cannot be taken.
+type igItem struct {
+	Text string
+	Off  bool
+}
+
 // igChoose shows the items, one marked, and answers the index chosen with the
 // arrow keys and Enter, or by typing its number; -1 for Escape or Ctrl-C.
 func igChoose(title string, items []string, def int) int {
+	its := make([]igItem, len(items))
+	for i, t := range items {
+		its[i] = igItem{Text: t}
+	}
+	return igChooseItems(title, "", its, def)
+}
+
+// igRows draws the items at a width: a line that fits is left as it is (its
+// own spacing), one that does not is wrapped on word boundaries and hangs
+// under its text, so the screen never scrolls out from under the redraw.
+func igRows(items []igItem, sel, width int, dim func(string) string) []string {
+	var rows []string
+	for i, it := range items {
+		mark, num := "  ", fmt.Sprintf("%2d", i+1)
+		if i == sel {
+			mark = "❯ "
+		}
+		if it.Off {
+			num = " -"
+		}
+		first, rest := mark+num+"  ", strings.Repeat(" ", 6)
+		text := it.Text
+		var ls []string
+		if displayWidth(first)+displayWidth(text) <= width {
+			ls = []string{first + text}
+		} else {
+			ls = wrapHang(first, rest, text, width)
+		}
+		for _, l := range ls {
+			if it.Off {
+				l = dim(l)
+			}
+			rows = append(rows, l)
+		}
+	}
+	return rows
+}
+
+// igChooseItems is igChoose with items that can be off, and a note under the
+// title (why one is marked, for example).
+func igChooseItems(title, note string, items []igItem, def int) int {
 	w := os.Stderr
+	_, er := cmdUI()
+	width := er.width
 	fmt.Fprintln(w, title)
+	if note != "" {
+		for _, l := range wrapText(note, width-2) {
+			fmt.Fprintln(w, "  "+er.t.dim(l))
+		}
+	}
+	firstOn := func(from, step int) int { // the next item that can be taken, from a place, in a direction
+		n := len(items)
+		for k := 0; k < n; k++ {
+			i := ((from+step*k)%n + n) % n
+			if !items[i].Off {
+				return i
+			}
+		}
+		return def
+	}
+	if def < 0 || def >= len(items) || items[def].Off {
+		def = firstOn(0, 1)
+	}
 	rt := igEnterRaw()
 	if rt == nil { // no raw keys: a numbered question answered with a line
 		for i, it := range items {
-			fmt.Fprintf(w, "  %d  %s\n", i+1, it)
+			if it.Off {
+				fmt.Fprintf(w, "  -  %s\n", it.Text)
+				continue
+			}
+			fmt.Fprintf(w, "  %d  %s\n", i+1, it.Text)
 		}
-		fmt.Fprintf(w, "Choose 1-%d [%d]: ", len(items), def+1)
-		line, rerr := bufio.NewReader(os.Stdin).ReadString('\n')
-		if rerr != nil && strings.TrimSpace(line) == "" { // end of input (Ctrl-D) is a cancel, never an Enter
-			return -1
+		rd := bufio.NewReader(os.Stdin)
+		for {
+			fmt.Fprintf(w, "Choose 1-%d [%d]: ", len(items), def+1)
+			line, rerr := rd.ReadString('\n')
+			if rerr != nil && strings.TrimSpace(line) == "" { // end of input (Ctrl-D) is a cancel, never an Enter
+				return -1
+			}
+			line = strings.TrimSpace(line)
+			if line == "" {
+				return def
+			}
+			var n int
+			if _, err := fmt.Sscanf(line, "%d", &n); err != nil || n < 1 || n > len(items) {
+				return -1
+			}
+			if items[n-1].Off {
+				fmt.Fprintf(w, "Number %d cannot be chosen: %s\n", n, items[n-1].Text)
+				continue
+			}
+			return n - 1
 		}
-		line = strings.TrimSpace(line)
-		if line == "" {
-			return def
-		}
-		var n int
-		if _, err := fmt.Sscanf(line, "%d", &n); err != nil || n < 1 || n > len(items) {
-			return -1
-		}
-		return n - 1
 	}
 	defer rt.restore()
 	sel, typed := def, 0
+	lines := 0
 	draw := func(first bool) {
 		if !first {
-			fmt.Fprintf(w, "\x1b[%dA", len(items)+1)
+			fmt.Fprintf(w, "\x1b[%dA", lines+1)
 		}
-		for i, it := range items {
-			mark, num := "  ", fmt.Sprintf("%d", i+1)
-			if i == sel {
-				mark = "❯ "
-			}
-			fmt.Fprintf(w, "\r\x1b[K%s%2s  %s\n", mark, num, it)
+		rows := igRows(items, sel, width, er.t.dim)
+		lines = len(rows)
+		for _, l := range rows {
+			fmt.Fprintf(w, "\r\x1b[K%s\n", l)
 		}
-		fmt.Fprint(w, "\r\x1b[K  ↑↓ move · Enter to choose · or type a number · Esc cancel\n")
+		fmt.Fprint(w, "\r\x1b[K"+fitWidth("  ↑↓ move · Enter to choose · or type a number · Esc cancel", width)+"\n")
 	}
 	draw(true)
 	for {
 		k, c := igReadKey(rt)
 		switch k {
 		case igUp:
-			typed, sel = 0, (sel+len(items)-1)%len(items)
+			typed, sel = 0, firstOn(sel-1, -1)
 		case igDown:
-			typed, sel = 0, (sel+1)%len(items)
+			typed, sel = 0, firstOn(sel+1, 1)
 		case igDigit:
 			n := typed*10 + int(c-'0')
 			if n < 1 || n > len(items) {
 				n = int(c - '0')
 			}
-			if n >= 1 && n <= len(items) {
+			if n >= 1 && n <= len(items) && !items[n-1].Off {
 				typed, sel = n, n-1
 			}
 		case igEnter:
@@ -498,17 +576,9 @@ func importGuided(inv *Invocation, tool string) {
 			p = prepareImportOpts(inv, tool, deferOver)
 		}
 	}
-	if !inv.Bool("with-files") && !inv.Bool("no-files") && !out.yes { // --yes takes the default: the conversation only
-		if top, plan, ok := guidedFilesProbe(inv, p); ok {
-			total := p.Bytes
-			conv := fmt.Sprintf("conversation only %s", kitBytes(total))
-			withf := fmt.Sprintf("with the files %s (the repository %s, %s)", kitBytes(total+plan.Content), kitBytes(plan.Content), nounCount(len(plan.Entries), "file", "files"))
-			i := igChoose(fmt.Sprintf("Bring the project files too? The git repository at %s.", igShortHome(top)), []string{conv, withf}, 0)
-			if i < 0 {
-				igDeclined()
-			}
-			if i == 1 {
-				inv.set["with-files"] = true
+	if !inv.Bool("no-files") && !out.yes && importGitMode(inv) == "" { // --yes takes the default: the conversation only, or what --with-files said
+		if pr, ok := guidedFilesProbe(inv, p); ok {
+			if redo := igAskFiles(inv, p, pr, !importWantsFiles(inv)); redo {
 				p.Close()
 				p = prepareImport(inv, tool)
 			}
@@ -667,9 +737,11 @@ func compactInstruction(tool string) []string {
 	}
 }
 
-// guidedFilesProbe finds the project's git repository and its upload size,
-// without failing when there is none (then the question is not asked).
-func guidedFilesProbe(inv *Invocation, p *importPrep) (string, *uploadPlan, bool) {
+// guidedFilesProbe finds the project's git repository and measures what it
+// holds, with and without its history, without failing when there is none
+// (then the question is not asked) and without refusing for its size (the
+// question tells it).
+func guidedFilesProbe(inv *Invocation, p *importPrep) (*importFilesProbe, bool) {
 	cwd := p.Info.Cwd
 	if inv.Set("project") {
 		if abs, err := filepath.Abs(inv.Str("project")); err == nil {
@@ -677,17 +749,17 @@ func guidedFilesProbe(inv *Invocation, p *importPrep) (string, *uploadPlan, bool
 		}
 	}
 	if cwd == "" {
-		return "", nil, false
+		return nil, false
 	}
 	if fi, err := os.Stat(cwd); err != nil || !fi.IsDir() {
-		return "", nil, false
+		return nil, false
 	}
 	top, ok := gitOut(cwd, "rev-parse", "--show-toplevel")
 	if !ok {
-		return "", nil, false
+		return nil, false
 	}
 	top, _ = filepath.EvalSymlinks(top)
-	return top, planUpload(top, "", true), true
+	return probeImportFiles(top, true), true
 }
 
 // jsonUnmarshalLoose reads a line, answering whether it was JSON.

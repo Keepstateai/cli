@@ -3,7 +3,7 @@
 //
 //	ks import list [--cursor] [--store FILE] [--json]
 //	ks import claude-code|codex [--latest | --session ID] [--project DIR]
-//	      [--with-files] [--name NAME] [--model M] [--key own|keepstate|ALIAS]
+//	      [--with-files | --with-git | --without-git] [--name NAME] [--model M] [--key own|keepstate|ALIAS]
 //	      [--budget DOLLARS] [--harness H] [--brief] [--plan | --execute DIGEST]
 //	ks import cursor [--latest | --chat ID] [--store FILE] ... (a written summary)
 //
@@ -217,6 +217,8 @@ type importPrep struct {
 	Stripped     map[string]int
 	Rewritten    int
 	Files        *uploadPlan
+	History      bool   // the repository's history (.git) is in Files
+	GitNote      string // why it is not, when it was left out for its size
 	Root         string
 	Head         string
 	Dirty        bool
@@ -264,7 +266,7 @@ type importSettings struct {
 }
 
 func importSettingsOf(inv *Invocation, tool string) importSettings {
-	s := importSettings{model: inv.Str("model"), key: inv.Str("key"), files: inv.Bool("with-files")}
+	s := importSettings{model: inv.Str("model"), key: inv.Str("key"), files: importWantsFiles(inv)}
 	s.harness = tool
 	s.mode = "conversation"
 	switch {
@@ -376,7 +378,7 @@ func prepareImportOpts(inv *Invocation, tool string, deferOver bool) *importPrep
 		importReadProg = nil
 		if err == nil {
 			bar.Set(p.Info.Size)
-			bar.Done("Cleaned the conversation")
+			bar.DoneWith("Cleaned the conversation", kitBytes(p.Info.Size)+" down to "+kitBytes(res.Bytes))
 		}
 		if err != nil {
 			fail(&cliError{Code: exitFailed, Kind: "transcript_unreadable", Message: fmt.Sprintf("the %s session %s could not be read: %s. Nothing was sent", tool, p.Info.ID, sanitize(err.Error()))})
@@ -398,7 +400,7 @@ func prepareImportOpts(inv *Invocation, tool string, deferOver bool) *importPrep
 					NextAction: importSessionCommand(inv, tool, p.Info.ID, "--brief")})
 			}
 			tbar.Set(p.Info.Size)
-			tbar.Done("Trimmed to the last compaction")
+			tbar.DoneWith("Trimmed to the last compaction", kitBytes(res.Bytes)+" down to "+kitBytes(tr.Bytes))
 			p.Trimmed, p.UntrimmedBytes = true, res.Bytes
 			p.TrimPrompts, p.TrimRecords = tr.Prompts, tr.Records
 			os.Remove(res.OutPath)
@@ -428,6 +430,9 @@ func prepareImportOpts(inv *Invocation, tool string, deferOver bool) *importPrep
 				fail(&cliError{Code: exitConflict, Kind: "import_too_large",
 					Message: fmt.Sprintf("this session is %s (%s bytes) %s, and a session can resume up to %s (%s bytes). Nothing was sent. Import a written summary of it instead, or compact it in %s first (run /compact in that session) and import again",
 						bytesText(p.Bytes), commas(p.Bytes), how, bytesText(limit), commas(limit), importToolLabel(tool)),
+					Title: "This conversation is too big for a session to resume",
+					Why: []string{fmt.Sprintf("It is %s (%s bytes) %s, and a session can resume up to %s (%s bytes).", bytesText(p.Bytes), commas(p.Bytes), how, bytesText(limit), commas(limit)),
+						"Nothing was sent. Import a written summary of it instead, or compact it in " + importToolLabel(tool) + " first (run /compact in that session) and import again."},
 					NextAction: importSessionCommand(inv, tool, p.Info.ID, "--brief")})
 			}
 		}
@@ -456,6 +461,9 @@ func importToolLabel(tool string) string {
 	return "Cursor"
 }
 
+// importHashed keeps the upload plans already read, by folder, history and size.
+var importHashed = map[string]*uploadPlan{}
+
 // importFilesRoot plans the upload of the project's git repository and
 // answers its root and the workspace path it will have.
 func importFilesRoot(inv *Invocation, p *importPrep, cwd string) (string, string) {
@@ -465,11 +473,11 @@ func importFilesRoot(inv *Invocation, p *importPrep, cwd string) (string, string
 		}
 	}
 	if cwd == "" {
-		fail(&cliError{Code: exitFailed, Kind: "no_project", Message: "this conversation names no project folder, so there are no files to bring. Nothing was sent", NextAction: "run it again without --with-files, or name the folder with --project"})
+		fail(&cliError{Code: exitFailed, Kind: "no_project", Message: "this conversation names no project folder, so there are no files to bring. Nothing was sent", NextAction: importFilesNext(inv, p.Tool, p.Info.ID, "--no-files")})
 	}
 	if fi, err := os.Stat(cwd); err != nil || !fi.IsDir() {
 		fail(&cliError{Code: exitFailed, Kind: "no_project", Message: fmt.Sprintf("the project folder %s is not on this machine, so its files cannot be brought. Nothing was sent", visible(sanitize(cwd))),
-			NextAction: "run it again without --with-files, or name where the folder is now with --project"})
+			NextAction: importFilesNext(inv, p.Tool, p.Info.ID, "--no-files")})
 	}
 	top, ok := gitOut(cwd, "rev-parse", "--show-toplevel")
 	if !ok {
@@ -480,10 +488,19 @@ func importFilesRoot(inv *Invocation, p *importPrep, cwd string) (string, string
 	p.Head, _ = gitOut(top, "rev-parse", "HEAD")
 	st, _ := gitOut(top, "status", "--porcelain")
 	p.Dirty = st != ""
-	plan := planUpload(top, "", true)
-	hashUpload(plan)
-	p.Files = plan
-	return top, importGuestWorkspace + "/" + plan.To
+	mode := importGitMode(inv)
+	chosen := decideImportFiles(inv, p.Tool, p.Info.ID, probeImportFiles(top, mode != "without"), mode)
+	// the plan is read once per run: a second preparation (the guided flow
+	// prepares again after the files answer) keeps what was already hashed
+	key := fmt.Sprintf("%s|%v|%d", top, chosen.History, chosen.Plan.Content)
+	if h, ok := importHashed[key]; ok {
+		chosen.Plan = h
+	} else {
+		hashUpload(chosen.Plan)
+		importHashed[key] = chosen.Plan
+	}
+	p.Files, p.History, p.GitNote = chosen.Plan, chosen.History, chosen.Note
+	return top, importGuestWorkspace + "/" + chosen.Plan.To
 }
 
 func importDeclaration(p *importPrep, set importSettings) map[string]any {
@@ -509,7 +526,7 @@ func importDeclaration(p *importPrep, set importSettings) map[string]any {
 	}
 	d := map[string]any{"mode": p.Mode, "source": src, "target": target}
 	if p.Files != nil {
-		d["workspace"] = map[string]any{"included": true, "folder": p.Files.To, "head": p.Head, "dirty": p.Dirty, "bytes": p.Files.Content}
+		d["workspace"] = map[string]any{"included": true, "folder": p.Files.To, "head": p.Head, "dirty": p.Dirty, "bytes": p.Files.Content, "history": p.History}
 	} else {
 		d["workspace"] = map[string]any{"included": false}
 	}

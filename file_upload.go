@@ -103,6 +103,10 @@ type uploadPlan struct {
 	Skipped []uploadSkip
 	WithGit bool  // --with-git: the folder's .git is carried
 	GitSize int64 // what the carried .git holds, for the size refusal
+	// Soft: the plan is only a measure (import asks which parts fit before
+	// it chooses), so a size over the limit is told to the caller and not
+	// refused here
+	Soft bool
 	// Wire is the kind the declaration names when it is not Kind: a
 	// conversation is read as a file and declared as a conversation, which
 	// the session's machine holds and checks but does not place in the
@@ -189,12 +193,16 @@ func refuseTooLarge(name string, n int64) { refuseTooLargeWith(name, n, 0) }
 // of the size it is: .git counts toward the limit like any file.
 func refuseTooLargeWith(name string, n, git int64) {
 	msg := fmt.Sprintf("%s is %s (%s bytes); the limit is 1 GB (1,000,000,000 bytes). Nothing was sent.", sanitize(name), bytesText(n), commas(n))
+	title := fmt.Sprintf("%s is over the 1 GB limit", sanitize(name))
+	why := []string{fmt.Sprintf("It is %s (%s bytes), and one upload carries up to 1 GB (1,000,000,000 bytes).", bytesText(n), commas(n)), "Nothing was sent."}
 	next := ""
 	if git > 0 {
 		msg = fmt.Sprintf("%s is %s (%s bytes) with its history, and .git holds %s of it: .git counts toward the limit like any file, and the limit is 1 GB (1,000,000,000 bytes). Nothing was sent.", sanitize(name), bytesText(n), commas(n), bytesText(git))
+		why = []string{fmt.Sprintf("It is %s (%s bytes) with its history, and .git holds %s of it.", bytesText(n), commas(n), bytesText(git)),
+			"The .git folder counts toward the limit like any file, and the limit is 1 GB (1,000,000,000 bytes).", "Nothing was sent."}
 		next = "run the same command without --with-git to upload the files without the history"
 	}
-	fail(&cliError{Code: exitConflict, Kind: "upload_too_large", Message: msg, NextAction: next})
+	fail(&cliError{Code: exitConflict, Kind: "upload_too_large", Message: msg, Title: title, Why: why, NextAction: next})
 }
 
 func modeWord(m os.FileMode) string {
@@ -206,6 +214,16 @@ func modeWord(m os.FileMode) string {
 
 // planUpload reads what the upload will carry, without its bytes.
 func planUpload(local, to string, withGit bool) *uploadPlan {
+	return planUploadOpts(local, to, withGit, false)
+}
+
+// planUploadSoft measures a folder: the same plan, but a folder over the
+// limit is answered, not refused, so the caller can offer what fits.
+func planUploadSoft(local, to string, withGit bool) *uploadPlan {
+	return planUploadOpts(local, to, withGit, true)
+}
+
+func planUploadOpts(local, to string, withGit, soft bool) *uploadPlan {
 	abs, err := filepath.Abs(local)
 	if err != nil {
 		die(err)
@@ -214,7 +232,7 @@ func planUpload(local, to string, withGit bool) *uploadPlan {
 	if err != nil {
 		fail(&cliError{Code: exitUsage, Kind: "usage", Message: fmt.Sprintf("%s cannot be read (%v); nothing was sent", sanitize(local), err)})
 	}
-	p := &uploadPlan{Local: abs, Name: filepath.Base(abs), Skipped: []uploadSkip{}, WithGit: withGit}
+	p := &uploadPlan{Local: abs, Name: filepath.Base(abs), Skipped: []uploadSkip{}, WithGit: withGit, Soft: soft}
 	if to == "" {
 		to = p.Name
 	}
@@ -275,14 +293,14 @@ func planFolder(p *uploadPlan) {
 		addGit(p, g)
 	}
 	sort.Slice(p.Skipped, func(i, j int) bool { return p.Skipped[i].Path < p.Skipped[j].Path })
-	if p.Content > uploadLimit {
+	if p.Content > uploadLimit && !p.Soft {
 		refuseTooLargeWith(p.Name, p.Content, p.GitSize)
 	}
-	if len(p.Entries) > uploadMaxFiles {
+	if len(p.Entries) > uploadMaxFiles && !p.Soft {
 		fail(&cliError{Code: exitConflict, Kind: "upload_too_many",
 			Message: fmt.Sprintf("%s holds %s files to upload; the limit is %s. Nothing was sent.", sanitize(p.Name), commas(int64(len(p.Entries))), commas(uploadMaxFiles))})
 	}
-	if len(p.Entries) == 0 {
+	if len(p.Entries) == 0 && !p.Soft {
 		fail(&cliError{Code: exitUsage, Kind: "usage", Message: fmt.Sprintf("%s has no file to upload once %d paths are left out; nothing was sent", sanitize(p.Name), len(p.Skipped))})
 	}
 }
