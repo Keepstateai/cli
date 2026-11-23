@@ -37,8 +37,8 @@ func TestAgentTemplatesListsBuiltInsAndYourOwn(t *testing.T) {
 	writeFileT(t, filepath.Join(dir, "docs.md"), "---\ndescription: Writes the docs\ncommand: make docs\n---\nYou write docs.\n")
 	writeFileT(t, filepath.Join(dir, "reviewer.md"), "---\ndescription: My reviewer\n---\nYou review my way.\n")
 	out, errs, code := run(nil, "agent", "templates")
-	if code != 0 || !strings.Contains(out, "implementer") || !strings.Contains(out, "tester") || !strings.Contains(out, "docs           your file  Writes the docs") ||
-		!strings.Contains(out, "replaces the built-in") || !strings.Contains(out, "ignored: command") {
+	if code != 0 || !strings.Contains(out, "implementer") || !strings.Contains(out, "tester") || !strings.Contains(flat(out), "docs your file Writes the docs") ||
+		!strings.Contains(strings.ToLower(out), "replaces the built-in") || !strings.Contains(strings.ToLower(out), "ignored: command") {
 		t.Fatalf("%d\n%s%s", code, out, errs)
 	}
 	if len(c.reqs) != 0 {

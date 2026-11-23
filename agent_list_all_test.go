@@ -80,13 +80,13 @@ func TestAgentListAllShowsWhatNeedsYouFirstInTheRailsWords(t *testing.T) {
 	_, bin, cfg := listFixture(t, threeAgents)
 	out := runOK(t, bin, cfg, "agent", "list", "--all")
 	lines := strings.Split(strings.TrimSpace(out), "\n")
-	if lines[0] != "1 needs you \u00b7 1 working \u00b7 1 idle" {
+	if !strings.HasPrefix(lines[0], "Your agents") || !strings.Contains(lines[0], "1 needs you \u00b7 1 working \u00b7 1 idle") {
 		t.Errorf("first line %q", lines[0])
 	}
 	var rows []string
 	for _, l := range lines {
 		for _, w := range []string{"Needs you: permission", "Working ", "Idle "} {
-			if strings.HasPrefix(l, w) {
+			if strings.HasPrefix(strings.TrimSpace(l), w) {
 				rows = append(rows, l)
 			}
 		}
@@ -94,7 +94,7 @@ func TestAgentListAllShowsWhatNeedsYouFirstInTheRailsWords(t *testing.T) {
 	if len(rows) != 3 || !strings.Contains(rows[0], "checkout") || !strings.Contains(rows[1], "build") || !strings.Contains(rows[2], "review") {
 		t.Fatalf("rows out of order:\n%s", out)
 	}
-	for _, want := range []string{"api ", "web ", "shell: npm test", "    next: Approve or deny: ks agent approve apr_1 --session ses_one", "open one: ks agent open checkout --session ses_one"} {
+	for _, want := range []string{"api ", "web ", "shell: npm test", "Action: Approve or deny: ks agent approve apr_1 --session ses_one", "Next: ks agent open checkout --session ses_one"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("list lacks %q:\n%s", want, out)
 		}

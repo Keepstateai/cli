@@ -86,7 +86,7 @@ func TestAppsDisconnectEndsItWithAnIdempotencyKey(t *testing.T) {
 	if len(keys) != 1 || !strings.HasPrefix(keys[0], "ksop_") {
 		t.Errorf("the disconnect did not carry one idempotency key: %v", keys)
 	}
-	if out, _, _ := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "apps", "list"); !strings.Contains(out, "no app is connected") {
+	if out, _, _ := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "apps", "list"); !strings.Contains(out, "No app is connected") {
 		t.Errorf("after: %s", out)
 	}
 	// an unknown id is refused in the service's words

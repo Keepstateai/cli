@@ -99,18 +99,18 @@ func hostedAgentSend(cr hostedCreds, inv *Invocation) {
 		doc["wait"] = w
 	}
 	emit(doc, func() {
-		fmt.Printf("sent: task %s for %s at queue position %d (%s)\n", t.ID, sanitize(firstNonEmpty(a.Name, name)), t.QueueSeq, figure(t.State))
+		outf("sent: task %s for %s at queue position %d (%s)\n", t.ID, sanitize(firstNonEmpty(a.Name, name)), t.QueueSeq, figure(t.State))
 		if behind {
-			fmt.Println("  it waits behind the permission request: " + sanitize(st.Msg))
-			fmt.Println("  a person decides that request; this send decided nothing")
+			outln("  it waits behind the permission request: " + sanitize(st.Msg))
+			outln("  a person decides that request; this send decided nothing")
 		}
 		if t.Runtime != nil {
-			fmt.Printf("  the session is %s and was NOT woken: %s\n", figure(t.Runtime.State), sanitize(t.Runtime.Note))
+			outf("  the session is %s and was NOT woken: %s\n", figure(t.Runtime.State), sanitize(t.Runtime.Note))
 		}
 		if waited != nil {
 			printWaitResult(*waited, waitTimeoutFlag(inv, defaultAgentWait))
 		} else {
-			fmt.Printf("next: ks agent wait %s, then ks agent read %s\n", firstNonEmpty(a.Name, name), firstNonEmpty(a.Name, name))
+			outf("next: ks agent wait %s, then ks agent read %s\n", firstNonEmpty(a.Name, name), firstNonEmpty(a.Name, name))
 		}
 	})
 }

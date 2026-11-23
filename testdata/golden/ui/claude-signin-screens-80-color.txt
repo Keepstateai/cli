@@ -26,10 +26,10 @@ https://claude.ai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-59
   The code only works once and for a short time. Start again to get a new link.
 
 <ESC>[1mClaude plans in org_acme<ESC>[0m  <ESC>[38;2;138;138;138m3<ESC>[0m
-  <ESC>[38;2;138;138;138mMEMBER            <ESC>[0m  <ESC>[38;2;138;138;138mLAST4<ESC>[0m  <ESC>[38;2;138;138;138mSTANDING       <ESC>[0m  <ESC>[38;2;138;138;138mENDS<ESC>[0m
-  Ada Lovelace (you)  …9999  working          22 Nov 2027
-  Grace Hopper        …1234  ends soon        3 Dec 2026
-  mem_three           …5678  no longer works  5 Jan 2027
+  <ESC>[38;2;138;138;138mMember            <ESC>[0m  <ESC>[38;2;138;138;138mLast 4<ESC>[0m  <ESC>[38;2;138;138;138mStanding       <ESC>[0m  <ESC>[38;2;138;138;138mEnds<ESC>[0m
+  Ada Lovelace (you)  …9999   working          22 Nov 2027
+  Grace Hopper        …1234   ends soon        3 Dec 2026
+  mem_three           …5678   no longer works  5 Jan 2027
 
 <ESC>[1mClaude plans in org_acme<ESC>[0m  <ESC>[38;2;138;138;138m0<ESC>[0m
   <ESC>[38;2;138;138;138mNo member has put a Claude plan in this organization yet.<ESC>[0m

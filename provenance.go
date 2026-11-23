@@ -100,7 +100,7 @@ func provenanceLine(r provenanceResult) string {
 
 func runVersion(inv *Invocation) {
 	if !inv.Bool("verify") {
-		emit(map[string]any{"version": version}, func() { fmt.Println("ks", version) })
+		emit(map[string]any{"version": version}, func() { outln("ks", version) })
 		return
 	}
 	exe, err := os.Executable()
@@ -109,8 +109,8 @@ func runVersion(inv *Invocation) {
 	}
 	r := verifyProvenance(exe)
 	emit(map[string]any{"version": version, "provenance": r}, func() {
-		fmt.Println("ks", version)
-		fmt.Println(provenanceLine(r))
+		outln("ks", version)
+		outln(provenanceLine(r))
 	})
 	switch {
 	case r.Verified:

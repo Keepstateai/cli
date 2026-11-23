@@ -105,9 +105,9 @@ func hostedOrgCreate(cr hostedCreds, inv *Invocation) {
 	}
 	o := env.Data
 	emit(o, func() {
-		fmt.Printf("Organization %q created: %s\n", o.Name, o.ID)
-		fmt.Println("You are its owner and hold its first seat. Nothing of your personal account moved into it.")
-		fmt.Printf("Seats: %s\n", orgSeatsText(o.Seats))
+		outf("Organization %q created: %s\n", o.Name, o.ID)
+		outln("You are its owner and hold its first seat. Nothing of your personal account moved into it.")
+		outf("Seats: %s\n", orgSeatsText(o.Seats))
 	})
 }
 
@@ -143,17 +143,20 @@ func hostedOrgList(cr hostedCreds, inv *Invocation) {
 		die(orgErr(err, "nothing was read"))
 	}
 	emit(map[string]any{"organizations": orgs, "count": len(orgs), "complete": complete}, func() {
-		if len(orgs) == 0 {
-			fmt.Println("You belong to no organization. Create one: ks organization create NAME")
-			return
-		}
-		fmt.Printf("%-28s %-8s %-11s %-18s %s\n", "ORGANIZATION", "ROLE", "YOUR SEAT", "SEATS", "NAME")
+		sc := listScreen{Title: "Your organizations", Detail: listCount(len(orgs), "organization", "organizations"),
+			Cols: []Col{{Title: "Name"}, {Title: "Your role"}, {Title: "Your seat"}, {Title: "Seats"}, {Title: "Id", Second: true}}}
 		for _, o := range orgs {
-			fmt.Printf("%-28s %-8s %-11s %-18s %s\n", o.ID, o.YourRole, o.YourSeat, orgSeatsText(o.Seats), o.Name)
+			sc.Rows = append(sc.Rows, []string{o.Name, o.YourRole, o.YourSeat, orgSeatsText(o.Seats), o.ID})
+		}
+		if len(orgs) == 0 {
+			sc.Empty = "You belong to no organization yet."
+			sc.Next = []string{"ks organization create NAME"}
 		}
 		if !complete {
-			fmt.Printf("Stopped after %d pages; the list continues on the service.\n", orgPagesMax)
+			sc.Notes = []string{fmt.Sprintf("Stopped after %d pages; the list continues on the service.", orgPagesMax)}
 		}
+		o, _ := cmdUI()
+		o.List(sc)
 	})
 }
 
@@ -167,10 +170,10 @@ func hostedOrgShow(cr hostedCreds, inv *Invocation) {
 	}
 	o := env.Data
 	emit(o, func() {
-		fmt.Printf("%s  %s\n", o.ID, o.Name)
-		fmt.Printf("  state %s · seats %s\n", o.State, orgSeatsText(o.Seats))
-		fmt.Printf("  your role %s · %s\n", o.YourRole, orgYourSeatText(o.YourSeat))
-		fmt.Printf("  created %s · revision %d\n", o.CreatedAt, o.Revision)
+		outf("%s  %s\n", o.ID, o.Name)
+		outf("  state %s · seats %s\n", o.State, orgSeatsText(o.Seats))
+		outf("  your role %s · %s\n", o.YourRole, orgYourSeatText(o.YourSeat))
+		outf("  created %s · revision %d\n", o.CreatedAt, o.Revision)
 	})
 }
 
@@ -211,16 +214,22 @@ func hostedMemberList(cr hostedCreds, inv *Invocation) {
 		die(orgErr(err, "nothing was read"))
 	}
 	emit(map[string]any{"organization": org, "members": all, "count": len(all), "complete": complete}, func() {
-		fmt.Printf("%-40s %-8s %-11s %s\n", "MEMBER", "ROLE", "SEAT", "JOINED")
+		sc := listScreen{Title: "Members of " + org, Detail: listCount(len(all), "member", "members"),
+			Cols: []Col{{Title: "Member"}, {Title: "Role"}, {Title: "Seat"}, {Title: "Joined"}}}
 		for _, m := range all {
 			who := m.AccountID
 			if m.You {
 				who += " (you)"
 			}
-			fmt.Printf("%-40s %-8s %-11s %s\n", who, m.Role, m.SeatState, m.JoinedAt)
+			sc.Rows = append(sc.Rows, []string{who, m.Role, m.SeatState, m.JoinedAt})
+		}
+		if len(all) == 0 {
+			sc.Empty = "This organization has no members you can see."
 		}
 		if !complete {
-			fmt.Printf("Stopped after %d pages; the list continues on the service.\n", orgPagesMax)
+			sc.Notes = []string{fmt.Sprintf("Stopped after %d pages; the list continues on the service.", orgPagesMax)}
 		}
+		o, _ := cmdUI()
+		o.List(sc)
 	})
 }

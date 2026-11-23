@@ -128,23 +128,42 @@ func importList(inv *Invocation) {
 		doc["cursor_note"] = cursorNote
 	}
 	emit(doc, func() {
-		if len(rows) == 0 {
-			fmt.Println("no Claude Code or Codex session was found on this machine (Claude Code keeps them in " + visible(claudeProjectsDir()) + ", Codex in " + visible(codexSessionsDir()) + ")")
-		}
-		for _, r := range rows {
-			note := ""
-			if r.Note != "" {
-				note = "  (" + r.Note + ")"
-			}
-			fmt.Printf("%-11s %s  %s  %9s  %5d messages  %s%s\n", r.Tool, r.ID, strings.TrimSuffix(r.Date, "Z")[:16], bytesText(r.Bytes), r.Messages, visible(sanitize(r.Project)), note)
-		}
-		if cursorNote != "" {
-			fmt.Println(cursorNote)
-		}
-		if len(rows) > 0 {
-			fmt.Println("Next: ks import claude-code --latest   (or codex, or cursor; --session ID names one)")
-		}
+		o, _ := cmdUI()
+		o.List(importListScreen(rows, cursorNote))
 	})
+}
+
+// importListScreen is ks import list as a list screen.
+func importListScreen(rows []importListEntry, cursorNote string) listScreen {
+	s := listScreen{Title: "Sessions on this machine", Detail: listCount(len(rows), "session", "sessions"),
+		Cols: []Col{{Title: "Tool"}, {Title: "Session"}, {Title: "Project"}, {Title: "Last used", Second: true}, {Title: "Size", Right: true, Second: true}, {Title: "Messages", Right: true, Second: true}}}
+	for _, r := range rows {
+		tool := r.Tool
+		if r.Note != "" {
+			tool += " (" + r.Note + ")"
+		}
+		id := r.ID
+		size, msgs := "", commas(int64(r.Messages))+" messages"
+		if r.Bytes > 0 {
+			size = kitBytes(r.Bytes)
+		}
+		project := visible(sanitize(r.Project))
+		if project == "" {
+			project = "unknown folder"
+		}
+		s.Rows = append(s.Rows, []string{tool, id, project, strings.Replace(strings.TrimSuffix(r.Date, "Z")[:16], "T", " ", 1), size, msgs})
+	}
+	if len(rows) == 0 {
+		s.Empty = "No Claude Code or Codex session was found on this machine. Claude Code keeps them in " + visible(claudeProjectsDir()) + ", Codex in " + visible(codexSessionsDir()) + "."
+	}
+	if cursorNote != "" {
+		s.Notes = append(s.Notes, cursorNote)
+	}
+	if len(rows) > 0 {
+		s.Notes = append(s.Notes, "Any unique start of a session's id works with --session.")
+		s.Next = []string{"ks import claude-code --latest"}
+	}
+	return s
 }
 
 // ---- choosing one --------------------------------------------------------------

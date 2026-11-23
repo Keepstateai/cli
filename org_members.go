@@ -92,8 +92,8 @@ func hostedOrgSet(cr hostedCreds, inv *Invocation) {
 	}
 	o := env.Data
 	emit(o, func() {
-		fmt.Printf("%s  %s\n", o.ID, o.Name)
-		fmt.Printf("  seats %s · revision %d\n", orgSeatsText(o.Seats), o.Revision)
+		outf("%s  %s\n", o.ID, o.Name)
+		outf("  seats %s · revision %d\n", orgSeatsText(o.Seats), o.Revision)
 	})
 }
 
@@ -131,20 +131,22 @@ func hostedOrgAudit(cr hostedCreds, inv *Invocation) {
 		}
 	}
 	emit(map[string]any{"organization": id, "events": all, "count": len(all), "complete": complete, "chained": chained}, func() {
-		if len(all) == 0 {
-			fmt.Println("No events you may read.")
-			return
-		}
-		fmt.Printf("%-5s %-31s %-28s %-36s %s\n", "SEQ", "WHEN", "ACTION", "BY", "ON")
+		sc := listScreen{Title: "Audit log of " + id, Detail: listCount(len(all), "event", "events"),
+			Cols: []Col{{Title: "Seq", Right: true}, {Title: "When"}, {Title: "Action"}, {Title: "By"}, {Title: "On", Wrap: true, Second: true}}}
 		for _, a := range all {
-			fmt.Printf("%-5d %-31s %-28s %-36s %s %s\n", a.Seq, a.RecordedAt, a.Action, a.ActorID, a.TargetKind, a.TargetID)
+			sc.Rows = append(sc.Rows, []string{fmt.Sprintf("%d", a.Seq), a.RecordedAt, a.Action, a.ActorID, a.TargetKind + " " + a.TargetID})
+		}
+		if len(all) == 0 {
+			sc.Empty = "No events you may read."
 		}
 		if !chained {
-			fmt.Println("The events read here do not chain one to the next: some are missing from what you may read, or the log was changed.")
+			sc.Notes = append(sc.Notes, "The events read here do not chain one to the next: some are missing from what you may read, or the log was changed.")
 		}
 		if !complete {
-			fmt.Printf("Stopped after %d pages; the log continues on the service.\n", orgPagesMax)
+			sc.Notes = append(sc.Notes, fmt.Sprintf("Stopped after %d pages; the log continues on the service.", orgPagesMax))
 		}
+		o, _ := cmdUI()
+		o.List(sc)
 	})
 }
 
@@ -176,7 +178,7 @@ func orgMemberChange(cr hostedCreds, org, account string, change map[string]any,
 }
 
 func memberLine(m customerOrgMember) {
-	fmt.Printf("%s: role %s, seat %s\n", m.AccountID, m.Role, m.SeatState)
+	outf("%s: role %s, seat %s\n", m.AccountID, m.Role, m.SeatState)
 }
 
 func hostedMemberRole(cr hostedCreds, inv *Invocation) {
@@ -204,7 +206,7 @@ func hostedSeat(assign bool) func(hostedCreds, *Invocation) {
 		emit(m, func() {
 			memberLine(m)
 			if m.SeatState != "assigned" {
-				fmt.Println("Without a seat, the organization's work is closed to this member.")
+				outln("Without a seat, the organization's work is closed to this member.")
 			}
 		})
 	}
@@ -244,17 +246,17 @@ func hostedMemberInvite(cr hostedCreds, inv *Invocation) {
 	}
 	d := env.Data
 	emit(d, func() {
-		fmt.Printf("Invited %s as %s: %s (expires %s)\n", d.Invitation.Email, d.Invitation.Role, d.Invitation.ID, d.Invitation.ExpiresAt)
+		outf("Invited %s as %s: %s (expires %s)\n", d.Invitation.Email, d.Invitation.Role, d.Invitation.ID, d.Invitation.ExpiresAt)
 		if d.Invitation.AssignSeat {
-			fmt.Println("They take a seat when they join, if one is free then.")
+			outln("They take a seat when they join, if one is free then.")
 		}
 		if d.EmailSent {
-			fmt.Println("The invitation email was sent.")
+			outln("The invitation email was sent.")
 		} else {
-			fmt.Println("The invitation email was not sent: " + d.EmailNote)
+			outln("The invitation email was not sent: " + d.EmailNote)
 		}
-		fmt.Println("The invitation's token, shown this once; it works only for the invited address:")
-		fmt.Println("  ks invite accept " + d.Token)
+		outln("The invitation's token, shown this once; it works only for the invited address:")
+		outln("  ks invite accept " + d.Token)
 	})
 }
 
@@ -284,24 +286,26 @@ func hostedInviteList(cr hostedCreds, inv *Invocation) {
 		cursor = env.Data.NextCursor
 	}
 	emit(map[string]any{"organization": org, "invitations": all, "count": len(all), "complete": complete}, func() {
-		if len(all) == 0 {
-			fmt.Println("No invitations.")
-			return
-		}
-		fmt.Printf("%-22s %-32s %-8s %-22s %s\n", "INVITATION", "ADDRESS", "ROLE", "STATE", "EXPIRES")
+		sc := listScreen{Title: "Invitations to " + org, Detail: listCount(len(all), "invitation", "invitations"),
+			Cols: []Col{{Title: "Invitation"}, {Title: "Address"}, {Title: "Role"}, {Title: "State"}, {Title: "Expires"}}}
 		for _, v := range all {
-			fmt.Printf("%-22s %-32s %-8s %-22s %s\n", v.ID, v.Email, v.Role, v.State, v.ExpiresAt)
+			sc.Rows = append(sc.Rows, []string{v.ID, v.Email, v.Role, v.State, v.ExpiresAt})
 			if v.State == "awaiting_confirmation" {
 				who := v.PendingEmail
 				if who == "" {
 					who = "an account with no address"
 				}
-				fmt.Printf("  %s asked to join signed in as %s: ks invite confirm %s --organization %s --account %s\n", v.PendingAccountID, who, v.ID, org, v.PendingAccountID)
+				sc.Notes = append(sc.Notes, fmt.Sprintf("%s asked to join signed in as %s: ks invite confirm %s --organization %s --account %s", v.PendingAccountID, who, v.ID, org, v.PendingAccountID))
 			}
 		}
-		if !complete {
-			fmt.Printf("Stopped after %d pages; the list continues on the service.\n", orgPagesMax)
+		if len(all) == 0 {
+			sc.Empty = "There are no invitations."
 		}
+		if !complete {
+			sc.Notes = append(sc.Notes, fmt.Sprintf("Stopped after %d pages; the list continues on the service.", orgPagesMax))
+		}
+		o, _ := cmdUI()
+		o.List(sc)
 	})
 }
 
@@ -314,7 +318,7 @@ func hostedInviteRevoke(cr hostedCreds, inv *Invocation) {
 		die(orgErr(err, "nothing was changed"))
 	}
 	v := env.Data
-	emit(v, func() { fmt.Printf("Invitation %s to %s withdrawn; its token no longer works.\n", v.ID, v.Email) })
+	emit(v, func() { outf("Invitation %s to %s withdrawn; its token no longer works.\n", v.ID, v.Email) })
 }
 
 func hostedInviteConfirm(cr hostedCreds, inv *Invocation) {
@@ -331,7 +335,7 @@ func hostedInviteConfirm(cr hostedCreds, inv *Invocation) {
 	}
 	m := env.Data
 	emit(m, func() {
-		fmt.Printf("%s joined %s: ", m.AccountID, org)
+		outf("%s joined %s: ", m.AccountID, org)
 		memberLine(m)
 	})
 }
@@ -371,8 +375,8 @@ func hostedInviteAccept(cr hostedCreds, inv *Invocation) {
 	}
 	d := env.Data
 	emit(d, func() {
-		fmt.Printf("You joined %q (%s) as %s.\n", d.Org.Name, d.Org.ID, d.Member.Role)
-		fmt.Println(orgYourSeatText(d.Member.SeatState) + ".")
-		fmt.Println("Your personal account and its work are unchanged.")
+		outf("You joined %q (%s) as %s.\n", d.Org.Name, d.Org.ID, d.Member.Role)
+		outln(orgYourSeatText(d.Member.SeatState) + ".")
+		outln("Your personal account and its work are unchanged.")
 	})
 }

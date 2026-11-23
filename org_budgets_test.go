@@ -99,9 +99,9 @@ func TestOrganizationBudgetVerbs(t *testing.T) {
 
 	// list: each budget, its spend, unavailable never as zero, the overcommit
 	out, errs, code := run("budget", "list", "--organization", "org_a")
-	if code != 0 || !strings.Contains(out, "obud_org  the organization: $1000.00 a month; $12.50 spent, $0.50 held, 1%; under") ||
-		!strings.Contains(out, "team Engineering/Platform: $500.00 a month; spent unavailable; unavailable") || strings.Contains(out, "$0.00 spent") ||
-		!strings.Contains(out, "the 2 team budgets under it add up to $1200.00") || !strings.Contains(out, "shown, not counted") {
+	if code != 0 || !strings.Contains(flat(out), "obud_org the organization $1000.00 under") || !strings.Contains(flat(out), "$12.50 spent, $0.50 held, 1%") ||
+		!strings.Contains(flat(out), "team Engineering/Platform $500.00 unavailable spent unavailable") || strings.Contains(out, "$0.00 spent") ||
+		!strings.Contains(flat(out), "The 2 team budgets under it add up to $1200.00") || !strings.Contains(out, "shown, not counted") {
 		t.Fatalf("budget list: %d\n%s%s", code, out, errs)
 	}
 	if out, _, code := run("budget", "list", "--organization", "org_a", "--period", "2026-10"); code != 0 || !strings.Contains(c.last("GET /api/v2/orgs/org_a/budgets"), "period=2026-10") {

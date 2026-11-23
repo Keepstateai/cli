@@ -166,38 +166,45 @@ func recordSession(rec statusRecord) string {
 	return sanitize(rec.SessionID)
 }
 
-// allAgentsLines is the list as printed.
-func allAgentsLines(l agentStatusList) []string {
-	out := []string{needYouLine(countRecords(l.Items))}
+// allAgentsScreen is ks agent list --all.
+func allAgentsScreen(l agentStatusList) listScreen {
+	s := listScreen{Title: "Your agents", Detail: needYouLine(countRecords(l.Items)),
+		Cols: []Col{{Title: "State"}, {Title: "Agent"}, {Title: "Session"}, {Title: "What", Wrap: true, Second: true}}}
 	if l.Context != "" {
-		out = append([]string{"Context: organization " + sanitize(l.Context) + " (its agents that are yours; ks context use personal for your own)"}, out...)
+		s.Title = "Your agents in the organization " + sanitize(l.Context)
+		s.Lead = []string{"These are the organization's agents that are yours; ks context use personal shows your own."}
 	}
-	if len(l.Items) == 0 {
-		if l.Context != "" {
-			return append(out, "None of your agents in this organization.")
-		}
-		return append(out, "No agents in your sessions.")
-	}
-	out = append(out, fmt.Sprintf("%-26s %-16s %-20s %s", "STATE", "AGENT", "SESSION", "WHAT"))
 	for _, rec := range l.Items {
 		msg := oscText(sanitize(rec.Msg), 200)
-		out = append(out, strings.TrimRight(fmt.Sprintf("%-26s %-16s %-20s %s", statusWord(rec), clip(sanitize(rec.Name), 16), clip(recordSession(rec), 20), msg), " "))
 		if a := rec.Action; a != nil && (rec.State == "blocked" || rec.State == "error") {
 			next := oscText(sanitize(a.Label), 80)
 			if v := oscText(sanitize(a.Verb), 200); v != "" {
 				next += ": " + v
 			}
 			if next != "" {
-				out = append(out, "    next: "+next)
+				msg += "\nAction: " + next
 			}
 		}
+		s.Rows = append(s.Rows, []string{statusWord(rec), sanitize(rec.Name), recordSession(rec), msg})
+	}
+	if len(l.Items) == 0 {
+		s.Empty = "You have no agents in your sessions."
+		if l.Context != "" {
+			s.Empty = "None of your agents is in this organization."
+		}
+		return s
 	}
 	if l.Truncated {
-		out = append(out, "Only your newest sessions are listed; ks session list shows them all.")
+		s.Notes = []string{"Only your newest sessions are listed; ks session list shows them all."}
 	}
 	first := l.Items[0]
-	out = append(out, fmt.Sprintf("open one: ks agent open %s --session %s", nameOrPlaceholder(first.Name), nameOrPlaceholder(first.SessionID)))
-	return out
+	s.Next = []string{fmt.Sprintf("ks agent open %s --session %s", nameOrPlaceholder(first.Name), nameOrPlaceholder(first.SessionID))}
+	return s
+}
+
+// allAgentsLines is the list as printed.
+func allAgentsLines(l agentStatusList) []string {
+	return screenLines(func(u *ui) { u.List(allAgentsScreen(l)) })
 }
 
 func nameOrPlaceholder(s string) string { return commandWord(s) }
@@ -290,9 +297,8 @@ func hostedAgentListAll(cr hostedCreds, inv *Invocation) {
 			doc["context"] = l.Context
 		}
 		emit(doc, func() {
-			for _, line := range allAgentsLines(l) {
-				fmt.Println(line)
-			}
+			o, _ := cmdUI()
+			o.List(allAgentsScreen(l))
 		})
 		return
 	}
@@ -325,9 +331,9 @@ func watchAllAgents(cr hostedCreds, l agentStatusList, notify bool) {
 			fmt.Print("\x1b[H\x1b[2J" + lines + "\n")
 		} else if lines != shown {
 			if shown != "" {
-				fmt.Println()
+				outln()
 			}
-			fmt.Println(lines)
+			outln(lines)
 		}
 		shown = lines
 		// terminal status: one record per agent, and all of them at the root

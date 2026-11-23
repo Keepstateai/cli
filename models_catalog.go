@@ -184,11 +184,11 @@ func cruiseModels(inv *Invocation) {
 	}
 	emit(map[string]any{"catalog": c, "live": live}, func() {
 		if live {
-			fmt.Printf("model catalog %s, served at %s (ratified %s)\n", c.CatalogVersion, figure(c.ServedAt), figure(c.Ratified))
+			outf("model catalog %s, served at %s (ratified %s)\n", c.CatalogVersion, figure(c.ServedAt), figure(c.Ratified))
 		} else {
-			fmt.Printf("CACHED model catalog %s, served at %s, cached %s from %s -- not a live answer\n", c.CatalogVersion, figure(c.ServedAt), figure(c.CachedAt), figure(c.ControlPlane))
+			outf("CACHED model catalog %s, served at %s, cached %s from %s -- not a live answer\n", c.CatalogVersion, figure(c.ServedAt), figure(c.CachedAt), figure(c.ControlPlane))
 		}
-		fmt.Println("live provider availability is NOT checked by the catalog: it is known only when a call is made")
+		outln("live provider availability is NOT checked by the catalog: it is known only when a call is made")
 		models := append([]catalogModelRow(nil), c.Models...)
 		sort.SliceStable(models, func(i, j int) bool {
 			if models[i].Family != models[j].Family {
@@ -196,23 +196,23 @@ func cruiseModels(inv *Invocation) {
 			}
 			return models[i].Rung < models[j].Rung
 		})
-		fmt.Printf("  %-34s %-18s %-11s %-10s %-11s %-4s %-13s %-12s %s\n", "MODEL", "NAME", "OFFER", "FAMILY", "ROUTE", "RUNG", "UNDER RUNNER", "PRICE", "YOUR KEY")
+		outf("  %-34s %-18s %-11s %-10s %-11s %-4s %-13s %-12s %s\n", "MODEL", "NAME", "OFFER", "FAMILY", "ROUTE", "RUNG", "UNDER RUNNER", "PRICE", "YOUR KEY")
 		for _, m := range models {
 			key := figure(m.KeyRoute.Standing)
 			if m.KeyRoute.KeyID != "" {
 				key += " (" + m.KeyRoute.KeyID + ")"
 			}
-			fmt.Printf("  %-34s %-18s %-11s %-10s %-11s %-4d %-13s %-12s %s\n", m.ID, clip(sanitize(figure(m.Name)), 18), figure(m.Offer.Standing), m.Family, m.ProviderRoute, m.Rung, figure(m.RunnerCompatibility.Standing), figure(m.Price.Standing), key)
+			outf("  %-34s %-18s %-11s %-10s %-11s %-4d %-13s %-12s %s\n", m.ID, clip(sanitize(figure(m.Name)), 18), figure(m.Offer.Standing), m.Family, m.ProviderRoute, m.Rung, figure(m.RunnerCompatibility.Standing), figure(m.Price.Standing), key)
 			if m.Offer.Standing == "withheld" && m.Offer.Note != "" {
-				fmt.Printf("    withheld: %s\n", sanitize(m.Offer.Note))
+				outf("    withheld: %s\n", sanitize(m.Offer.Note))
 			}
 		}
 		if len(c.DefaultLadder) > 0 {
-			fmt.Printf("default ladder: %s\n", ladderWords(c.DefaultLadder))
+			outf("default ladder: %s\n", ladderWords(c.DefaultLadder))
 		}
-		fmt.Println("offer: offered = a session may be created with it (ks run --agent --model) or changed to it while paused (ks session model); withheld = not for sessions, the note says why")
+		outln("offer: offered = a session may be created with it (ks run --agent --model) or changed to it while paused (ks session model); withheld = not for sessions, the note says why")
 		if len(c.Harnesses) > 0 {
-			fmt.Println("harnesses (ks run --agent --harness, ks session harness):")
+			outln("harnesses (ks run --agent --harness, ks session harness):")
 			for _, h := range c.Harnesses {
 				// the harness's own models on its line, as before; each open
 				// model on a line of its own, with its route,
@@ -226,28 +226,28 @@ func cruiseModels(inv *Invocation) {
 					}
 					ms = append(ms, m.ID)
 				}
-				fmt.Printf("  %-12s %-12s %-9s calls %s; models %s\n", sanitize(h.ID), clip(harnessLabel(h), 12), figure(h.Offer.Standing), sanitize(figure(h.Provider)), sanitize(strings.Join(ms, ", ")))
+				outf("  %-12s %-12s %-9s calls %s; models %s\n", sanitize(h.ID), clip(harnessLabel(h), 12), figure(h.Offer.Standing), sanitize(figure(h.Provider)), sanitize(strings.Join(ms, ", ")))
 				if h.Offer.Standing == "withheld" && h.Offer.Note != "" {
-					fmt.Printf("    withheld: %s\n", sanitize(h.Offer.Note))
+					outf("    withheld: %s\n", sanitize(h.Offer.Note))
 				}
 				for _, m := range open {
-					fmt.Printf("    %s\n", m.openModelLine(h))
+					outf("    %s\n", m.openModelLine(h))
 					if m.Offer.Standing == "withheld" && m.Offer.Note != "" {
-						fmt.Printf("      withheld: %s\n", sanitize(m.Offer.Note))
+						outf("      withheld: %s\n", sanitize(m.Offer.Note))
 					}
 				}
 				for _, l := range harnessEffortLines(h) {
-					fmt.Printf("    effort %s\n", l)
+					outf("    effort %s\n", l)
 				}
 			}
-			fmt.Println("effort: how hard the model thinks (ks run --agent --effort, ks session runner --effort). " + effortMoney)
+			outln("effort: how hard the model thinks (ks run --agent --effort, ks session runner --effort). " + effortMoney)
 			if anyOpenModel(c.Harnesses) {
-				fmt.Println("open model via OpenRouter: it calls an OpenRouter key, your own (ks key add --provider openrouter) or KeepState's where it is offered (--key keepstate); on your own key OpenRouter bills your key at its own price")
+				outln("open model via OpenRouter: it calls an OpenRouter key, your own (ks key add --provider openrouter) or KeepState's where it is offered (--key keepstate); on your own key OpenRouter bills your key at its own price")
 			}
 		}
-		fmt.Println("under runner: exercised = a record shows the Cruise runner ran it; not_verified = nothing does (no interchangeability is claimed)")
+		outln("under runner: exercised = a record shows the Cruise runner ran it; not_verified = nothing does (no interchangeability is claimed)")
 		if c.Note != "" {
-			fmt.Println(sanitize(c.Note))
+			outln(sanitize(c.Note))
 		}
 	})
 }
@@ -274,11 +274,11 @@ func legacyModels(c hostedCreds) {
 		emit(t, nil)
 		return
 	}
-	fmt.Printf("model table %s (from %s; this control plane serves no catalog)\n", t.Version, c.CTL)
+	outf("model table %s (from %s; this control plane serves no catalog)\n", t.Version, c.CTL)
 	for _, f := range familyNames(t) {
-		fmt.Printf("  %s (provider %s): %s\n", f, t.Families[f].Provider, strings.Join(t.Families[f].Rungs, ", "))
+		outf("  %s (provider %s): %s\n", f, t.Families[f].Provider, strings.Join(t.Families[f].Rungs, ", "))
 	}
 	if len(t.DefaultLadder) > 0 {
-		fmt.Printf("default ladder: %s\n", ladderWords(t.DefaultLadder))
+		outf("default ladder: %s\n", ladderWords(t.DefaultLadder))
 	}
 }

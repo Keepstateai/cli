@@ -74,7 +74,7 @@ func hostedContextUse(cr hostedCreds, inv *Invocation) {
 		if err := writeContext(cr, ""); err != nil {
 			die(err)
 		}
-		emit(map[string]any{"context": "personal"}, func() { fmt.Println("Context: personal (your own account).") })
+		emit(map[string]any{"context": "personal"}, func() { outln("Context: personal (your own account).") })
 		return
 	}
 	if !strings.HasPrefix(target, "org_") {
@@ -91,17 +91,17 @@ func hostedContextUse(cr hostedCreds, inv *Invocation) {
 	}
 	o := env.Data
 	emit(map[string]any{"context": o.ID, "organization": o}, func() {
-		fmt.Printf("Context: %s (%s), as %s; %s.\n", o.Name, o.ID, o.YourRole, orgYourSeatText(o.YourSeat))
+		outf("Context: %s (%s), as %s; %s.\n", o.Name, o.ID, o.YourRole, orgYourSeatText(o.YourSeat))
 	})
 }
 
 func hostedContextShow(cr hostedCreds, inv *Invocation) {
 	c := currentContext(cr)
 	if c == "" {
-		emit(map[string]any{"context": "personal"}, func() { fmt.Println("Context: personal (your own account).") })
+		emit(map[string]any{"context": "personal"}, func() { outln("Context: personal (your own account).") })
 		return
 	}
-	emit(map[string]any{"context": c}, func() { fmt.Printf("Context: organization %s (ks context use personal to leave it).\n", c) })
+	emit(map[string]any{"context": c}, func() { outf("Context: organization %s (ks context use personal to leave it).\n", c) })
 }
 
 func hostedOrgSessions(cr hostedCreds, inv *Invocation) {
@@ -136,21 +136,22 @@ func hostedOrgSessions(cr hostedCreds, inv *Invocation) {
 		cursor = env.Data.NextCursor
 	}
 	emit(map[string]any{"organization": org, "sessions": all, "count": len(all), "complete": complete}, func() {
-		fmt.Printf("Context: organization %s\n", org)
-		if len(all) == 0 {
-			fmt.Println("No organization sessions you may read.")
-			return
-		}
-		fmt.Printf("%-33s %-20s %-14s %s\n", "SESSION", "NAME", "STATE", "MADE BY")
+		sc := listScreen{Title: "Sessions of the organization " + org, Detail: listCount(len(all), "session", "sessions"),
+			Cols: []Col{{Title: "Session"}, {Title: "Name"}, {Title: "State"}, {Title: "Made by", Wrap: true, Second: true}}}
 		for _, s := range all {
 			by := s.CreatedBy
 			if s.Transferred != "" {
 				by += " (transferred from " + s.Transferred + ")"
 			}
-			fmt.Printf("%-33s %-20s %-14s %s\n", s.ID, clip(s.Name, 20), s.RuntimeState, by)
+			sc.Rows = append(sc.Rows, []string{s.ID, s.Name, s.RuntimeState, by})
+		}
+		if len(all) == 0 {
+			sc.Empty = "There are no organization sessions you may read."
 		}
 		if !complete {
-			fmt.Printf("Stopped after %d pages; the list continues on the service.\n", orgPagesMax)
+			sc.Notes = append(sc.Notes, fmt.Sprintf("Stopped after %d pages; the list continues on the service.", orgPagesMax))
 		}
+		o, _ := cmdUI()
+		o.List(sc)
 	})
 }

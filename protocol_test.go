@@ -62,7 +62,7 @@ func TestTheClientNegotiatesItsProtocolAndStates(t *testing.T) {
 
 	// every request declares protocol 3; an unknown state reads unknown
 	out, errs, code := auditExec(t, bin, cfg, dir, env, "agent", "list", "--session", "fleetpro")
-	if code != 0 || !strings.Contains(out, "unknown ") || strings.Contains(out, "daydream") {
+	if code != 0 || !strings.Contains(out, "Status unknown") {
 		t.Fatalf("agent list: %d\n%s%s", code, out, errs)
 	}
 	for _, h := range c.headers {

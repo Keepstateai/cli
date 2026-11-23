@@ -151,22 +151,22 @@ func stateWord(s *csFileState) string {
 
 func printChangeset(cs *changeset) {
 	if cs.Base.Known {
-		fmt.Printf("base %s captured %s\n", short(strings.TrimPrefix(cs.Base.Digest, "sha256:")), figure(cs.Base.CapturedAt))
+		outf("base %s captured %s\n", short(strings.TrimPrefix(cs.Base.Digest, "sha256:")), figure(cs.Base.CapturedAt))
 	} else {
-		fmt.Printf("base UNKNOWN: %s (applying needs a known base)\n", sanitize(cs.Base.Reason))
+		outf("base UNKNOWN: %s (applying needs a known base)\n", sanitize(cs.Base.Reason))
 	}
 	if len(cs.Changes) == 0 {
-		fmt.Println("no changes")
+		outln("no changes")
 	}
 	for _, c := range cs.Changes {
 		bin := ""
 		if c.Binary {
 			bin = " (binary)"
 		}
-		fmt.Printf("  %-6s %s%s\n", c.Op, visible(c.Path), bin)
-		fmt.Printf("         %s  ->  %s\n", stateWord(c.Before), stateWord(c.After))
+		outf("  %-6s %s%s\n", c.Op, visible(c.Path), bin)
+		outf("         %s  ->  %s\n", stateWord(c.Before), stateWord(c.After))
 		if c.ContentOmitted != "" {
-			fmt.Printf("         new bytes not carried: %s\n", sanitize(c.ContentOmitted))
+			outf("         new bytes not carried: %s\n", sanitize(c.ContentOmitted))
 		}
 	}
 }
@@ -174,7 +174,7 @@ func printChangeset(cs *changeset) {
 func hostedResultDiff(cr hostedCreds, inv *Invocation) {
 	r, cs := fetchChangeset(cr, inv.Arg(0))
 	emit(map[string]any{"result": r.ID, "changeset": cs}, func() {
-		fmt.Printf("changes of task %s, attempt %s (result %s)\n", cs.TaskID, cs.AttemptID, r.ID)
+		outf("changes of task %s, attempt %s (result %s)\n", cs.TaskID, cs.AttemptID, r.ID)
 		printChangeset(cs)
 		if inv.Bool("content") {
 			for _, c := range cs.Changes {
@@ -182,10 +182,10 @@ func hostedResultDiff(cr hostedCreds, inv *Invocation) {
 					continue
 				}
 				b, _ := base64.StdEncoding.DecodeString(c.ContentB64)
-				fmt.Printf("---- %s (new content)\n%s\n", visible(c.Path), visible(string(b)))
+				outRaw(fmt.Sprintf("---- %s (new content)\n%s\n", visible(c.Path), visible(string(b))))
 			}
 		}
-		fmt.Printf("apply it here, onto the recorded base only: ks result apply %s\n", r.ID)
+		outf("apply it here, onto the recorded base only: ks result apply %s\n", r.ID)
 	})
 }
 
@@ -485,11 +485,11 @@ func hostedResultApply(cr hostedCreds, inv *Invocation) {
 		emit(j, func() {
 			switch {
 			case j == nil:
-				fmt.Println("no apply was ever started here; nothing to recover")
+				outln("no apply was ever started here; nothing to recover")
 			case j.State == "recovered":
-				fmt.Printf("recovered: every path the interrupted apply of %s touched is back as it was before it began\n", j.ResultID)
+				outf("recovered: every path the interrupted apply of %s touched is back as it was before it began\n", j.ResultID)
 			default:
-				fmt.Printf("the last apply (%s) is %s; nothing to recover\n", j.ResultID, j.State)
+				outf("the last apply (%s) is %s; nothing to recover\n", j.ResultID, j.State)
 			}
 		})
 		return
@@ -569,8 +569,8 @@ func confirmAndApply(root, label, fullSHA string, cs *changeset, inv *Invocation
 			Message: "the apply stopped part-way (" + sanitize(err.Error()) + "); every file it touched is backed up and journalled", NextAction: "ks result apply --recover"})
 	}
 	emit(map[string]any{"result": label, "applied": len(cs.Changes), "backup": filepath.Join(applyDir(root), "backup")}, func() {
-		fmt.Printf("applied %d change(s) from %s and verified each against its recorded after-state; the previous files are backed up in %s\n", len(cs.Changes), label, filepath.Join(applyDir(root), "backup"))
-		fmt.Println("nothing was committed, pushed or run")
+		outf("applied %d change(s) from %s and verified each against its recorded after-state; the previous files are backed up in %s\n", len(cs.Changes), label, filepath.Join(applyDir(root), "backup"))
+		outln("nothing was committed, pushed or run")
 	})
 }
 

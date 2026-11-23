@@ -61,19 +61,19 @@ func orgDomainModeText(mode string) string {
 
 func printOrgDomain(d customerOrgDomain) {
 	if d.Domain == "" {
-		fmt.Printf("%s holds no work domain.\n", d.OrgID)
+		outf("%s holds no work domain.\n", d.OrgID)
 		return
 	}
-	fmt.Printf("%s  work domain %s\n", d.OrgID, d.Domain)
-	fmt.Printf("  mode %s\n", orgDomainModeText(d.Mode))
+	outf("%s  work domain %s\n", d.OrgID, d.Domain)
+	outf("  mode %s\n", orgDomainModeText(d.Mode))
 	if d.PendingRequests != nil {
-		fmt.Printf("  waiting requests %d\n", *d.PendingRequests)
+		outf("  waiting requests %d\n", *d.PendingRequests)
 	}
 	if d.MembersWithoutSeat != nil {
-		fmt.Printf("  members without a seat %d\n", *d.MembersWithoutSeat)
+		outf("  members without a seat %d\n", *d.MembersWithoutSeat)
 	}
 	if d.CreatedAt != "" {
-		fmt.Printf("  claimed %s\n", d.CreatedAt)
+		outf("  claimed %s\n", d.CreatedAt)
 	}
 }
 
@@ -128,8 +128,8 @@ func hostedOrgDomainRemove(cr hostedCreds, inv *Invocation) {
 		d.OrgID = org
 	}
 	emit(d, func() {
-		fmt.Printf("%s no longer holds a work domain.\n", d.OrgID)
-		fmt.Println("People who already joined stay members; nobody new joins by their address.")
+		outf("%s no longer holds a work domain.\n", d.OrgID)
+		outln("People who already joined stay members; nobody new joins by their address.")
 	})
 }
 
@@ -167,18 +167,22 @@ func hostedOrgDomainRequests(cr hostedCreds, inv *Invocation) {
 		die(orgErr(err, nothing))
 	}
 	emit(map[string]any{"organization": org, "requests": all, "count": len(all), "complete": complete}, func() {
-		if len(all) == 0 {
-			fmt.Println("No request is waiting.")
-			return
-		}
-		fmt.Printf("%-28s %-36s %-8s %s\n", "REQUEST", "EMAIL", "STATE", "ASKED")
+		sc := listScreen{Title: "Join requests for " + org, Detail: listCount(len(all), "request", "requests"),
+			Cols: []Col{{Title: "Request"}, {Title: "Email"}, {Title: "State"}, {Title: "Asked"}}}
 		for _, r := range all {
-			fmt.Printf("%-28s %-36s %-8s %s\n", r.ID, r.Email, r.State, r.CreatedAt)
+			sc.Rows = append(sc.Rows, []string{r.ID, r.Email, r.State, r.CreatedAt})
 		}
-		fmt.Printf("Decide one: ks organization domain approve %s REQUEST, or decline\n", org)
+		if len(all) == 0 {
+			sc.Empty = "No request is waiting."
+		} else {
+			sc.Next = []string{"ks organization domain approve " + org + " REQUEST"}
+			sc.Notes = append(sc.Notes, "Or decline one with ks organization domain decline.")
+		}
 		if !complete {
-			fmt.Printf("Stopped after %d pages; the list continues on the service.\n", orgPagesMax)
+			sc.Notes = append(sc.Notes, fmt.Sprintf("Stopped after %d pages; the list continues on the service.", orgPagesMax))
 		}
+		o, _ := cmdUI()
+		o.List(sc)
 	})
 }
 
@@ -200,9 +204,9 @@ func hostedOrgDomainDecide(verb, past string) func(hostedCreds, *Invocation) {
 		}
 		r := env.Data
 		emit(r, func() {
-			fmt.Printf("Request %s from %s: %s\n", r.ID, r.Email, r.State)
+			outf("Request %s from %s: %s\n", r.ID, r.Email, r.State)
 			if r.State == "approved" {
-				fmt.Println("They join the organization as a member.")
+				outln("They join the organization as a member.")
 			}
 		})
 	}
@@ -214,20 +218,20 @@ func printDomainOffer(o customerDomainOffer) {
 	if o.Headline == "" && o.Words == "" {
 		switch o.State {
 		case "none", "":
-			fmt.Println("You have no work-domain offer.")
+			outln("You have no work-domain offer.")
 		default:
-			fmt.Printf("Your work-domain offer: %s\n", o.State)
+			outf("Your work-domain offer: %s\n", o.State)
 		}
 		return
 	}
 	if o.Headline != "" {
-		fmt.Println(o.Headline)
+		outln(o.Headline)
 	}
 	if o.Words != "" {
-		fmt.Println(o.Words)
+		outln(o.Words)
 	}
 	if o.State == "offered" {
-		fmt.Println("Join it: ks organization offer join. Turn it down: ks organization offer dismiss")
+		outln("Join it: ks organization offer join. Turn it down: ks organization offer dismiss")
 	}
 }
 

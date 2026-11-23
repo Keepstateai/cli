@@ -232,12 +232,12 @@ func hostedAdviceList(cr hostedCreds, inv *Invocation) {
 	}
 	emit(a, func() {
 		for _, l := range adviceSetLines(a) {
-			fmt.Println(l)
+			outRawln(l)
 		}
 		for _, c := range a.Consultations {
-			fmt.Println()
+			outln()
 			for _, l := range consultationLines(c) {
-				fmt.Println(l)
+				outRawln(l)
 			}
 		}
 	})
@@ -255,7 +255,7 @@ func hostedAdviceShow(cr hostedCreds, inv *Invocation) {
 	}
 	emit(c, func() {
 		for _, l := range consultationLines(c) {
-			fmt.Println(l)
+			outRawln(l)
 		}
 	})
 }

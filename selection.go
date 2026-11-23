@@ -517,36 +517,36 @@ func cruisePreview(inv *Invocation) {
 		"uploadable":         !blocked && sel.Bytes <= cruiseMaxBytes,
 	}
 	emit(report, func() {
-		fmt.Printf("upload preview (%s), root %s\n", sel.PolicyVersion, root)
-		fmt.Printf("included: %d files, %s\n", sel.Files, mib(sel.Bytes))
+		outf("upload preview (%s), root %s\n", sel.PolicyVersion, root)
+		outf("included: %d files, %s\n", sel.Files, mib(sel.Bytes))
 		for _, f := range largest {
-			fmt.Printf("  largest: %s (%d bytes)\n", f.Path, f.Size)
+			outf("  largest: %s (%d bytes)\n", f.Path, f.Size)
 		}
-		fmt.Printf("tests pinned by the check: %d\n", len(tests))
+		outf("tests pinned by the check: %d\n", len(tests))
 		for _, kind := range []string{"mandatory", "sensitive", "ignored"} {
 			if xs := byKind[kind]; len(xs) > 0 {
-				fmt.Printf("excluded, %s (%d):\n", kind, len(xs))
+				outf("excluded, %s (%d):\n", kind, len(xs))
 				for _, x := range xs {
-					fmt.Printf("  %s  [%s]\n", x.Path, strings.TrimSpace(strings.SplitN(x.Reason, ":", 2)[1]))
+					outf("  %s  [%s]\n", x.Path, strings.TrimSpace(strings.SplitN(x.Reason, ":", 2)[1]))
 				}
 				if kind == "sensitive" {
-					fmt.Println("  a sensitive path is uploaded only by an explicit review: ks cruise init --allow PATH")
+					outln("  a sensitive path is uploaded only by an explicit review: ks cruise init --allow PATH")
 				}
 			}
 		}
 		if blocked {
-			fmt.Printf("symlinks, refused (%d): %s\n", len(sel.Symlinks), strings.Join(sel.Symlinks, ", "))
-			fmt.Println("  a link is never followed; remove it or replace it with the file before init")
+			outf("symlinks, refused (%d): %s\n", len(sel.Symlinks), strings.Join(sel.Symlinks, ", "))
+			outln("  a link is never followed; remove it or replace it with the file before init")
 		}
 		if len(sel.Overrides) > 0 {
-			fmt.Printf("overrides in force: %s\n", strings.Join(sel.Overrides, ", "))
+			outf("overrides in force: %s\n", strings.Join(sel.Overrides, ", "))
 		}
 		for _, s := range scope {
-			fmt.Printf("edit scope outside the upload: %s\n", s)
+			outf("edit scope outside the upload: %s\n", s)
 		}
-		fmt.Printf("selection digest: %s\n", sel.Digest)
+		outf("selection digest: %s\n", sel.Digest)
 		if blocked {
-			fmt.Println("this workspace cannot be uploaded as it is")
+			outln("this workspace cannot be uploaded as it is")
 		}
 	})
 	if blocked {

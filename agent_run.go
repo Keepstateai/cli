@@ -184,8 +184,8 @@ func hostedAgentRun(cr hostedCreds, inv *Invocation) {
 		}
 		doc["status"] = st
 		emit(doc, func() {
-			fmt.Printf("started %s (agent %s) in session %s%s; its first instruction is task %s\n", name, agentID, rec.ID, parentWords(parent), t.ID)
-			fmt.Printf("next: ks agent wait %s, then ks agent read %s\n", name, name)
+			outf("started %s (agent %s) in session %s%s; its first instruction is task %s\n", name, agentID, rec.ID, parentWords(parent), t.ID)
+			outf("next: ks agent wait %s, then ks agent read %s\n", name, name)
 		})
 		return
 	}
@@ -199,9 +199,9 @@ func hostedAgentRun(cr hostedCreds, inv *Invocation) {
 			NextAction: "ks agent wait " + name})
 	}
 	emit(doc, func() {
-		fmt.Printf("%s (agent %s) in session %s%s\n", name, agentID, rec.ID, parentWords(parent))
+		outf("%s (agent %s) in session %s%s\n", name, agentID, rec.ID, parentWords(parent))
 		printWaitResult(w, timeout)
-		fmt.Printf("its reply: ks agent read %s\n", name)
+		outf("its reply: ks agent read %s\n", name)
 	})
 }
 

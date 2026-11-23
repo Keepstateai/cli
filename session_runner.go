@@ -134,7 +134,7 @@ func hostedSessionRunner(cr hostedCreds, inv *Invocation) {
 			die(runnerChangeRefusal(cr, err, sess))
 		}
 		emit(map[string]any{"change": env.Data}, func() {
-			fmt.Printf("session %s: %s\n", sess.ShortID, sanitize(firstNonEmptyStr(env.Data.Words, "Cancelled. Nothing was changed.")))
+			outf("session %s: %s\n", sess.ShortID, sanitize(firstNonEmptyStr(env.Data.Words, "Cancelled. Nothing was changed.")))
 		})
 		return
 	}
@@ -145,19 +145,19 @@ func hostedSessionRunner(cr hostedCreds, inv *Invocation) {
 		emit(map[string]any{"session": sess.ID, "record": rec.ID, "harness": firstNonEmptyStr(rec.Harness, defaultHarness), "runner_model": rec.RunnerModel,
 			"runner_key": rec.RunnerKey, "runner_change": rec.RunnerChange, "runtime_state": rec.RuntimeState, "revision": rec.Revision,
 			"runner_effort": rec.RunnerEffort, "runner_effort_default": rec.RunnerEffortDefault, "runner_effort_unavailable": rec.RunnerEffortUnavailable}, func() {
-			fmt.Printf("session %s runs %s on %s, calling %s\n", sess.ShortID, sanitize(firstNonEmptyStr(rec.Harness, defaultHarness)), sanitize(notRecorded(rec.RunnerModel)), sanitize(runnerKeyWords(rec.RunnerKey)))
-			fmt.Printf("  state          %s\n", stateWords("session_runtime", rec.RuntimeState))
-			fmt.Printf("  effort         %s\n", effortLine(rec))
+			outf("session %s runs %s on %s, calling %s\n", sess.ShortID, sanitize(firstNonEmptyStr(rec.Harness, defaultHarness)), sanitize(notRecorded(rec.RunnerModel)), sanitize(runnerKeyWords(rec.RunnerKey)))
+			outf("  state          %s\n", stateWords("session_runtime", rec.RuntimeState))
+			outf("  effort         %s\n", effortLine(rec))
 			if rec.RunnerEffortUnavailable == "" {
-				fmt.Printf("                 %s\n", effortMoney)
+				outf("                 %s\n", effortMoney)
 			}
 			if rec.RunnerKey != nil && rec.RunnerKey.Route == "none" && rec.RunnerKey.Problem != nil {
-				fmt.Printf("  key            %s\n", sanitize(rec.RunnerKey.Problem.Words))
+				outf("  key            %s\n", sanitize(rec.RunnerKey.Problem.Words))
 			}
 			if c := rec.RunnerChange; c != nil && c.State == "open" {
-				fmt.Printf("  changing       %s: %s\n", sanitize(runnerStepWords[c.Step]), sanitize(c.Words))
+				outf("  changing       %s: %s\n", sanitize(runnerStepWords[c.Step]), sanitize(c.Words))
 			}
-			fmt.Printf("  change         ks session runner %s --harness <h> --model <m> --effort <level> --key <key-id|keepstate>; the service saves and starts it again as needed\n", sess.ShortID)
+			outf("  change         ks session runner %s --harness <h> --model <m> --effort <level> --key <key-id|keepstate>; the service saves and starts it again as needed\n", sess.ShortID)
 		})
 		return
 	}
@@ -239,13 +239,13 @@ func hostedSessionRunner(cr hostedCreds, inv *Invocation) {
 	}
 	after := readSessionRunner(cr, sess.RecordID)
 	emit(map[string]any{"change": out.Data, "session": after}, func() {
-		fmt.Printf("session %s runs %s on %s, calling %s\n", sess.ShortID, sanitize(firstNonEmptyStr(after.Harness, defaultHarness)), sanitize(notRecorded(after.RunnerModel)), sanitize(runnerKeyWords(after.RunnerKey)))
-		fmt.Printf("  %s\n", sanitize(firstNonEmptyStr(out.Data.Words, "Done.")))
+		outf("session %s runs %s on %s, calling %s\n", sess.ShortID, sanitize(firstNonEmptyStr(after.Harness, defaultHarness)), sanitize(notRecorded(after.RunnerModel)), sanitize(runnerKeyWords(after.RunnerKey)))
+		outf("  %s\n", sanitize(firstNonEmptyStr(out.Data.Words, "Done.")))
 		if effortSet {
-			fmt.Printf("  effort         %s, from the next instruction\n", effortLine(after))
+			outf("  effort         %s, from the next instruction\n", effortLine(after))
 		}
 		if out.Data.Outcome == "applied_not_resumed" {
-			fmt.Printf("  resume it when ready: ks session resume %s\n", sess.ShortID)
+			outf("  resume it when ready: ks session resume %s\n", sess.ShortID)
 		}
 	})
 }

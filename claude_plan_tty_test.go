@@ -332,7 +332,7 @@ func TestLoginClaudeOrgPlanKeysAndRemove(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d\n%s%s", code, out, errs)
 	}
-	for _, want := range []string{"MEMBER", "Ada Lovelace (you)", "…9999", "working", "Grace Hopper", "…1234", "ends soon", "3 Dec 2026"} {
+	for _, want := range []string{"Member", "Ada Lovelace (you)", "…9999", "working", "Grace Hopper", "…1234", "ends soon", "3 Dec 2026"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the list does not say %q:\n%s", want, out)
 		}

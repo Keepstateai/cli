@@ -881,25 +881,25 @@ func cruiseInit(inv *Invocation) {
 			"workspace": map[string]any{"files": len(files), "packed_bytes": cw.n, "tree_digest": treeDigest(files), "selection_digest": sel.Digest, "excluded": len(sel.Excluded), "policy_version": sel.PolicyVersion}, "previous_approval_removed": lockRemoved}, nil)
 		return
 	}
-	fmt.Println(sha)
-	fmt.Printf("manifest: %s (draft, version 1)\n", cruiseDraft)
-	fmt.Printf("goal: %s\n", goal)
+	outln(sha)
+	outf("manifest: %s (draft, version 1)\n", cruiseDraft)
+	outf("goal: %s\n", goal)
 	how := map[string]string{"discovered": "discovered; choose another with --check", "explicit": "chosen with --check", "legacy_command": "named with --tests"}[chosen.Source]
-	fmt.Printf("check: %s (%s, %s)\n", ck.command, chosen.Runner, how)
-	fmt.Printf("pinned: %d verifier inputs (tests, their config, lockfiles and fixtures, nested included), tests_digest %s, inputs digest %s\n", testCount, short(tests), short(pinnedDigest))
-	fmt.Printf("boundary: %s\n", boundary)
+	outf("check: %s (%s, %s)\n", ck.command, chosen.Runner, how)
+	outf("pinned: %d verifier inputs (tests, their config, lockfiles and fixtures, nested included), tests_digest %s, inputs digest %s\n", testCount, short(tests), short(pinnedDigest))
+	outf("boundary: %s\n", boundary)
 	src := "from --ladder"
 	if fromTable {
 		src = "the default ladder of model table " + embeddedModels.Version
 	}
-	fmt.Printf("ladder: %s (%d rungs, %s)\n", ladderWords(ladder), len(ladder), src)
-	fmt.Printf("limits: %d s per attempt, spend ceiling %s, reserve %s\n", cruiseTimeS, dollars(spend), dollars(cruiseReserve))
-	fmt.Printf("workspace: %d files, %s bytes packed, tree digest %s\n", len(files), commas(cw.n), short(treeDigest(files)))
-	fmt.Printf("save points: before every attempt, every %d s, after a pass\n", cruiseEverySecs)
+	outf("ladder: %s (%d rungs, %s)\n", ladderWords(ladder), len(ladder), src)
+	outf("limits: %d s per attempt, spend ceiling %s, reserve %s\n", cruiseTimeS, dollars(spend), dollars(cruiseReserve))
+	outf("workspace: %d files, %s bytes packed, tree digest %s\n", len(files), commas(cw.n), short(treeDigest(files)))
+	outf("save points: before every attempt, every %d s, after a pass\n", cruiseEverySecs)
 	if lockRemoved {
-		fmt.Println("previous approval removed: the draft changed")
+		outln("previous approval removed: the draft changed")
 	}
-	fmt.Printf("next: review %s, then: ks cruise approve\n", cruiseDraft)
+	outf("next: review %s, then: ks cruise approve\n", cruiseDraft)
 }
 
 func short(digest string) string {
@@ -1077,10 +1077,10 @@ func cruiseApprove(inv *Invocation) {
 		die(err)
 	}
 	emit(map[string]any{"manifest_sha": sha, "lock": cruiseLock, "version": m["version"], "approved_at": lk.ApprovedAt}, func() {
-		fmt.Println(sha)
-		fmt.Printf("approved: %s locks manifest version %v at %s\n", cruiseLock, m["version"], lk.ApprovedAt)
-		fmt.Printf("bound: upload selection %s, check %s over inputs %s, keys %s\n", short(sel.Digest), runner, short(inputs), routesWords(routes))
-		fmt.Println("next: ks cruise run")
+		outln(sha)
+		outf("approved: %s locks manifest version %v at %s\n", cruiseLock, m["version"], lk.ApprovedAt)
+		outf("bound: upload selection %s, check %s over inputs %s, keys %s\n", short(sel.Digest), runner, short(inputs), routesWords(routes))
+		outln("next: ks cruise run")
 	})
 }
 
@@ -1333,7 +1333,7 @@ func cruiseRun(inv *Invocation) error {
 	emit(map[string]any{"job_id": job["id"], "state": job["state"], "spend_ceiling": ceiling, "spend_ceiling_microusd": job["spend_ceiling_microusd"], "rungs": len(ladder), "packed_bytes": cw.n, "manifest_sha": sha}, func() {
 		progress("job %s %s: spend ceiling %s, %d rungs, %s bytes packed (on %s)",
 			jstr(job, "id"), jstr(job, "state"), ceiling, len(ladder), commas(cw.n), c.CTL)
-		fmt.Println(jstr(job, "id"))
+		outln(jstr(job, "id"))
 		if _, _, inHerdr := herdrPane(); inHerdr {
 			progress("in herdr, the KeepState receipts pane follows it and shows its receipt: herdr plugin pane open --plugin keepstate --entrypoint receipts")
 		}
@@ -1435,11 +1435,11 @@ func cruiseStatus(inv *Invocation) {
 		if len(jobs) == 0 {
 			if org := currentContext(c); org != "" {
 				emit(map[string]any{"job": nil, "context": org, "note": "no jobs of this organization that you can see"}, func() {
-					fmt.Printf("Context: organization %s\nno Cruise jobs of this organization that you can see; start one with ks cruise init\n", org)
+					outf("Context: organization %s\nno Cruise jobs of this organization that you can see; start one with ks cruise init\n", org)
 				})
 				return
 			}
-			emit(map[string]any{"job": nil, "note": "no jobs on this account"}, func() { fmt.Println("no jobs on this account; start one with ks cruise init") })
+			emit(map[string]any{"job": nil, "note": "no jobs on this account"}, func() { outln("no jobs on this account; start one with ks cruise init") })
 			return
 		}
 		job = jobs[0]
@@ -1460,7 +1460,7 @@ func cruiseStatus(inv *Invocation) {
 	}
 	emit(job, func() {
 		if org := currentContext(c); org != "" {
-			fmt.Printf("Context: organization %s\n", org)
+			outf("Context: organization %s\n", org)
 		}
 		printJob(job)
 	})
@@ -1473,8 +1473,8 @@ func cruiseStatus(inv *Invocation) {
 // ladder-exhausted, policy-violation, limit-reached, cancelled. Anything
 // absent reads "unavailable", never zero.
 func printJob(job map[string]any) {
-	fmt.Printf("job %s  state %s\n", jstr(job, "id"), jstr(job, "state"))
-	fmt.Printf("goal: %s\n", jstr(job, "goal"))
+	outf("job %s  state %s\n", jstr(job, "id"), jstr(job, "state"))
+	outf("goal: %s\n", jstr(job, "goal"))
 
 	manifest, _ := job["manifest"].(map[string]any)
 	ladder, _ := manifest["ladder"].([]any)
@@ -1485,15 +1485,15 @@ func printJob(job map[string]any) {
 				model = jstr(r, "model")
 			}
 		}
-		fmt.Printf("rung %d of %d (%s)\n", pos+1, len(ladder), model)
+		outf("rung %d of %d (%s)\n", pos+1, len(ladder), model)
 	} else {
-		fmt.Println("rung: unavailable")
+		outln("rung: unavailable")
 	}
 
 	attempts, haveAttempts := job["attempts"].([]any)
 	savePoints := 0
 	if haveAttempts && len(attempts) == 0 {
-		fmt.Println("attempts: none yet")
+		outln("attempts: none yet")
 	}
 	for _, a := range attempts {
 		at, _ := a.(map[string]any)
@@ -1510,13 +1510,13 @@ func printJob(job map[string]any) {
 		}
 		sp, _ := at["save_points"].([]any)
 		savePoints += len(sp)
-		fmt.Printf("  attempt %s  rung %s  %s  state %s  verdict %s  cost %s  save points %d\n",
+		outf("  attempt %s  rung %s  %s  state %s  verdict %s  cost %s  save points %d\n",
 			jstr(at, "id"), rungText, jstr(at, "model"), jstr(at, "state"), jstr(at, "verdict"), cost, len(sp))
 	}
 	if haveAttempts {
-		fmt.Printf("save points: %d\n", savePoints)
+		outf("save points: %d\n", savePoints)
 	} else {
-		fmt.Println("save points: unavailable")
+		outln("save points: unavailable")
 	}
 
 	spent, ceiling := "unavailable", "unavailable"
@@ -1527,17 +1527,17 @@ func printJob(job map[string]any) {
 		ceiling = dollars(n)
 	}
 	if l := workspaceLine(job); l != "" {
-		fmt.Println(l)
+		outln(l)
 	}
-	fmt.Printf("spent %s of %s ceiling\n", spent, ceiling)
-	fmt.Printf("verdict: %s\n", jstr(job, "verdict"))
+	outf("spent %s of %s ceiling\n", spent, ceiling)
+	outf("verdict: %s\n", jstr(job, "verdict"))
 	if sha, _ := job["artifact_sha"].(string); sha != "" {
-		fmt.Printf("artifact: ks cruise artifact %s  (sha256 %s)\n", jstr(job, "id"), short(sha))
+		outf("artifact: ks cruise artifact %s  (sha256 %s)\n", jstr(job, "id"), short(sha))
 	} else {
-		fmt.Println("artifact: unavailable")
+		outln("artifact: unavailable")
 	}
-	fmt.Println(receiptLine(job))
-	fmt.Printf("updated: %s\n", jstr(job, "updated_at"))
+	outln(receiptLine(job))
+	outf("updated: %s\n", jstr(job, "updated_at"))
 }
 
 // receiptLine is the status line about the signed receipt. The job resource
@@ -1565,7 +1565,7 @@ func cruiseLogs(inv *Invocation) {
 	}
 	if len(events) == 0 {
 		if !out.json {
-			fmt.Println("no events yet")
+			outln("no events yet")
 		}
 		return
 	}
@@ -1630,7 +1630,7 @@ func cruiseArtifact(inv *Invocation) error {
 		default:
 			progress("badge: %s", badgeLine(badge))
 		}
-		fmt.Println(dest)
+		outln(dest)
 	})
 	return nil
 }

@@ -304,7 +304,7 @@ func hostedCruiseTestsGenerate(cr hostedCreds, inv *Invocation) {
 	_ = json.Unmarshal(env.Data, &tv)
 	emit(env.Data, func() {
 		printTests(os.Stdout, &tv, false)
-		fmt.Printf("next: ks cruise tests show %s (the tests are written, then run twice on your files)\n", id)
+		outf("next: ks cruise tests show %s (the tests are written, then run twice on your files)\n", id)
 	})
 }
 
@@ -314,16 +314,16 @@ func hostedCruiseTestsShow(cr hostedCreds, inv *Invocation) {
 		printTests(os.Stdout, v, inv.Bool("files"))
 		switch v.State {
 		case "generated":
-			fmt.Printf("next: ks cruise tests review %s (every file in full, then the set digest computed here)\n", v.DraftID)
+			outf("next: ks cruise tests review %s (every file in full, then the set digest computed here)\n", v.DraftID)
 		case "reviewed":
-			fmt.Printf("next: ks cruise draft approve %s\n", v.DraftID)
+			outf("next: ks cruise draft approve %s\n", v.DraftID)
 		case "awaiting_aim", "refused":
 			if ps := v.leaveOutPaths(); len(ps) > 0 {
 				// the console's one button, as two commands
-				fmt.Printf("next: ks cruise draft set %s --leave-out %s, then ks cruise tests generate %s\n", v.DraftID, sanitize(strings.Join(ps, " ")), v.DraftID)
+				outf("next: ks cruise draft set %s --leave-out %s, then ks cruise tests generate %s\n", v.DraftID, sanitize(strings.Join(ps, " ")), v.DraftID)
 				return
 			}
-			fmt.Printf("next: ks cruise tests generate %s\n", v.DraftID)
+			outf("next: ks cruise tests generate %s\n", v.DraftID)
 		}
 	})
 }
@@ -366,8 +366,8 @@ func hostedCruiseTestsReview(cr hostedCreds, inv *Invocation) {
 		die(err)
 	}
 	emit(env.Data, func() {
-		fmt.Printf("reviewed the generated tests of %s: set %s\n", v.DraftID, short(computed))
-		fmt.Printf("next: ks cruise draft approve %s\n", v.DraftID)
+		outf("reviewed the generated tests of %s: set %s\n", v.DraftID, short(computed))
+		outf("next: ks cruise draft approve %s\n", v.DraftID)
 	})
 }
 
@@ -377,7 +377,7 @@ func hostedCruiseTestsDiscard(cr hostedCreds, inv *Invocation) {
 		die(err)
 	}
 	emit(env.Data, func() {
-		fmt.Printf("the generated tests of %s are discarded; ask again with ks cruise tests generate %s\n", inv.Arg(0), inv.Arg(0))
+		outf("the generated tests of %s are discarded; ask again with ks cruise tests generate %s\n", inv.Arg(0), inv.Arg(0))
 	})
 }
 

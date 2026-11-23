@@ -136,6 +136,12 @@ func planStateWords(k customerKey, now time.Time) string {
 // planKeyLine is a plan row in a key list: "Claude plan", the last four
 // characters, when it ends and what needs attention.
 func planKeyLine(k customerKey, now time.Time) string {
+	c := planKeyCells(k, now)
+	return fmt.Sprintf("%-14s %-11s %-18s %-6s %s", c[0], c[1], c[2], c[3], c[4])
+}
+
+// planKeyCells are a plan row's cells in a key list.
+func planKeyCells(k customerKey, now time.Time) []string {
 	state := "enabled"
 	if !k.Enabled {
 		state = "disabled"
@@ -151,7 +157,7 @@ func planKeyLine(k customerKey, now time.Time) string {
 	case "invalid":
 		state += " (no longer works)"
 	}
-	return fmt.Sprintf("%-14s %-11s %-18s %-6s %s", k.ID, k.Provider, "Claude plan", "…"+k.Last4, state)
+	return []string{k.ID, k.Provider, "Claude plan", "…" + k.Last4, state}
 }
 
 // claudePlanListed: the service lists the sign-in as available to this

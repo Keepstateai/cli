@@ -150,7 +150,7 @@ func cruiseUpload(inv *Invocation) {
 	state := jstr(job, "state")
 	if sha, _ := job["workspace_sha"].(string); sha != "" {
 		emit(map[string]any{"job_id": id, "uploaded": false, "already_recorded": true, "workspace_sha": sha}, func() {
-			fmt.Printf("job %s already has its workspace (sha256 %s); nothing was sent\n", id, short(sha))
+			outf("job %s already has its workspace (sha256 %s); nothing was sent\n", id, short(sha))
 		})
 		return
 	}
@@ -173,7 +173,7 @@ func cruiseUpload(inv *Invocation) {
 		die(err)
 	}
 	emit(map[string]any{"job_id": id, "uploaded": true, "state": after["state"], "workspace_sha": after["workspace_sha"], "workspace_bytes": after["workspace_bytes"]}, func() {
-		fmt.Printf("job %s: workspace stored (sha256 %s); the job can now be claimed (state %s)\n", id, short(jstr(after, "workspace_sha")), jstr(after, "state"))
+		outf("job %s: workspace stored (sha256 %s); the job can now be claimed (state %s)\n", id, short(jstr(after, "workspace_sha")), jstr(after, "state"))
 	})
 }
 

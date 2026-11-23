@@ -92,7 +92,7 @@ func TestSessionListReadsEveryPageAndKeepsColumns(t *testing.T) {
 	bin, cfg := buildAndAuth(t, srv)
 	dir := t.TempDir()
 	// QA-021-1: the complete result, across five pages
-	out, errs, code := auditExec(t, bin, cfg, dir, append(fastEnv(cfg), "COLUMNS=80"), "session", "list", "--json")
+	out, errs, code := auditExec(t, bin, cfg, dir, append(fastEnv(cfg), "KS_FORCE_COLUMNS=80"), "session", "list", "--json")
 	if code != 0 {
 		t.Fatalf("exit %d\n%s%s", code, out, errs)
 	}
@@ -110,7 +110,7 @@ func TestSessionListReadsEveryPageAndKeepsColumns(t *testing.T) {
 	}
 	// VER-021-1: at 80 and 120 columns no line exceeds the width, and identity and state survive
 	for _, width := range []int{80, 120} {
-		out, _, code := auditExec(t, bin, cfg, dir, append(fastEnv(cfg), "COLUMNS="+strconv.Itoa(width)), "ls", "--state", "parked")
+		out, _, code := auditExec(t, bin, cfg, dir, append(fastEnv(cfg), "KS_FORCE_COLUMNS="+strconv.Itoa(width)), "ls", "--state", "parked")
 		if code != 0 {
 			t.Fatalf("width %d: exit %d", width, code)
 		}
@@ -124,15 +124,15 @@ func TestSessionListReadsEveryPageAndKeepsColumns(t *testing.T) {
 			}
 		}
 		// QA-021-2: a parked session with queued work is not labeled like an idle running one
-		if !strings.Contains(lines[1], "parked") || !strings.Contains(lines[1], "2 queued") {
-			t.Errorf("width %d: parked row lost its state or task: %q", width, lines[1])
+		if !strings.Contains(flat(out), "parked") || !strings.Contains(flat(out), "2 queued") {
+			t.Errorf("width %d: parked row lost its state or task: %q", width, out)
 		}
-		if width >= 110 && !strings.Contains(lines[0], "KEY") {
+		if width >= 110 && !strings.Contains(out, " Key") {
 			t.Errorf("width %d: wide table lacks the key column", width)
 		}
 	}
 	// the alias and the filter agree with the verb
-	if out, _, _ := auditExec(t, bin, cfg, dir, append(fastEnv(cfg), "COLUMNS=80"), "session", "list", "--state", "running"); strings.Contains(out, "parked") {
+	if out, _, _ := auditExec(t, bin, cfg, dir, append(fastEnv(cfg), "KS_FORCE_COLUMNS=80"), "session", "list", "--state", "running"); strings.Contains(out, "parked") {
 		t.Error("filter leaked another state")
 	}
 	if _, errs, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "session", "list", "--state", "busy"); code != 2 || !strings.Contains(errs, "running, parked or dead") {
@@ -172,7 +172,7 @@ func TestSessionListEmptyStateAndCapabilityGate(t *testing.T) {
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)
 	out, _, code := auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "ls")
-	if code != 0 || !strings.Contains(out, "No sessions. Start one: ks run") {
+	if code != 0 || !strings.Contains(out, "You have no sessions yet.") || !strings.Contains(out, "Next: ks run") {
 		t.Errorf("empty state: %d %q", code, out)
 	}
 	// a control plane without the capability disables the verb with the reason, and sends no list request

@@ -122,7 +122,7 @@ func TestOrganizationRunAndSessionVerbs(t *testing.T) {
 	}
 	// the session verbs: the organization's records, the context said
 	out, errs, code = run("session", "list")
-	if code != 0 || !strings.Contains(out, "Context: organization org_a") || !strings.Contains(out, "session_org1a") {
+	if code != 0 || !strings.Contains(out, "Sessions of the organization org_a") || !strings.Contains(out, "session_org1a") {
 		t.Fatalf("session list in the context: %d %s %s", code, out, errs)
 	}
 	out, errs, code = run("session", "show", "session_org1ab")

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Every list and text screen reads the same way, and fits the terminal. A list
+  is a title with its count, a table, notes and one Next command; an empty list
+  is one plain sentence. Tables take the terminal's width and, when they do not
+  fit, stack each row on word boundaries instead of cutting an id; wrapped
+  prose and notes never break a path or an address. Done for `ks import list`,
+  `ks session list` (`ls`), `ks agent list` (and `--all`), `ks task list`,
+  `ks result list`, `ks file list`, `ks agent queue list`, `ks key list`,
+  `ks apps list`, the organization lists (organizations, members, invitations,
+  audit, sessions, teams, budgets, billing contacts, statements, domain
+  requests), the saved points, the library and connection lists, drafts,
+  proposals and plans, checks, advisers, agent folders and roles. Text a verb
+  prints line by line wraps the same way (a command, an address or a long token
+  is left whole). Into a pipe nothing is cut or wrapped, so a program reads
+  whole cells.
 - `ks import` no longer fails before it asks when a repository's history is
   big. The project's files and their history (`.git`) are measured apart: at a
   terminal you choose between the conversation only, the files with their

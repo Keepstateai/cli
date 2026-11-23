@@ -1,0 +1,78 @@
+=== queue, list, 120 columns ===
+Queue of agent main in session sess_0123
+
+  Executing now (never moved or edited)
+  Pos  Instruction  State    Submitted by      Age  First line
+  now  tsk_run      running  account acct_1  1m30s  deploy the site
+
+  Pending, in dispatch order (2)
+  Pos  Instruction  State                        Submitted by      Age  First line
+    1  tsk_a        queued                       account acct_1  1m20s  write the tests for the new import choice and
+                                                                        run them on every width
+    2  tsk_b        held (waiting for approval)  agent agt_2     1m10s  (not shown: reading instructions needs the
+                                                                        operator role)
+
+  Queue revision qrev_1.
+=== queue, list, 80 columns ===
+Queue of agent main in session sess_0123
+
+  Executing now (never moved or edited)
+  Pos  Instruction  State    Submitted by      Age  First line
+  now  tsk_run      running  account acct_1  1m30s  deploy the site
+
+  Pending, in dispatch order (2)
+  1 · tsk_a · queued · account acct_1 · 1m20s
+    write the tests for the new import choice and run them on every width
+
+  2 · tsk_b · held (waiting for approval) · agent agt_2 · 1m10s
+    (not shown: reading instructions needs the operator role)
+
+  Queue revision qrev_1.
+=== queue, list, 60 columns ===
+Queue of agent main in session sess_0123
+
+  Executing now (never moved or edited)
+  now · tsk_run · running · account acct_1 · 1m30s
+    deploy the site
+
+  Pending, in dispatch order (2)
+  1 · tsk_a · queued · account acct_1 · 1m20s
+    write the tests for the new import choice and run them
+    on every width
+
+  2 · tsk_b · held (waiting for approval) · agent agt_2 ·
+    1m10s
+    (not shown: reading instructions needs the operator
+    role)
+
+  Queue revision qrev_1.
+=== queue, empty, 120 columns ===
+Queue of agent main in session sess_0123
+
+  Executing now (never moved or edited)
+  Nothing is executing.
+
+  Pending, in dispatch order (0)
+  Nothing is pending.
+
+  Queue revision qrev_1.
+=== queue, empty, 80 columns ===
+Queue of agent main in session sess_0123
+
+  Executing now (never moved or edited)
+  Nothing is executing.
+
+  Pending, in dispatch order (0)
+  Nothing is pending.
+
+  Queue revision qrev_1.
+=== queue, empty, 60 columns ===
+Queue of agent main in session sess_0123
+
+  Executing now (never moved or edited)
+  Nothing is executing.
+
+  Pending, in dispatch order (0)
+  Nothing is pending.
+
+  Queue revision qrev_1.

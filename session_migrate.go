@@ -185,14 +185,14 @@ func hostedSessionMigrate(cr hostedCreds, inv *Invocation) {
 		readBack = fmt.Sprintf("the session record now reads mode %s, primary agent %s", sanitize(figure(rec.Data.Mode)), notRecorded(rec.Data.PrimaryAgentID))
 	}
 	emit(map[string]any{"result": res, "preview_digest": p.PreviewDigest, "record_mode": rec.Data.Mode, "record_primary_agent": rec.Data.PrimaryAgentID}, func() {
-		fmt.Printf("session %s: %s (mode %s)\n", id, sanitize(figure(res.Outcome)), sanitize(figure(res.Mode)))
-		fmt.Printf("  agent          %s\n", notRecorded(res.AgentID))
-		fmt.Printf("  rollback point %s\n", notRecorded(res.RollbackPoint))
-		fmt.Printf("  preserved      %d task(s), %d adviser connection(s), %d member(s)\n", res.PreservedTasks, res.PreservedGrants, res.PreservedMembers)
-		fmt.Printf("  %s\n", sanitize(res.Note))
-		fmt.Printf("  read back: %s\n", readBack)
+		outf("session %s: %s (mode %s)\n", id, sanitize(figure(res.Outcome)), sanitize(figure(res.Mode)))
+		outf("  agent          %s\n", notRecorded(res.AgentID))
+		outf("  rollback point %s\n", notRecorded(res.RollbackPoint))
+		outf("  preserved      %d task(s), %d adviser connection(s), %d member(s)\n", res.PreservedTasks, res.PreservedGrants, res.PreservedMembers)
+		outf("  %s\n", sanitize(res.Note))
+		outf("  read back: %s\n", readBack)
 		if res.Mode == "agent" && rec.Data.Mode != "" && rec.Data.Mode != "agent" {
-			fmt.Printf("  WARNING: the result says agent, and the record reads %s\n", sanitize(rec.Data.Mode))
+			outf("  WARNING: the result says agent, and the record reads %s\n", sanitize(rec.Data.Mode))
 		}
 	})
 }

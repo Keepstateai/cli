@@ -122,7 +122,7 @@ func hostedProjectConfigure(cr hostedCreds, inv *Invocation) {
 	}
 	if !trusted {
 		emit(map[string]any{"proposal": p, "trusted": false}, func() {
-			fmt.Printf("proposed, NOT trusted: nothing changed. Trust exactly these changes: ks project configure --project %s --confirm %s\n", pid, short(hexd))
+			outf("proposed, NOT trusted: nothing changed. Trust exactly these changes: ks project configure --project %s --confirm %s\n", pid, short(hexd))
 		})
 		return
 	}
@@ -139,7 +139,7 @@ func hostedProjectConfigure(cr hostedCreds, inv *Invocation) {
 		die(err)
 	}
 	emit(map[string]any{"proposal": p, "trusted": true, "trust": tr.Data}, func() {
-		fmt.Printf("trusted: proposal %s (digest %s) is the project's defaults for sessions created from now on; existing sessions are unchanged\n", p.ID, short(hexd))
+		outf("trusted: proposal %s (digest %s) is the project's defaults for sessions created from now on; existing sessions are unchanged\n", p.ID, short(hexd))
 	})
 }
 
@@ -167,10 +167,10 @@ func hostedSessionIdle(cr hostedCreds, inv *Invocation) {
 	d := env.Data
 	emit(d, func() {
 		if !d.Enabled {
-			fmt.Printf("session %s: idle parking is off (%s)\n", sess.ShortID, sanitize(d.Note))
+			outf("session %s: idle parking is off (%s)\n", sess.ShortID, sanitize(d.Note))
 			return
 		}
-		fmt.Printf("session %s: parks after %d min idle, with a %d s warning; an idle session is saved and paused, never killed\n", sess.ShortID, d.IdleMinutes, d.WarningSeconds)
+		outf("session %s: parks after %d min idle, with a %d s warning; an idle session is saved and paused, never killed\n", sess.ShortID, d.IdleMinutes, d.WarningSeconds)
 		line := "  now      " + figure(d.State)
 		if d.ParkAt != "" {
 			if t, err := time.Parse(time.RFC3339Nano, d.ParkAt); err == nil {
@@ -184,12 +184,12 @@ func hostedSessionIdle(cr hostedCreds, inv *Invocation) {
 		if d.DeferredReason != "" {
 			line += ", deferred: " + sanitize(d.DeferredReason)
 		}
-		fmt.Println(line)
+		outln(line)
 		if d.IdleSince != "" {
-			fmt.Printf("  idle since %s\n", d.IdleSince)
+			outf("  idle since %s\n", d.IdleSince)
 		}
 		if d.Note != "" {
-			fmt.Printf("  %s\n", sanitize(d.Note))
+			outf("  %s\n", sanitize(d.Note))
 		}
 	})
 }

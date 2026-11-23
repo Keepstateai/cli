@@ -1,0 +1,55 @@
+=== keys, list, 120 columns ===
+Your keys  2 keys
+
+  Key           Provider   Alias  Last 4  State
+  vlt_mine0001  anthropic  work   …abcd   enabled
+  vlt_mine0002  openai     -      …wxyz   disabled
+
+  KeepState's key for anthropic (--key keepstate): list price plus 4%, from purchased credit;
+  the default for new sessions.
+=== keys, list, 80 columns ===
+Your keys  2 keys
+
+  Key           Provider   Alias  Last 4  State
+  vlt_mine0001  anthropic  work   …abcd   enabled
+  vlt_mine0002  openai     -      …wxyz   disabled
+
+  KeepState's key for anthropic (--key keepstate): list price plus 4%, from
+  purchased credit; the default for new sessions.
+=== keys, list, 60 columns ===
+Your keys  2 keys
+
+  Key           Provider   Alias  Last 4  State
+  vlt_mine0001  anthropic  work   …abcd   enabled
+  vlt_mine0002  openai     -      …wxyz   disabled
+
+  KeepState's key for anthropic (--key keepstate): list
+  price plus 4%, from purchased credit; the default for new
+  sessions.
+=== keys, empty, 120 columns ===
+Your keys  no keys
+
+  You have no provider keys yet. Add one, and your agents call with it.
+
+  Or sign in to your Claude plan once, and your Claude Code agents use it: ks login claude
+
+Next: ks key add --provider anthropic < key.txt
+=== keys, empty, 80 columns ===
+Your keys  no keys
+
+  You have no provider keys yet. Add one, and your agents call with it.
+
+  Or sign in to your Claude plan once, and your Claude Code agents use it: ks
+  login claude
+
+Next: ks key add --provider anthropic < key.txt
+=== keys, empty, 60 columns ===
+Your keys  no keys
+
+  You have no provider keys yet. Add one, and your agents
+  call with it.
+
+  Or sign in to your Claude plan once, and your Claude Code
+  agents use it: ks login claude
+
+Next: ks key add --provider anthropic < key.txt

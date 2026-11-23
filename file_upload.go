@@ -1017,7 +1017,7 @@ func hostedFileUpload(cr hostedCreds, inv *Invocation) {
 			die(u.refusal(err, "Nothing was discarded."))
 		}
 		emit(map[string]any{"session_id": agentSessionID(sess), "upload_id": u.view.UploadID, "discarded": true, "received": had, "size": p.Size}, func() {
-			fmt.Printf("discarded the unfinished upload of %s to %s: %s of %s had arrived. Nothing in the workspace changed.\n", visible(p.Name), visible(p.To), bytesText(had), bytesText(p.Size))
+			outf("discarded the unfinished upload of %s to %s: %s of %s had arrived. Nothing in the workspace changed.\n", visible(p.Name), visible(p.To), bytesText(had), bytesText(p.Size))
 		})
 		return
 	}
@@ -1075,11 +1075,11 @@ func hostedFileUpload(cr hostedCreds, inv *Invocation) {
 	}
 	emit(res, func() {
 		if res.Replaced {
-			fmt.Printf("replaced the existing %s\n", visible(res.Path))
+			outf("replaced the existing %s\n", visible(res.Path))
 		}
-		fmt.Printf("Uploaded %s (%s) to %s (session %s, sha256 %s, checked). %s\n", visible(p.Name), size, visible(res.Path), sess.ShortID, short64(p.SHA256), uploadStorageNote)
+		outf("Uploaded %s (%s) to %s (session %s, sha256 %s, checked). %s\n", visible(p.Name), size, visible(res.Path), sess.ShortID, short64(p.SHA256), uploadStorageNote)
 		if tellLine != "" {
-			fmt.Println(tellLine)
+			outln(tellLine)
 		}
 	})
 	if tellFail != "" {

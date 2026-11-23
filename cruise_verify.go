@@ -787,7 +787,7 @@ func cruiseVerify(inv *Invocation) {
 	if out.json {
 		emit(data, func() {})
 	} else if code == 0 {
-		fmt.Println("ks cruise verify: " + words)
+		outln("ks cruise verify: " + words)
 	} else {
 		fmt.Fprintln(os.Stderr, "ks cruise verify: "+words)
 	}

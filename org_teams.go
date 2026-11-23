@@ -99,7 +99,7 @@ func resolveTeam(cr hostedCreds, org, ref, nothing string) (*customerOrgTeam, []
 }
 
 func teamLine(t customerOrgTeam) {
-	fmt.Printf("%s  %s (depth %d, %d in it)\n", t.ID, t.pathText(), t.Depth, len(t.Members))
+	outf("%s  %s (depth %d, %d in it)\n", t.ID, t.pathText(), t.Depth, len(t.Members))
 }
 
 func hostedTeamList(cr hostedCreds, inv *Invocation) {
@@ -109,25 +109,33 @@ func hostedTeamList(cr hostedCreds, inv *Invocation) {
 		die(orgErr(err, "nothing was read"))
 	}
 	emit(map[string]any{"organization": org, "teams": teams, "count": len(teams), "complete": complete}, func() {
-		if len(teams) == 0 {
-			fmt.Println("No teams yet. An owner or admin makes one: ks team create NAME --organization " + org)
-			return
-		}
+		sc := listScreen{Title: "Teams of " + org, Detail: listCount(len(teams), "team", "teams"),
+			Cols: []Col{{Title: "Team"}, {Title: "Id"}, {Title: "Members", Wrap: true, Second: true}}}
 		// the service answers parents before the teams under them
 		for _, t := range teams {
-			indent := strings.Repeat("  ", t.Depth-1)
-			fmt.Printf("%s%s  %s\n", indent, t.Name, t.ID)
+			var who []string
 			for _, m := range t.Members {
 				tags := m.Role
 				if m.Home {
 					tags += ", home team"
 				}
-				fmt.Printf("%s    %s (%s)\n", indent, m.AccountID, tags)
+				who = append(who, m.AccountID+" ("+tags+")")
 			}
+			members := "no members"
+			if len(who) > 0 {
+				members = strings.Join(who, "\n")
+			}
+			sc.Rows = append(sc.Rows, []string{strings.Repeat("  ", max(0, t.Depth-1)) + t.Name, t.ID, members})
+		}
+		if len(teams) == 0 {
+			sc.Empty = "There are no teams yet. An owner or admin makes one."
+			sc.Next = []string{"ks team create NAME --organization " + org}
 		}
 		if !complete {
-			fmt.Printf("Stopped after %d pages; the list continues on the service.\n", orgPagesMax)
+			sc.Notes = append(sc.Notes, fmt.Sprintf("Stopped after %d pages; the list continues on the service.", orgPagesMax))
 		}
+		o, _ := cmdUI()
+		o.List(sc)
 	})
 }
 
@@ -217,7 +225,7 @@ func hostedTeamDelete(cr hostedCreds, inv *Invocation) {
 	}
 	d := env.Data
 	emit(d, func() {
-		fmt.Printf("Deleted team %s (%s). The %d people in it stay in the organization.\n", t.pathText(), d.ID, d.MembersLeft)
+		outf("Deleted team %s (%s). The %d people in it stay in the organization.\n", t.pathText(), d.ID, d.MembersLeft)
 	})
 }
 
@@ -236,7 +244,7 @@ func hostedTeamAdd(cr hostedCreds, inv *Invocation) {
 		die(orgErr(err, "nothing was changed"))
 	}
 	r := env.Data
-	emit(r, func() { fmt.Printf("%s is in %s as %s.\n", account, r.pathText(), role) })
+	emit(r, func() { outf("%s is in %s as %s.\n", account, r.pathText(), role) })
 }
 
 func hostedTeamRemove(cr hostedCreds, inv *Invocation) {
@@ -250,5 +258,5 @@ func hostedTeamRemove(cr hostedCreds, inv *Invocation) {
 		die(orgErr(err, "nothing was changed"))
 	}
 	r := env.Data
-	emit(r, func() { fmt.Printf("%s is no longer in %s. They stay in the organization.\n", account, r.pathText()) })
+	emit(r, func() { outf("%s is no longer in %s. They stay in the organization.\n", account, r.pathText()) })
 }

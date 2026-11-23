@@ -134,6 +134,6 @@ func cruiseReceipt(inv *Invocation) {
 		"publicly_verifiable": rc.PubliclyVerifiable}, func() {
 		progress("receipt %s: %s bytes, sha256 %s matches the job's record", id, commas(int64(len(raw))), short(bareHex(rc.SHA256)))
 		progress("this receipt is %s", receiptVerifiabilityWords(rc))
-		fmt.Println(dest)
+		outln(dest)
 	})
 }

@@ -34,11 +34,13 @@ Next: ks run --agent --key claude-plan
   link.
 
 Claude plans in org_acme  3
-  Ada Lovelace (you)  …9999  working
+  Ada Lovelace (you) · …9999 · working
     22 Nov 2027
-  Grace Hopper  …1234  ends soon
+
+  Grace Hopper · …1234 · ends soon
     3 Dec 2026
-  mem_three  …5678  no longer works
+
+  mem_three · …5678 · no longer works
     5 Jan 2027
 
 Claude plans in org_acme  0

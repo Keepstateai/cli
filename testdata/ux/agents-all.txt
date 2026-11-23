@@ -1,0 +1,52 @@
+=== agents-all, list, 120 columns ===
+Your agents  1 needs you · 1 working · 1 idle
+
+  State                  Agent     Session  What
+  Needs you: permission  checkout  api      shell: npm test
+                                            Action: Approve or deny: ks agent approve apr_1 --session ses_one
+  Working                build     web      Running a tool: shell, then writing the result to the workspace and checking
+                                            it
+  Idle                   review    api      Ready.
+
+Next: ks agent open checkout --session ses_one
+=== agents-all, list, 80 columns ===
+Your agents  1 needs you · 1 working · 1 idle
+
+  State                  Agent     Session  What
+  Needs you: permission  checkout  api      shell: npm test
+                                            Action: Approve or deny: ks agent
+                                            approve apr_1 --session ses_one
+  Working                build     web      Running a tool: shell, then writing
+                                            the result to the workspace and
+                                            checking it
+  Idle                   review    api      Ready.
+
+Next: ks agent open checkout --session ses_one
+=== agents-all, list, 60 columns ===
+Your agents  1 needs you · 1 working · 1 idle
+
+  Needs you: permission · checkout · api
+    shell: npm test
+    Action: Approve or deny: ks agent approve apr_1
+    --session ses_one
+
+  Working · build · web
+    Running a tool: shell, then writing the result to the
+    workspace and checking it
+
+  Idle · review · api
+    Ready.
+
+Next: ks agent open checkout --session ses_one
+=== agents-all, empty, 120 columns ===
+Your agents  Nothing needs you
+
+  You have no agents in your sessions.
+=== agents-all, empty, 80 columns ===
+Your agents  Nothing needs you
+
+  You have no agents in your sessions.
+=== agents-all, empty, 60 columns ===
+Your agents  Nothing needs you
+
+  You have no agents in your sessions.

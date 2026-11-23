@@ -332,48 +332,48 @@ func hostedSessionUsage(cr hostedCreds, inv *Invocation) {
 	}
 	u := env.Data
 	emit(u, func() {
-		fmt.Printf("usage of session %s, observed %s (rate book %s)\n", sess.ShortID, figure(u.ObservedAt), figure(u.RateBook))
+		outf("usage of session %s, observed %s (rate book %s)\n", sess.ShortID, figure(u.ObservedAt), figure(u.RateBook))
 		// the receipt first, as the console prints it; the entries below
 		// are the detail
 		if u.Summary != nil {
 			for _, l := range receiptLines(u.Summary, sess.RuntimeState, onKeepStatesKey(u.Entries)) {
-				fmt.Println(l)
+				outln(l)
 			}
 		} else {
-			fmt.Println("  receipt         unavailable: this service answered no summary; the entries below are the detail it keeps")
+			outln("  receipt         unavailable: this service answered no summary; the entries below are the detail it keeps")
 		}
 		lim := fmt.Sprintf("token cap %s", commas(u.Limits.TokenCap))
 		if u.Limits.ModelAdmissionLimitMicro != nil {
 			lim += ", model spend limit " + money(u.Limits.ModelAdmissionLimitMicro, "USD", "actual")
 		}
-		fmt.Printf("  limits   %s; admission %s\n", lim, figure(u.Limits.AdmissionPolicy))
+		outf("  limits   %s; admission %s\n", lim, figure(u.Limits.AdmissionPolicy))
 		if u.GatewayBudget != nil {
-			fmt.Printf("           gateway budget %s tokens: what the gateway enforces on this session's machine (the token cap governs admitted calls)\n", commas(*u.GatewayBudget))
+			outf("           gateway budget %s tokens: what the gateway enforces on this session's machine (the token cap governs admitted calls)\n", commas(*u.GatewayBudget))
 		}
 		if len(u.Entries) == 0 {
-			fmt.Println("  nothing recorded yet")
+			outln("  nothing recorded yet")
 			return
 		}
 		for _, e := range u.Entries {
 			switch {
 			case "model" == e.Kind && e.Source == "gateway meter":
 				// the gateway meters a total, not input and output apart
-				fmt.Printf("  model    gateway meter via %s: %d call(s), %s tokens (a total)", keySourceLabel(e.KeySource), e.Calls, commas(e.Tokens))
-				fmt.Printf("; cost %s\n", money(e.MicroUSD, e.Currency, e.Standing))
+				outf("  model    gateway meter via %s: %d call(s), %s tokens (a total)", keySourceLabel(e.KeySource), e.Calls, commas(e.Tokens))
+				outf("; cost %s\n", money(e.MicroUSD, e.Currency, e.Standing))
 			case "model" == e.Kind:
-				fmt.Printf("  model    %s/%s via %s: %d call(s), %s in + %s out tokens", figure(e.Provider), figure(e.Model), keySourceLabel(e.KeySource), e.Calls, commas(e.InputTokens), commas(e.OutputTokens))
+				outf("  model    %s/%s via %s: %d call(s), %s in + %s out tokens", figure(e.Provider), figure(e.Model), keySourceLabel(e.KeySource), e.Calls, commas(e.InputTokens), commas(e.OutputTokens))
 				if e.ReservedLive > 0 {
-					fmt.Printf(", %s reserved now", commas(e.ReservedLive))
+					outf(", %s reserved now", commas(e.ReservedLive))
 				}
-				fmt.Printf("; cost %s\n", money(e.MicroUSD, e.Currency, e.Standing))
+				outf("; cost %s\n", money(e.MicroUSD, e.Currency, e.Standing))
 			default:
-				fmt.Printf("  %-8s cost %s\n", e.Kind, money(e.MicroUSD, e.Currency, e.Standing))
+				outf("  %-8s cost %s\n", e.Kind, money(e.MicroUSD, e.Currency, e.Standing))
 			}
 			if e.PriceSource != "" {
-				fmt.Printf("           price source %s\n", e.PriceSource)
+				outf("           price source %s\n", e.PriceSource)
 			}
 			if e.Note != "" {
-				fmt.Printf("           %s\n", sanitize(e.Note))
+				outf("           %s\n", sanitize(e.Note))
 			}
 		}
 	})

@@ -712,11 +712,11 @@ func finishDraftShow(v *draftView, raw json.RawMessage, next bool) {
 			generated := v.Tests != nil && v.Tests.Source == "generated"
 			switch {
 			case next && generated && v.State == "ready" && v.Tests.State == "awaiting_aim":
-				fmt.Printf("next: ks cruise tests generate %s\n", v.ID)
+				outf("next: ks cruise tests generate %s\n", v.ID)
 			case next && generated && v.State == "ready" && v.Tests.State == "generated":
-				fmt.Printf("next: ks cruise tests review %s\n", v.ID)
+				outf("next: ks cruise tests review %s\n", v.ID)
 			case next && computed != "" && v.State == "ready":
-				fmt.Printf("next: ks cruise draft approve %s --confirm %s\n", v.ID, short(computed))
+				outf("next: ks cruise draft approve %s --confirm %s\n", v.ID, short(computed))
 			}
 		})
 	}
@@ -747,16 +747,24 @@ func hostedCruiseDraftList(cr hostedCreds, inv *Invocation) {
 		vs = append(vs, v)
 	}
 	emit(map[string]any{"drafts": env.Data.Items, "count": len(env.Data.Items), "context": contextWord(cr)}, func() {
+		sc := listScreen{Title: "Open Cruise drafts", Detail: listCount(len(vs), "draft", "drafts"),
+			Cols: []Col{{Title: "Draft"}, {Title: "State"}, {Title: "Goal"}, {Title: "Files", Right: true}, {Title: "Size", Right: true}, {Title: "Manifest", Second: true}, {Title: "Kept until", Second: true}}}
 		if org := currentContext(cr); org != "" {
-			fmt.Printf("Context: organization %s\n", org)
-		}
-		if len(vs) == 0 {
-			fmt.Println("no open drafts; start one with ks cruise draft create --dir FOLDER")
-			return
+			sc.Title = "Open Cruise drafts of the organization " + org
 		}
 		for _, v := range vs {
-			fmt.Println(draftLine(v))
+			digest := "no manifest yet"
+			if v.ManifestSHA != "" {
+				digest = "digest " + short(v.ManifestSHA)
+			}
+			sc.Rows = append(sc.Rows, []string{v.ID, v.State, sanitize(notRecorded(v.Options.Goal)), fmt.Sprintf("%d", v.Files.Included), mib(v.Files.Bytes), digest, "kept until " + figure(v.ExpiresAt)})
 		}
+		if len(vs) == 0 {
+			sc.Empty = "There are no open drafts."
+			sc.Next = []string{"ks cruise draft create --dir FOLDER"}
+		}
+		o, _ := cmdUI()
+		o.List(sc)
 	})
 }
 
@@ -834,7 +842,7 @@ func hostedCruiseDraftDiscard(cr hostedCreds, inv *Invocation) {
 		die(err)
 	}
 	emit(env.Data, func() {
-		fmt.Printf("discarded %s (state %s); its copy of the files is deleted and nothing runs\n", v.ID, v.State)
+		outf("discarded %s (state %s); its copy of the files is deleted and nothing runs\n", v.ID, v.State)
 	})
 }
 
@@ -897,11 +905,11 @@ func hostedCruiseDraftApprove(cr hostedCreds, inv *Invocation) {
 	}
 	emit(env.Data, func() {
 		if job == nil {
-			fmt.Printf("approved %s; the service named no job in its answer: ks cruise draft show %s\n", v.ID, v.ID)
+			outf("approved %s; the service named no job in its answer: ks cruise draft show %s\n", v.ID, v.ID)
 			return
 		}
-		fmt.Printf("approved %s: job %s (%s) runs the manifest with digest %s\n", v.ID, jstr(job, "id"), jstr(job, "state"), short(computed))
-		fmt.Printf("follow it: ks cruise status %s; cancel it with ks cruise cancel %s\n", jstr(job, "id"), jstr(job, "id"))
+		outf("approved %s: job %s (%s) runs the manifest with digest %s\n", v.ID, jstr(job, "id"), jstr(job, "state"), short(computed))
+		outf("follow it: ks cruise status %s; cancel it with ks cruise cancel %s\n", jstr(job, "id"), jstr(job, "id"))
 	})
 }
 
@@ -1078,13 +1086,13 @@ func verifyDraft(cr hostedCreds, v *draftView, raw json.RawMessage) {
 			if !c.OK {
 				mark = "FAIL"
 			}
-			fmt.Printf("%s %s: %s\n", mark, c.Name, sanitize(c.Got))
+			outf("%s %s: %s\n", mark, c.Name, sanitize(c.Got))
 			if !c.OK {
-				fmt.Printf("     expected %s\n", sanitize(c.Want))
+				outf("     expected %s\n", sanitize(c.Want))
 			}
 		}
 		if failed == 0 {
-			fmt.Printf("verified: draft %s's archive and manifest agree on every digest (%s)\n", v.ID, short(computed))
+			outf("verified: draft %s's archive and manifest agree on every digest (%s)\n", v.ID, short(computed))
 		}
 	})
 	if failed > 0 {
@@ -1161,14 +1169,14 @@ func hostedCruiseDraftCheck(cr hostedCreds, inv *Invocation) {
 	}
 	r := v.Check.Run
 	emit(raw, func() {
-		fmt.Printf("your tests   %s\n", visible(sanitize(r.words())))
+		outf("your tests   %s\n", visible(sanitize(r.words())))
 		if ps := r.leaveOutPaths(); len(ps) > 0 {
 			for _, f := range r.LeaveOut.Files {
-				fmt.Printf("  can leave out %s (%s)\n", sanitize(f.Path), visible(sanitize(f.Why)))
+				outf("  can leave out %s (%s)\n", sanitize(f.Path), visible(sanitize(f.Why)))
 			}
-			fmt.Printf("next: ks cruise draft set %s --leave-out %s, then ks cruise draft check %s\n", v.ID, sanitize(strings.Join(ps, " ")), v.ID)
+			outf("next: ks cruise draft set %s --leave-out %s, then ks cruise draft check %s\n", v.ID, sanitize(strings.Join(ps, " ")), v.ID)
 		} else if r.State == "loads" {
-			fmt.Printf("next: ks cruise draft approve %s\n", v.ID)
+			outf("next: ks cruise draft approve %s\n", v.ID)
 		}
 	})
 	if r.State == "refused" {

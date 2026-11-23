@@ -78,31 +78,31 @@ func TestSessionListGroupsEndedSessionsLast(t *testing.T) {
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)
 	dir := t.TempDir()
-	out, errs, code := auditExec(t, bin, cfg, dir, append(fastEnv(cfg), "COLUMNS=80"), "session", "list")
+	out, errs, code := auditExec(t, bin, cfg, dir, append(fastEnv(cfg), "KS_FORCE_COLUMNS=80"), "session", "list")
 	if code != 0 {
 		t.Fatalf("exit %d\n%s%s", code, out, errs)
 	}
-	for _, want := range []string{"Running (running)", "Paused (parked)", "\nEnded", "Ended (dead)", "6 session(s)"} {
+	for _, want := range []string{"Running (running)", "Paused (parked)", "\n  Ended", "Ended (dead)", "6 sessions"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the list lacks %q:\n%s", want, out)
 		}
 	}
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-	for _, l := range lines[:len(lines)-2] { // the table; the two closing hints are prose
+	for _, l := range lines[:len(lines)-1] { // the screen; the last line is the Next command
 		if len([]rune(l)) > 80 {
 			t.Errorf("line wider than 80 columns: %q", l)
 		}
 	}
-	ended := strings.Index(out, "\nEnded")
+	ended := strings.Index(out, "\n  Ended")
 	if ended < strings.LastIndex(out, "Running (running)") || ended > strings.Index(out, "Ended (dead)") {
 		t.Errorf("the Ended group is not last:\n%s", out)
 	}
 	// a state filter is one table, no group
-	out, _, _ = auditExec(t, bin, cfg, dir, append(fastEnv(cfg), "COLUMNS=80"), "session", "list", "--state", "running")
-	if strings.Contains(out, "\nEnded") || strings.Contains(out, "(dead)") {
+	out, _, _ = auditExec(t, bin, cfg, dir, append(fastEnv(cfg), "KS_FORCE_COLUMNS=80"), "session", "list", "--state", "running")
+	if strings.Contains(out, "\n  Ended") || strings.Contains(out, "(dead)") {
 		t.Errorf("a filtered list carries the Ended group:\n%s", out)
 	}
-	out, _, _ = auditExec(t, bin, cfg, dir, append(fastEnv(cfg), "COLUMNS=80"), "session", "list", "--state", "dead")
+	out, _, _ = auditExec(t, bin, cfg, dir, append(fastEnv(cfg), "KS_FORCE_COLUMNS=80"), "session", "list", "--state", "dead")
 	if !strings.Contains(out, "Ended (dead)") || strings.Contains(out, "\nEnded\n") {
 		t.Errorf("--state dead: %s", out)
 	}

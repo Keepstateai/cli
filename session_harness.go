@@ -85,11 +85,11 @@ func hostedSessionHarness(cr hostedCreds, inv *Invocation) {
 		}
 		emit(map[string]any{"session": sess.ID, "record": rec.ID, "harness": current, "runner_model": rec.RunnerModel, "image_harnesses": image,
 			"runtime_state": rec.RuntimeState, "revision": rec.Revision, "can_switch_now": can, "standing": standing}, func() {
-			fmt.Printf("session %s runs %s on %s\n", sess.ShortID, sanitize(current), sanitize(notRecorded(rec.RunnerModel)))
-			fmt.Printf("  state          %s\n", stateWords("session_runtime", rec.RuntimeState))
-			fmt.Printf("  switch         %s\n", standing)
-			fmt.Printf("  its image      carries %s; a session cannot switch to a harness its image does not carry\n", sanitize(strings.Join(image, ", ")))
-			fmt.Printf("  offered        ks cruise models lists the harnesses and their models; switch: ks session harness %s <harness>\n", sess.ShortID)
+			outf("session %s runs %s on %s\n", sess.ShortID, sanitize(current), sanitize(notRecorded(rec.RunnerModel)))
+			outf("  state          %s\n", stateWords("session_runtime", rec.RuntimeState))
+			outf("  switch         %s\n", standing)
+			outf("  its image      carries %s; a session cannot switch to a harness its image does not carry\n", sanitize(strings.Join(image, ", ")))
+			outf("  offered        ks cruise models lists the harnesses and their models; switch: ks session harness %s <harness>\n", sess.ShortID)
 		})
 		return
 	}
@@ -113,16 +113,16 @@ func hostedSessionHarness(cr hostedCreds, inv *Invocation) {
 		die(harnessSwitchRefusal(err, sess, pauseHint, to))
 	}
 	emit(map[string]any{"session": out.Data, "from": current, "in_effect": "from the next resume; the next instruction starts a new conversation"}, func() {
-		fmt.Printf("session %s will run %s on %s from its next resume (was %s; revision %d)\n",
+		outf("session %s will run %s on %s from its next resume (was %s; revision %d)\n",
 			sess.ShortID, sanitize(firstNonEmptyStr(out.Data.Harness, to)), sanitize(notRecorded(out.Data.RunnerModel)), sanitize(current), out.Data.Revision)
 		if key == "keepstate" {
-			fmt.Printf("  its calls to the new harness's provider go on KeepState's key\n")
+			outf("  its calls to the new harness's provider go on KeepState's key\n")
 		} else if key != "" {
-			fmt.Printf("  its calls to the new harness's provider go on your key %s\n", sanitize(key))
+			outf("  its calls to the new harness's provider go on your key %s\n", sanitize(key))
 		}
-		fmt.Printf("  its files stay; the next instruction starts a new conversation, and the one so far stays readable: ks agent history %s --session %s\n",
+		outf("  its files stay; the next instruction starts a new conversation, and the one so far stays readable: ks agent history %s --session %s\n",
 			primaryAgentName(cr, sess.RecordID), sess.ShortID)
-		fmt.Printf("  the new agent is handed KeepState's handoff brief of the work with that instruction; read it after the resume: ks session brief %s\n", sess.ShortID)
+		outf("  the new agent is handed KeepState's handoff brief of the work with that instruction; read it after the resume: ks session brief %s\n", sess.ShortID)
 	})
 }
 

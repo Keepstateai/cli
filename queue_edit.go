@@ -89,22 +89,57 @@ func pendingLine(it pendingItem) string {
 
 func printPending(v pendingView) { printPendingTo(os.Stdout, v) }
 
-func printPendingTo(w io.Writer, v pendingView) {
+var pendingCols = []Col{{Title: "Pos", Right: true}, {Title: "Instruction"}, {Title: "State"}, {Title: "Submitted by"}, {Title: "Age", Right: true}, {Title: "First line", Wrap: true, Second: true}}
+
+func pendingCells(it pendingItem) []string {
+	pos := fmt.Sprintf("%d", it.Position)
+	if it.Position == 0 {
+		pos = "now"
+	}
+	state := it.State
+	if it.HeldReason != "" {
+		state += " (" + sanitize(it.HeldReason) + ")"
+	}
+	who := it.SubmitterType
+	if it.SubmitterID != "" {
+		who += " " + it.SubmitterID
+	}
+	line := ""
+	switch {
+	case !it.SummaryShown:
+		line = "(not shown: reading instructions needs the operator role)"
+	case it.Summary != "":
+		line = visible(sanitize(it.Summary))
+	default:
+		line = "(unavailable)"
+	}
+	return []string{pos, it.TaskID, state, sanitize(who), (time.Duration(it.AgeSeconds) * time.Second).String(), line}
+}
+
+// pendingScreen is an agent's queue: what is executing, then what waits, in
+// the order it will be dispatched.
+func pendingScreen(title string, v pendingView) listScreen {
+	s := listScreen{Title: title, Cols: pendingCols}
+	now := listGroup{Heading: "Executing now (never moved or edited)"}
 	if v.Active != nil {
-		fmt.Fprintln(w, "executing now (never moved or edited):")
-		fmt.Fprintln(w, pendingLine(*v.Active))
+		now.Rows = [][]string{pendingCells(*v.Active)}
 	} else {
-		fmt.Fprintln(w, "executing now: nothing")
+		now.Empty = "Nothing is executing."
+	}
+	wait := listGroup{Heading: fmt.Sprintf("Pending, in dispatch order (%d)", len(v.Pending))}
+	for _, it := range v.Pending {
+		wait.Rows = append(wait.Rows, pendingCells(it))
 	}
 	if len(v.Pending) == 0 {
-		fmt.Fprintln(w, "pending: nothing")
-	} else {
-		fmt.Fprintf(w, "pending, in dispatch order (%d):\n", len(v.Pending))
-		for _, it := range v.Pending {
-			fmt.Fprintln(w, pendingLine(it))
-		}
+		wait.Empty = "Nothing is pending."
 	}
-	fmt.Fprintf(w, "queue revision %s\n", v.QueueRevision)
+	s.Groups = []listGroup{now, wait}
+	s.Notes = []string{"Queue revision " + v.QueueRevision + "."}
+	return s
+}
+
+func printPendingTo(w io.Writer, v pendingView) {
+	uiOn(w).List(pendingScreen("", v))
 }
 
 func hostedAgentQueueList(cr hostedCreds, inv *Invocation) {
@@ -118,11 +153,13 @@ func hostedAgentQueueList(cr hostedCreds, inv *Invocation) {
 		die(err)
 	}
 	emit(v, func() {
-		fmt.Printf("agent %s (%s) in session %s\n", a.Name, a.ID, sess.ShortID)
-		printPending(v)
+		sc := pendingScreen("Queue of agent "+sanitize(a.Name)+" in session "+sess.ShortID, v)
+		sc.Detail = fmt.Sprintf("%d pending", len(v.Pending))
 		if len(v.Pending) > 1 {
-			fmt.Printf("move one: ks task move <task> --before <task> --session %s --queue-revision %s\n", sess.ShortID, v.QueueRevision)
+			sc.Next = []string{fmt.Sprintf("ks task move <task> --before <task> --session %s --queue-revision %s", sess.ShortID, v.QueueRevision)}
 		}
+		o, _ := cmdUI()
+		o.List(sc)
 	})
 }
 
@@ -221,9 +258,9 @@ func hostedTaskMove(cr hostedCreds, inv *Invocation) {
 	}
 	d := env.Data
 	emit(d, func() {
-		fmt.Printf("moved %s from position %d to %d (queue revision now %s)\n", d.TaskID, d.From, d.To, d.QueueRevision)
+		outf("moved %s from position %d to %d (queue revision now %s)\n", d.TaskID, d.From, d.To, d.QueueRevision)
 		for _, it := range d.Pending {
-			fmt.Println(pendingLine(it))
+			outln(pendingLine(it))
 		}
 	})
 }
@@ -327,15 +364,15 @@ func hostedTaskReplace(cr hostedCreds, inv *Invocation) {
 			newID = d.Replacement.ID
 		}
 		if d.Replayed {
-			fmt.Printf("already replaced: %s was replaced by %s earlier; nothing was recorded again\n", id, newID)
+			outf("already replaced: %s was replaced by %s earlier; nothing was recorded again\n", id, newID)
 		} else {
-			fmt.Printf("replaced %s with %s at position %d (queue revision now %s); %s is cancelled and its content kept\n", id, newID, d.Position, d.QueueRevision, id)
+			outf("replaced %s with %s at position %d (queue revision now %s); %s is cancelled and its content kept\n", id, newID, d.Position, d.QueueRevision, id)
 		}
 		for _, it := range d.Pending {
-			fmt.Println(pendingLine(it))
+			outln(pendingLine(it))
 		}
 		if d.Note != "" {
-			fmt.Println("note: " + sanitize(d.Note))
+			outln("note: " + sanitize(d.Note))
 		}
 	})
 }
@@ -410,15 +447,15 @@ func hostedAgentQueueCancel(cr hostedCreds, inv *Invocation) {
 		v := env.Data
 		emit(v, func() {
 			for _, l := range v.detailLines() {
-				fmt.Println(l)
+				outln(l)
 			}
-			fmt.Println("nothing was cancelled: this is a preview")
+			outln("nothing was cancelled: this is a preview")
 			if len(v.Affected) > 0 {
 				st := ""
 				if len(states) > 0 {
 					st = " --states " + strings.Join(states, ",")
 				}
-				fmt.Printf("confirm exactly this: ks agent queue cancel %s --session %s%s --confirm %s\n", a.Name, sess.ShortID, st, v.QueueRevision)
+				outf("confirm exactly this: ks agent queue cancel %s --session %s%s --confirm %s\n", a.Name, sess.ShortID, st, v.QueueRevision)
 			}
 		})
 		return
@@ -458,10 +495,10 @@ func hostedAgentQueueCancel(cr hostedCreds, inv *Invocation) {
 	}
 	d := env.Data
 	emit(d, func() {
-		fmt.Printf("cancelled %d pending instruction(s): %s (queue revision now %s); their content is kept, and nothing executing was touched\n",
+		outf("cancelled %d pending instruction(s): %s (queue revision now %s); their content is kept, and nothing executing was touched\n",
 			len(d.Cancelled), strings.Join(d.Cancelled, ", "), d.QueueRevision)
 		if d.Note != "" {
-			fmt.Println("note: " + sanitize(d.Note))
+			outln("note: " + sanitize(d.Note))
 		}
 	})
 }

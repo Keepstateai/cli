@@ -88,7 +88,7 @@ func TestOrganizationTeamVerbs(t *testing.T) {
 
 	// list: the tree, with who is in each and their home team
 	out, errs, code := run("team", "list", "--organization", "org_a")
-	if code != 0 || !strings.Contains(out, "Engineering  oteam_eng") || !strings.Contains(out, "  Platform  oteam_plat") || !strings.Contains(out, "acct_bob (lead, home team)") {
+	if code != 0 || !strings.Contains(flat(out), "Engineering oteam_eng") || !strings.Contains(flat(out), "Platform oteam_plat") || !strings.Contains(out, "acct_bob (lead, home team)") {
 		t.Fatalf("team list: %d\n%s%s", code, out, errs)
 	}
 	// create under a team named by its path; sent once under a replay key

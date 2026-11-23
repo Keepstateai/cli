@@ -409,7 +409,7 @@ func importWriteOut(p *importPrep, dst string) {
 		die(err)
 	}
 	emit(map[string]any{"out": dst, "mode": p.Mode, "bytes": n, "sha256": p.SHA256, "redactions": map[string]int(p.Redactions), "stripped": map[string]int(p.Stripped), "paths_rewritten": p.Rewritten}, func() {
-		fmt.Printf("wrote %s (%s, sha256 %s); nothing was sent and nothing was created. Secrets replaced: %s.\n", visible(sanitize(dst)), bytesText(n), short64(p.SHA256), p.Redactions.words())
+		outf("wrote %s (%s, sha256 %s); nothing was sent and nothing was created. Secrets replaced: %s.\n", visible(sanitize(dst)), bytesText(n), short64(p.SHA256), p.Redactions.words())
 	})
 }
 

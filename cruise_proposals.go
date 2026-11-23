@@ -99,14 +99,23 @@ func hostedCruiseProposalList(cr hostedCreds, inv *Invocation) {
 	}
 	ps := env.Data.Items
 	emit(map[string]any{"session": agentSessionID(sess), "proposals": ps, "count": len(ps)}, func() {
-		if len(ps) == 0 {
-			fmt.Printf("no Cruise jobs were proposed in session %s\n", sess.ShortID)
-			return
-		}
+		sc := listScreen{Title: "Cruise proposals in session " + sess.ShortID, Detail: listCount(len(ps), "proposal", "proposals"),
+			Cols: []Col{{Title: "Proposal"}, {Title: "State"}, {Title: "Goal"}, {Title: "Manifest", Second: true}, {Title: "Agent", Second: true}, {Title: "Job", Second: true}}}
 		for _, p := range ps {
-			fmt.Println(proposalLine(p))
+			job := ""
+			if p.Job != nil {
+				job = "job " + p.Job.ID + " " + p.Job.Label
+			}
+			sc.Rows = append(sc.Rows, []string{p.ID, p.State, sanitize(p.Goal), "digest " + short(p.ManifestSHA), "agent " + p.AgentID, sanitize(job)})
 		}
-		fmt.Println("a proposal runs nothing until you approve its manifest: ks cruise proposal show <id>")
+		if len(ps) == 0 {
+			sc.Empty = "No Cruise jobs were proposed in this session."
+		} else {
+			sc.Notes = []string{"A proposal runs nothing until you approve its manifest."}
+			sc.Next = []string{"ks cruise proposal show <id>"}
+		}
+		o, _ := cmdUI()
+		o.List(sc)
 	})
 }
 
@@ -148,7 +157,7 @@ func hostedCruiseProposalShow(cr hostedCreds, inv *Invocation) {
 	emit(map[string]any{"proposal": p, "computed_manifest_sha": computed, "digests_agree": computed == p.ManifestSHA}, func() {
 		showProposal(os.Stdout, p, computed)
 		if p.State == "proposed" {
-			fmt.Printf("approve exactly this manifest: ks cruise proposal approve %s --confirm %s\n", p.ID, short(computed))
+			outf("approve exactly this manifest: ks cruise proposal approve %s --confirm %s\n", p.ID, short(computed))
 		}
 	})
 }
@@ -209,10 +218,10 @@ func hostedCruiseProposalApprove(cr hostedCreds, inv *Invocation) {
 	d := env.Data
 	emit(d, func() {
 		if d.Job != nil {
-			fmt.Printf("approved %s: job %s (%s) runs the manifest with digest %s\n", d.ID, d.Job.ID, d.Job.Label, short(computed))
-			fmt.Printf("follow it: ks cruise status %s; cancel it only with ks cruise cancel %s (cancelling the agent's work does not)\n", d.Job.ID, d.Job.ID)
+			outf("approved %s: job %s (%s) runs the manifest with digest %s\n", d.ID, d.Job.ID, d.Job.Label, short(computed))
+			outf("follow it: ks cruise status %s; cancel it only with ks cruise cancel %s (cancelling the agent's work does not)\n", d.Job.ID, d.Job.ID)
 		} else {
-			fmt.Printf("approved %s (%s); the service linked no job in its answer\n", d.ID, d.State)
+			outf("approved %s (%s); the service linked no job in its answer\n", d.ID, d.State)
 		}
 	})
 }
@@ -227,6 +236,6 @@ func hostedCruiseProposalDecline(cr hostedCreds, inv *Invocation) {
 	}
 	d := env.Data
 	emit(d, func() {
-		fmt.Printf("declined %s: it never runs (state %s)\n", d.ID, d.State)
+		outf("declined %s: it never runs (state %s)\n", d.ID, d.State)
 	})
 }

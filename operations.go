@@ -483,22 +483,22 @@ func printOperation(o *remoteOp) {
 }
 
 func printOperationText(o *remoteOp) {
-	fmt.Printf("operation %s  state %s\n", o.ID, o.State)
-	fmt.Printf("request: %s %s\n", o.Method, o.Path)
-	fmt.Printf("accepted: %s\n", o.AcceptedAt)
+	outf("operation %s  state %s\n", o.ID, o.State)
+	outf("request: %s %s\n", o.Method, o.Path)
+	outf("accepted: %s\n", o.AcceptedAt)
 	if o.FinishedAt != "" {
-		fmt.Printf("finished: %s (HTTP %d)\n", o.FinishedAt, o.HTTPStatus)
+		outf("finished: %s (HTTP %d)\n", o.FinishedAt, o.HTTPStatus)
 	}
 	if o.Reconciliation != "" {
-		fmt.Printf("reconciliation: %s\n", o.Reconciliation)
+		outf("reconciliation: %s\n", o.Reconciliation)
 	}
 	if len(o.ResourceIDs) > 0 {
-		fmt.Printf("resources: %s\n", strings.Join(o.ResourceIDs, ", "))
+		outf("resources: %s\n", strings.Join(o.ResourceIDs, ", "))
 	}
 	if o.Error != "" {
-		fmt.Printf("error: %s\n", o.Error)
+		outf("error: %s\n", o.Error)
 	}
 	if len(o.Response) > 0 {
-		fmt.Printf("result: %s\n", strings.TrimSpace(string(o.Response)))
+		outRaw("result: " + strings.TrimSpace(string(o.Response)) + "\n")
 	}
 }

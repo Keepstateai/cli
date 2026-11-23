@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +28,8 @@ type ui struct {
 	w       io.Writer
 	t       appTheme
 	width   int  // columns to draw in, at most cardMax
+	cols    int  // the terminal's own columns: a table may use them all
+	pipe    bool // not a terminal (and not the app, not forced): a table is not cut to any width
 	tty     bool // the stream is a terminal
 	animate bool // spinner and bars redraw in place
 	in      *bufio.Reader
@@ -42,8 +45,19 @@ var uiOut, uiErr *ui
 func cmdUI() (stdout, stderr *ui) {
 	if uiOut == nil || uiErr == nil {
 		cols := termColumns()
+		forced := false
+		if v, err := strconv.Atoi(os.Getenv("KS_FORCE_COLUMNS")); err == nil && v >= 20 {
+			cols, forced = v, true // draw as to a terminal of this width even into a pipe (a test, a recording); an invalid value is ignored
+		}
 		uiOut = newUI(os.Stdout, detectTheme(os.Getenv, stdoutIsTerminal(), true), cols, stdoutIsTerminal())
 		uiErr = newUI(os.Stderr, detectTheme(os.Getenv, stderrIsTerminal(), true), cols, stderrIsTerminal())
+		// into a pipe a table is whole: a
+		// program reading it is never handed a cut cell
+		// (COLUMNS says how wide a terminal is, not that a program is not
+		// reading: only a terminal, or the app that runs a verb for its own
+		// screen, or KS_FORCE_COLUMNS, draws to a width)
+		uiOut.pipe = !stdoutIsTerminal() && !appChild() && !forced
+		uiErr.pipe = !stderrIsTerminal() && !appChild() && !forced
 		uiErr.in = bufio.NewReader(os.Stdin)
 		uiErr.inTTY = stdinIsTerminal()
 	}
@@ -54,7 +68,7 @@ func newUI(w io.Writer, t appTheme, cols int, tty bool) *ui {
 	if cols <= 0 {
 		cols = 80
 	}
-	u := &ui{w: w, t: t, width: min(cols, cardMax), tty: tty, now: time.Now}
+	u := &ui{w: w, t: t, width: min(cols, cardMax), cols: cols, tty: tty, now: time.Now}
 	// motion needs a terminal that can redraw, a theme (NO_COLOR, TERM=dumb,
 	// --plain and CI turn it off) and nobody asking for quiet
 	u.animate = tty && t.on() && !out.quiet && !out.plain && os.Getenv("TERM") != "dumb"
@@ -114,7 +128,7 @@ func (u *ui) Facts(rows ...[2]string) {
 	for _, r := range rows {
 		labelW = max(labelW, displayWidth(r[0]))
 	}
-	labelW = min(labelW+2, 14)
+	labelW = min(labelW+2, 18)
 	var out []string
 	for _, r := range rows {
 		label, value := r[0], r[1]
@@ -153,17 +167,33 @@ type Col struct {
 	Right  bool
 	Flex   bool
 	Second bool
+	// Wrap marks the last column as prose: it takes what the others leave and
+	// is wrapped on word boundaries under itself, never cut
+	Wrap bool
 }
 
 // Table is K3. Headers are the only capitals; columns are two spaces apart;
 // rows never wrap. An empty table prints nothing: say it in a sentence and a
 // Next instead.
+//
+// The table takes the terminal's whole width (a pipe takes none: nothing is
+// cut for a program to read). A Flex column is cut in the middle to make it
+// fit, down to 24 columns; when the table still does not fit, or under 60
+// columns, every row is stacked instead (stackedTable), wrapped on word
+// boundaries, so no cell and no id is ever cut to a stub.
 func (u *ui) Table(cols []Col, rows [][]string) {
 	if len(rows) == 0 || len(cols) == 0 {
 		return
 	}
-	if u.narrow() {
-		u.tableNarrow(cols, rows)
+	avail := u.cols
+	if u.pipe {
+		avail = 1 << 30
+	}
+	if avail <= 0 {
+		avail = u.width
+	}
+	if u.narrow() && !u.pipe {
+		u.stackedTable(cols, rows)
 		return
 	}
 	w := make([]int, len(cols))
@@ -175,29 +205,64 @@ func (u *ui) Table(cols []Col, rows [][]string) {
 			}
 		}
 	}
-	flex := -1
+	flex, wrapCol := -1, -1
 	total := 2
 	for i, c := range cols {
 		if c.Flex && flex < 0 {
 			flex = i
 		}
+		if c.Wrap && i == len(cols)-1 {
+			wrapCol = i
+		}
 		total += w[i] + 2
 	}
 	total -= 2
-	if flex >= 0 && total > u.width {
-		w[flex] = max(8, w[flex]-(total-u.width))
+	if wrapCol >= 0 {
+		// the prose column takes what is left, at least 24 columns; when the
+		// other columns leave less, the rows are stacked
+		others := total - w[wrapCol]
+		room := avail - others
+		widest := 0 // a word that cannot fit (an address, a path) is never broken: the rows stack
+		for _, r := range rows {
+			if wrapCol < len(r) {
+				widest = max(widest, widestWord(r[wrapCol]))
+			}
+		}
+		switch {
+		case room >= w[wrapCol]:
+		case room >= 24 && widest <= room:
+			w[wrapCol] = room
+		default:
+			u.stackedTable(cols, rows)
+			return
+		}
+		total = others + w[wrapCol]
+	} else if total > avail {
+		if flex < 0 || w[flex]-(total-avail) < min(24, w[flex]) {
+			u.stackedTable(cols, rows)
+			return
+		}
+		w[flex] -= total - avail
 	}
-	line := func(cells []string, head bool) string {
+	line := func(cells []string, head bool) []string {
 		var b strings.Builder
 		b.WriteString("  ")
+		var tail []string
 		for i, c := range cols {
 			v := ""
 			if i < len(cells) {
 				v = cells[i]
 			}
-			if i == flex {
+			switch {
+			case i == wrapCol && !head:
+				ws := wrapProse(v, w[i])
+				v = ws[0]
+				tail = ws[1:]
+			case i == wrapCol:
+				v = fitWidth(v, w[i])
+			case i == flex:
 				v = cutMiddle(v, w[i])
-			} else {
+			default:
 				v = fitWidth(v, w[i])
 			}
 			pad := strings.Repeat(" ", max(0, w[i]-displayWidth(v)))
@@ -215,22 +280,40 @@ func (u *ui) Table(cols []Col, rows [][]string) {
 				b.WriteString("  ")
 			}
 		}
-		return strings.TrimRight(b.String(), " ")
+		out := []string{strings.TrimRight(b.String(), " ")}
+		if len(tail) > 0 {
+			ind := strings.Repeat(" ", total-w[wrapCol])
+			for _, t := range tail {
+				out = append(out, ind+t)
+			}
+		}
+		return out
 	}
 	heads := make([]string, len(cols))
 	for i, c := range cols {
 		heads[i] = c.Title
 	}
-	out := []string{line(heads, true)}
+	out := line(heads, true)
 	for _, r := range rows {
-		out = append(out, line(r, false))
+		out = append(out, line(r, false)...)
 	}
 	u.lines(out...)
 }
 
-func (u *ui) tableNarrow(cols []Col, rows [][]string) {
+// stackedTable is a table too wide for its terminal: each row is its main
+// cells on a line (wrapped on word boundaries, hanging under its first word)
+// and, dim under it, the Second cells.
+func (u *ui) stackedTable(cols []Col, rows [][]string) {
 	var out []string
+	multi := false
 	for _, r := range rows {
+		for i, c := range cols {
+			if c.Second && i < len(r) && r[i] != "" {
+				multi = true
+			}
+		}
+	}
+	for n, r := range rows {
 		var first, second []string
 		for i, c := range cols {
 			if i >= len(r) || r[i] == "" {
@@ -242,9 +325,23 @@ func (u *ui) tableNarrow(cols []Col, rows [][]string) {
 				first = append(first, r[i])
 			}
 		}
-		out = append(out, "  "+fitWidth(strings.Join(first, "  "), u.width-2))
+		if len(first) == 0 && len(second) > 0 {
+			first, second = second[:1], second[1:]
+		}
+		if multi && n > 0 {
+			out = append(out, "")
+		}
+		for i, l := range wrapProse(strings.Join(first, " \u00b7 "), u.width-4) {
+			if i == 0 {
+				out = append(out, "  "+l)
+			} else {
+				out = append(out, "    "+l)
+			}
+		}
 		if len(second) > 0 {
-			out = append(out, "    "+u.t.dim(fitWidth(strings.Join(second, " · "), u.width-4)))
+			for _, l := range wrapProse(strings.Join(second, " \u00b7 "), u.width-4) {
+				out = append(out, "    "+u.t.dim(l))
+			}
 		}
 	}
 	u.lines(out...)

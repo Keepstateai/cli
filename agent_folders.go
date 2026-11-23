@@ -96,20 +96,27 @@ func hostedAgentFolderList(cr hostedCreds, inv *Invocation) {
 		}
 	}
 	emit(list, func() {
+		sc := listScreen{Title: "Your agent folders", Detail: listCount(len(list.Folders), "folder", "folders"), Cols: []Col{{Title: "Folder"}, {Title: "Agents", Right: true}, {Title: "Id", Second: true}}}
+		o, _ := cmdUI()
 		if len(list.Folders) == 0 {
-			fmt.Println("You have no folders. Make one with: ks agent folder create <name>")
+			sc.Empty = "You have no folders yet."
+			sc.Next = []string{"ks agent folder create <name>"}
+			o.List(sc)
 			return
 		}
 		for i, f := range list.Folders {
-			fmt.Printf("%d. %s (%d)  %s\n", i+1, f.Name, len(f.AgentIDs), f.ID)
+			g := listGroup{Heading: fmt.Sprintf("%d. %s", i+1, f.Name)}
+			g.Lead = []string{listCount(len(f.AgentIDs), "agent", "agents") + " in it; id " + f.ID}
 			for _, id := range f.AgentIDs {
 				who := names[id]
 				if who == "" {
 					who = id
 				}
-				fmt.Printf("     %s\n", who)
+				g.Lead = append(g.Lead, "- "+who)
 			}
+			sc.Groups = append(sc.Groups, g)
 		}
+		o.List(sc)
 	})
 }
 
@@ -120,7 +127,7 @@ func hostedAgentFolderCreate(cr hostedCreds, inv *Invocation) {
 	if err := hostedMutate(cr, "POST", inContext(cr, "/api/v2/agent-folders"), map[string]any{"name": inv.Arg(0)}, &env); err != nil {
 		die(folderErr(err, "nothing was created"))
 	}
-	emit(env.Data, func() { fmt.Printf("created the folder %s (%s)\n", env.Data.Name, env.Data.ID) })
+	emit(env.Data, func() { outf("created the folder %s (%s)\n", env.Data.Name, env.Data.ID) })
 }
 
 func hostedAgentFolderRename(cr hostedCreds, inv *Invocation) {
@@ -138,7 +145,7 @@ func hostedAgentFolderRename(cr hostedCreds, inv *Invocation) {
 	if err := hostedMutate(cr, "PATCH", inContext(cr, "/api/v2/agent-folders/"+url.PathEscape(f.ID)), map[string]any{"name": inv.Arg(1)}, &env); err != nil {
 		die(folderErr(err, "nothing was renamed"))
 	}
-	emit(env.Data, func() { fmt.Printf("renamed the folder %s to %s\n", f.Name, env.Data.Name) })
+	emit(env.Data, func() { outf("renamed the folder %s to %s\n", f.Name, env.Data.Name) })
 }
 
 func hostedAgentFolderOrder(cr hostedCreds, inv *Invocation) {
@@ -160,7 +167,7 @@ func hostedAgentFolderOrder(cr hostedCreds, inv *Invocation) {
 	if err := hostedMutate(cr, "PATCH", inContext(cr, "/api/v2/agent-folders/"+url.PathEscape(f.ID)), map[string]any{"position": pos - 1}, &env); err != nil {
 		die(folderErr(err, "nothing was moved"))
 	}
-	emit(env.Data, func() { fmt.Printf("the folder %s is now number %d\n", env.Data.Name, env.Data.Position+1) })
+	emit(env.Data, func() { outf("the folder %s is now number %d\n", env.Data.Name, env.Data.Position+1) })
 }
 
 func hostedAgentFolderDelete(cr hostedCreds, inv *Invocation) {
@@ -182,7 +189,7 @@ func hostedAgentFolderDelete(cr hostedCreds, inv *Invocation) {
 		die(folderErr(err, "nothing was deleted"))
 	}
 	emit(env.Data, func() {
-		fmt.Printf("deleted the folder %s; its %d agent(s) are back at the top level, and no agent was deleted\n", f.Name, env.Data.AgentsMoved)
+		outf("deleted the folder %s; its %d agent(s) are back at the top level, and no agent was deleted\n", f.Name, env.Data.AgentsMoved)
 	})
 }
 
@@ -229,5 +236,5 @@ func hostedAgentMove(cr hostedCreds, inv *Invocation) {
 	if err := hostedMutate(cr, "PUT", inContext(cr, "/api/v2/agents/"+url.PathEscape(a.ID)+"/folder"), body, &env); err != nil {
 		die(folderErr(err, "nothing was moved"))
 	}
-	emit(env.Data, func() { fmt.Printf("moved %s to %s\n", a.Name, where) })
+	emit(env.Data, func() { outf("moved %s to %s\n", a.Name, where) })
 }

@@ -103,7 +103,7 @@ func hostedSessionFork(cr hostedCreds, inv *Invocation) {
 		}
 		d := env.Data
 		emit(d, func() {
-			fmt.Printf("fork plan %s for session %s: NOTHING was created\n", d.ID, sess.ShortID)
+			outf("fork plan %s for session %s: NOTHING was created\n", d.ID, sess.ShortID)
 			printPlanSection(d.Plan, "source", "from")
 			printPlanSection(d.Plan, "children", "children")
 			printPlanSection(d.Plan, "runtime", "cost")
@@ -112,8 +112,8 @@ func hostedSessionFork(cr hostedCreds, inv *Invocation) {
 			printPlanSection(d.Plan, "approvals", "approvals")
 			printPlanSection(d.Plan, "advisers", "advisers")
 			printPlanSection(d.Plan, "selection", "results")
-			fmt.Printf("  digest     %s\n", d.PlanDigest)
-			fmt.Printf("execute exactly this plan: ks session fork %s --execute %s --plan-id %s\n", sess.ShortID, d.PlanDigest, d.ID)
+			outf("  digest     %s\n", d.PlanDigest)
+			outf("execute exactly this plan: ks session fork %s --execute %s --plan-id %s\n", sess.ShortID, d.PlanDigest, d.ID)
 		})
 		return
 	}
@@ -153,17 +153,17 @@ func hostedSessionFork(cr hostedCreds, inv *Invocation) {
 	}
 	d := env.Data
 	emit(d, func() {
-		fmt.Printf("forked session %s by plan %s into %d child(ren); each is metered as its own session\n", sess.ShortID, d.PlanID, len(d.Children))
+		outf("forked session %s by plan %s into %d child(ren); each is metered as its own session\n", sess.ShortID, d.PlanID, len(d.Children))
 		for _, c := range d.Children {
-			fmt.Printf("  %s %q (%s)\n", c.SessionID, c.Name, stateLabel("session_runtime", c.RuntimeState))
+			outf("  %s %q (%s)\n", c.SessionID, c.Name, stateLabel("session_runtime", c.RuntimeState))
 			for _, a := range c.Agents {
 				if len(a.Templates) > 0 {
-					fmt.Printf("    agent %s: %d held template(s) under hold %s; nothing starts until you release it\n", a.AgentID, len(a.Templates), figure(a.HoldID))
+					outf("    agent %s: %d held template(s) under hold %s; nothing starts until you release it\n", a.AgentID, len(a.Templates), figure(a.HoldID))
 				}
 			}
 		}
 		if d.Note != "" {
-			fmt.Println("note: " + sanitize(d.Note))
+			outln("note: " + sanitize(d.Note))
 		}
 	})
 }
@@ -214,18 +214,18 @@ func hostedCheckpointPolicy(cr hostedCreds, inv *Invocation) {
 	}
 	emit(p, func() {
 		if !p.Enabled {
-			fmt.Printf("automatic saves for session %s: OFF (state %s)\n", sess.ShortID, figure(p.State))
+			outf("automatic saves for session %s: OFF (state %s)\n", sess.ShortID, figure(p.State))
 		} else {
-			fmt.Printf("automatic saves for session %s: every %d min (state %s)\n", sess.ShortID, p.IntervalMinutes, figure(p.State))
+			outf("automatic saves for session %s: every %d min (state %s)\n", sess.ShortID, p.IntervalMinutes, figure(p.State))
 		}
 		if p.PendingSince != "" {
-			fmt.Printf("  a save is pending since %s: %s\n", p.PendingSince, sanitize(p.DeferredReason))
+			outf("  a save is pending since %s: %s\n", p.PendingSince, sanitize(p.DeferredReason))
 		}
 		if p.LastAttemptAt != "" {
-			fmt.Printf("  last attempt %s\n", p.LastAttemptAt)
+			outf("  last attempt %s\n", p.LastAttemptAt)
 		}
-		fmt.Printf("  %s\n", sanitize(p.Certification))
-		fmt.Printf("  storage: %s\n", sanitize(p.StorageEffect))
+		outf("  %s\n", sanitize(p.Certification))
+		outf("  storage: %s\n", sanitize(p.StorageEffect))
 	})
 }
 
@@ -259,8 +259,8 @@ func hostedSessionDelete(cr hostedCreds, inv *Invocation) {
 		d := env.Data
 		emit(d, func() {
 			printDeletionSummary(os.Stdout, sess.ShortID, d.ExpiresAt, d.Plan)
-			fmt.Printf("The whole plan: ks session delete %s --plan --json\n", sess.ShortID)
-			fmt.Printf("To delete exactly this: ks session delete %s --execute %s --confirm %s\n", sess.ShortID, d.ID, sess.ShortID)
+			outf("The whole plan: ks session delete %s --plan --json\n", sess.ShortID)
+			outf("To delete exactly this: ks session delete %s --execute %s --confirm %s\n", sess.ShortID, d.ID, sess.ShortID)
 		})
 		return
 	}
@@ -315,22 +315,22 @@ func executeSessionDelete(cr hostedCreds, sess inventoryRow, exec string) {
 	}
 	emit(map[string]any{"deleted": d.Deleted, "executed_at": d.ExecutedAt, "runtime_cleanup": d.RuntimeCleanup, "retention": d.Retention,
 		"agents_removed": d.AgentsRemoved, "tasks_cancelled": d.TasksCancelled, "results_deleted": d.ResultsDeleted}, func() {
-		fmt.Printf("session %s deleted as records at %s: %d agent(s) removed, %d instruction(s) cancelled, %d result(s) deleted\n", sess.ShortID, figure(d.ExecutedAt), d.AgentsRemoved, d.TasksCancelled, d.ResultsDeleted)
+		outf("session %s deleted as records at %s: %d agent(s) removed, %d instruction(s) cancelled, %d result(s) deleted\n", sess.ShortID, figure(d.ExecutedAt), d.AgentsRemoved, d.TasksCancelled, d.ResultsDeleted)
 		switch {
 		case cleanup.RuntimeStop != nil:
-			fmt.Printf("  runtime   %s: %s (operation %s, %d attempt(s))\n", figure(cleanup.RuntimeStop.State), sanitize(cleanup.RuntimeStop.Detail), figure(cleanup.RuntimeStop.Operation), cleanup.RuntimeStop.Attempts)
+			outf("  runtime   %s: %s (operation %s, %d attempt(s))\n", figure(cleanup.RuntimeStop.State), sanitize(cleanup.RuntimeStop.Detail), figure(cleanup.RuntimeStop.Operation), cleanup.RuntimeStop.Attempts)
 		case cleanupText != "":
-			fmt.Printf("  runtime   %s\n", sanitize(cleanupText))
+			outf("  runtime   %s\n", sanitize(cleanupText))
 		default:
-			fmt.Println("  runtime   the service did not say whether the runtime stopped; it is not assumed stopped")
+			outln("  runtime   the service did not say whether the runtime stopped; it is not assumed stopped")
 		}
 		if cleanup.ContentPurge != nil {
-			fmt.Printf("  content   %s: %s\n", figure(cleanup.ContentPurge.State), sanitize(cleanup.ContentPurge.Detail))
+			outf("  content   %s: %s\n", figure(cleanup.ContentPurge.State), sanitize(cleanup.ContentPurge.Detail))
 		} else {
-			fmt.Println("  content   the service did not report it; saved content is not assumed erased")
+			outln("  content   the service did not report it; saved content is not assumed erased")
 		}
 		if v, ok := d.Retention["checkpoint_content"].(string); ok {
-			fmt.Printf("  retention %s\n", sanitize(v))
+			outf("  retention %s\n", sanitize(v))
 		}
 	})
 }

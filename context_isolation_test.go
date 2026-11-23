@@ -82,7 +82,7 @@ func TestEveryListAgreesWithTheChosenContext(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "acmebuild") || strings.Contains(out, "mybuild") || strings.Contains(out, "PERSONALVOGON") {
 		t.Fatalf("agent list --all in the organization's context: %d\n%s%s", code, out, errs)
 	}
-	if !strings.HasPrefix(out, "Context: organization org_a") || !strings.Contains(out, "Nothing needs you") {
+	if !strings.HasPrefix(out, "Your agents in the organization org_a") || !strings.Contains(out, "Nothing needs you") {
 		t.Errorf("the list does not say its context, or counts the personal agent:\n%s", out)
 	}
 	js, _, code := run("agent", "list", "--all", "--json")
