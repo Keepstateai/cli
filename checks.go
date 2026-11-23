@@ -131,11 +131,11 @@ func hostedCheckDefine(cr hostedCreds, inv *Invocation) {
 	}
 	d := env.Data
 	emit(d, func() {
-		fmt.Printf("defined check %s (%s) for agent %s in session %s; nothing ran\n", d.ID, d.Name, a.Name, sess.ShortID)
-		fmt.Printf("  action      %s\n", visible(sanitize(d.ExactAction)))
-		fmt.Printf("  definition  %s\n", d.DefinitionHash)
-		fmt.Printf("  profile     %s\n", sanitize(d.Definition.Profile))
-		fmt.Printf("run it: ks check run %s (it stops for your trust the first time, and whenever its inputs change)\n", d.ID)
+		outf("defined check %s (%s) for agent %s in session %s; nothing ran\n", d.ID, d.Name, a.Name, sess.ShortID)
+		outf("  action      %s\n", visible(sanitize(d.ExactAction)))
+		outf("  definition  %s\n", d.DefinitionHash)
+		outf("  profile     %s\n", sanitize(d.Definition.Profile))
+		outf("run it: ks check run %s (it stops for your trust the first time, and whenever its inputs change)\n", d.ID)
 	})
 }
 
@@ -151,14 +151,18 @@ func hostedCheckList(cr hostedCreds, inv *Invocation) {
 	}
 	ds := env.Data.Items
 	emit(map[string]any{"agent": a.ID, "checks": ds, "count": len(ds)}, func() {
-		if len(ds) == 0 {
-			fmt.Printf("agent %s in session %s has no checks; define one: ks check define <name> --input <file> -- <argv...>\n", a.Name, sess.ShortID)
-			return
-		}
+		sc := listScreen{Title: "Checks of agent " + sanitize(a.Name), Detail: "in session " + sess.ShortID + ", " + listCount(len(ds), "check", "checks"),
+			Cols: []Col{{Title: "Check"}, {Title: "Name"}, {Title: "Action", Wrap: true, Second: true}}}
 		for _, d := range ds {
-			fmt.Printf("%s  %s  %s\n", d.ID, d.Name, visible(sanitize(d.ExactAction)))
-			fmt.Printf("    definition %s; trusted over %d input set(s)\n", short(strings.TrimPrefix(d.DefinitionHash, "sha256:")), len(d.Trusted))
+			trusted := fmt.Sprintf("definition %s; trusted over %d input set(s)", short(strings.TrimPrefix(d.DefinitionHash, "sha256:")), len(d.Trusted))
+			sc.Rows = append(sc.Rows, []string{d.ID, sanitize(d.Name), visible(sanitize(d.ExactAction)) + "\n" + trusted})
 		}
+		if len(ds) == 0 {
+			sc.Empty = "This agent has no checks yet."
+			sc.Next = []string{"ks check define <name> --input <file> -- <argv...>"}
+		}
+		o, _ := cmdUI()
+		o.List(sc)
 	})
 }
 
@@ -171,18 +175,18 @@ func fetchCheckRun(cr hostedCreds, id string) (checkRun, error) {
 }
 
 func printCheckRun(r checkRun) {
-	fmt.Printf("check run %s (check %s)  %s\n", r.ID, r.CheckID, strings.ToUpper(figure(r.State)))
-	fmt.Printf("  role          %s (an ordinary check's result, never a verification)\n", figure(r.Role))
-	fmt.Printf("  requested     by %s at %s\n", figure(r.RequestedBy), figure(r.RequestedAt))
+	outf("check run %s (check %s)  %s\n", r.ID, r.CheckID, strings.ToUpper(figure(r.State)))
+	outf("  role          %s (an ordinary check's result, never a verification)\n", figure(r.Role))
+	outf("  requested     by %s at %s\n", figure(r.RequestedBy), figure(r.RequestedAt))
 	if r.ObservedInputsDigest != "" {
-		fmt.Printf("  inputs seen   %s\n", r.ObservedInputsDigest)
+		outf("  inputs seen   %s\n", r.ObservedInputsDigest)
 	}
 	switch r.State {
 	case "approval_required":
-		fmt.Printf("  NOT RUN: this definition has not been trusted over these inputs\n")
-		fmt.Printf("  action        %s\n", visible(sanitize(r.ExactAction)))
-		fmt.Printf("  action hash   %s\n", r.ActionHash)
-		fmt.Printf("  trust it: ks check trust %s --confirm %s\n", r.ID, short(strings.TrimPrefix(r.ActionHash, "sha256:")))
+		outf("  NOT RUN: this definition has not been trusted over these inputs\n")
+		outf("  action        %s\n", visible(sanitize(r.ExactAction)))
+		outf("  action hash   %s\n", r.ActionHash)
+		outf("  trust it: ks check trust %s --confirm %s\n", r.ID, short(strings.TrimPrefix(r.ActionHash, "sha256:")))
 	case "succeeded", "failed":
 		exit := "not recorded"
 		if r.ExitCode != nil {
@@ -191,26 +195,26 @@ func printCheckRun(r checkRun) {
 		if r.TimedOut {
 			exit += " (killed at the deadline)"
 		}
-		fmt.Printf("  exit status   %s\n", exit)
+		outf("  exit status   %s\n", exit)
 		if r.GroupClear != nil {
-			fmt.Printf("  process group %s\n", map[bool]string{true: "confirmed empty", false: "NOT confirmed empty"}[*r.GroupClear])
+			outf("  process group %s\n", map[bool]string{true: "confirmed empty", false: "NOT confirmed empty"}[*r.GroupClear])
 		}
 		for _, a := range r.Artifacts {
 			if a.Present {
-				fmt.Printf("  artifact      %s  %s bytes  sha256 %s\n", visible(sanitize(a.Path)), commas(a.Bytes), a.SHA256)
+				outf("  artifact      %s  %s bytes  sha256 %s\n", visible(sanitize(a.Path)), commas(a.Bytes), a.SHA256)
 			} else {
-				fmt.Printf("  artifact      %s  absent\n", visible(sanitize(a.Path)))
+				outf("  artifact      %s  absent\n", visible(sanitize(a.Path)))
 			}
 		}
 		if r.Output != "" {
-			fmt.Printf("  output (%s bytes%s):\n", commas(r.OutputBytes), map[bool]string{true: ", cut at the bound", false: ""}[r.OutputTruncated])
+			outf("  output (%s bytes%s):\n", commas(r.OutputBytes), map[bool]string{true: ", cut at the bound", false: ""}[r.OutputTruncated])
 			for _, l := range strings.Split(strings.TrimRight(visible(sanitize(r.Output)), "\n"), "\n") {
-				fmt.Printf("    %s\n", l)
+				outf("    %s\n", l)
 			}
 		}
 	}
 	if r.Reason != "" {
-		fmt.Printf("  reason        %s\n", sanitize(r.Reason))
+		outf("  reason        %s\n", sanitize(r.Reason))
 	}
 }
 
@@ -223,8 +227,8 @@ func hostedCheckRun(cr hostedCreds, inv *Invocation) {
 	}
 	r := env.Data
 	emit(r, func() {
-		fmt.Printf("requested run %s of check %s (%s): the agent's worker takes it between instructions, and it executes only over inputs you trusted\n", r.ID, r.CheckID, figure(r.State))
-		fmt.Printf("read it: ks check show %s\n", r.ID)
+		outf("requested run %s of check %s (%s): the agent's worker takes it between instructions, and it executes only over inputs you trusted\n", r.ID, r.CheckID, figure(r.State))
+		outf("read it: ks check show %s\n", r.ID)
 	})
 }
 
@@ -283,6 +287,6 @@ func hostedCheckTrust(cr hostedCreds, inv *Invocation) {
 	}
 	d := env.Data
 	emit(d, func() {
-		fmt.Printf("trusted: run %s is queued again (%s) and re-reads its inputs before it executes; a change to them stops it again\n", d.ID, figure(d.State))
+		outf("trusted: run %s is queued again (%s) and re-reads its inputs before it executes; a change to them stops it again\n", d.ID, figure(d.State))
 	})
 }

@@ -89,7 +89,7 @@ func TestKeyVerbsInAnOrganizationsContext(t *testing.T) {
 	}
 	c.reset()
 	out, errs, code = run("key", "list")
-	if code != 0 || !strings.Contains(out, "vlt_org") || strings.Contains(out, "vlt_mine") || !strings.Contains(out, "The organization org_a's own keys") {
+	if code != 0 || !strings.Contains(out, "vlt_org") || strings.Contains(out, "vlt_mine") || !strings.Contains(out, "The organization org_a's keys") {
 		t.Fatalf("the organization's key list: %d\n%s%s", code, out, errs)
 	}
 	out, errs, code = run("key", "disable", "vlt_org")

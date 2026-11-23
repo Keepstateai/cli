@@ -232,16 +232,16 @@ func entryBadges(e libraryEntry) string {
 }
 
 func libraryLine(e libraryEntry) {
-	fmt.Printf("@%s  %s", e.Handle, sanitize(e.Title))
+	head := "@" + e.Handle + "  " + sanitize(e.Title)
 	if b := entryBadges(e); b != "" {
-		fmt.Printf("  [%s]", b)
+		head += "  [" + b + "]"
 	}
-	fmt.Println()
+	printLines([]string{head})
 	if e.Description != "" {
-		fmt.Printf("    %s\n", sanitize(e.Description))
+		printLines([]string{"    " + sanitize(e.Description)})
 	}
 	if w := statWords(e.Stats); len(w) > 0 {
-		fmt.Printf("    %s\n", strings.Join(w, "; "))
+		printLines([]string{"    " + strings.Join(w, "; ")})
 	}
 }
 
@@ -275,15 +275,22 @@ func hostedLibraryList(cr hostedCreds, inv *Invocation) {
 		die(orgErr(err, "nothing was read"))
 	}
 	emit(map[string]any{"organization": org, "entries": entries, "count": len(entries), "complete": complete}, func() {
+		o, _ := cmdUI()
+		o.Heading("Library", listCount(len(entries), "agent", "agents"))
 		if len(entries) == 0 {
-			fmt.Println("Nothing matches. Share an agent: ks agent share AGENT --handle HANDLE --title TITLE --save-now")
+			o.Blank()
+			o.Para("Nothing matches.")
+			o.Blank()
+			o.Next("ks agent share AGENT --handle HANDLE --title TITLE --save-now")
 			return
 		}
 		for _, e := range entries {
+			o.Blank()
 			libraryLine(e)
 		}
 		if !complete {
-			fmt.Printf("Stopped after %d pages; the list continues on the service.\n", orgPagesMax)
+			o.Blank()
+			o.Note(fmt.Sprintf("Stopped after %d pages; the list continues on the service.", orgPagesMax))
 		}
 	})
 }
@@ -313,32 +320,32 @@ func hostedLibraryShow(cr hostedCreds, inv *Invocation) {
 	vs, verr := fetchVersions(cr, e.ID)
 	emit(map[string]any{"entry": e, "versions": vs, "versions_unavailable": verr != nil}, func() {
 		libraryLine(e)
-		fmt.Printf("    your role: %s; %s %s; forks %s\n", e.YourRole, e.Harness, e.Model, map[bool]string{true: "allowed", false: "off"}[e.ForksAllowed])
+		outf("    your role: %s; %s %s; forks %s\n", e.YourRole, e.Harness, e.Model, map[bool]string{true: "allowed", false: "off"}[e.ForksAllowed])
 		if len(e.Tags) > 0 {
-			fmt.Printf("    tags: %s\n", sanitize(strings.Join(e.Tags, ", ")))
+			outf("    tags: %s\n", sanitize(strings.Join(e.Tags, ", ")))
 		}
 		if e.BasedOn != nil {
-			fmt.Printf("    based on @%s v%d\n", e.BasedOn.Handle, e.BasedOn.Version)
+			outf("    based on @%s v%d\n", e.BasedOn.Handle, e.BasedOn.Version)
 		}
 		if e.ReplacementHandle != "" && e.State == "deprecated" {
-			fmt.Printf("    replaced by @%s\n", e.ReplacementHandle)
+			outf("    replaced by @%s\n", e.ReplacementHandle)
 		}
 		if e.Reports != nil && e.Reports.Open > 0 {
-			fmt.Printf("    %d open report(s); the way to act on them is ks library deprecate @%s\n", e.Reports.Open, e.Handle)
+			outf("    %d open report(s); the way to act on them is ks library deprecate @%s\n", e.Reports.Open, e.Handle)
 		}
 		if verr != nil {
-			fmt.Println("    versions: unavailable just now")
+			outln("    versions: unavailable just now")
 			return
 		}
-		fmt.Println("    versions (newest first):")
+		outln("    versions (newest first):")
 		for _, v := range vs {
 			rv := ""
 			if v.ReviewState == "pending" || v.ReviewState == "declined" {
 				rv = ", review " + v.ReviewState
 			}
-			fmt.Printf("      v%d  %s%s  %s  %s\n", v.Seq, v.State, rv, firstN(v.PublishedAt, 10), sanitize(v.ReleaseNotes))
+			outf("      v%d  %s%s  %s  %s\n", v.Seq, v.State, rv, firstN(v.PublishedAt, 10), sanitize(v.ReleaseNotes))
 			if v.ChangedFromPrevious {
-				fmt.Println("          the instructions changed from the version before")
+				outln("          the instructions changed from the version before")
 			}
 		}
 	})
@@ -389,9 +396,9 @@ func hostedLibraryConnect(cr hostedCreds, inv *Invocation) {
 	}
 	g := env.Data
 	emit(map[string]any{"grant": g, "library": e.Handle, "confirmed": true}, func() {
-		fmt.Printf("connected: %s/%s may ask @%s (grant %s, %s)\n", sess.Name, src.Name, e.Handle, g.ID, grantState(g))
-		fmt.Printf("ask it: ks agent ask @%s \"your question\" --session %s\n", e.Handle, sess.ShortID)
-		fmt.Printf("it stays connected until you remove it: ks library disconnect %s\n", g.ID)
+		outf("connected: %s/%s may ask @%s (grant %s, %s)\n", sess.Name, src.Name, e.Handle, g.ID, grantState(g))
+		outf("ask it: ks agent ask @%s \"your question\" --session %s\n", e.Handle, sess.ShortID)
+		outf("it stays connected until you remove it: ks library disconnect %s\n", g.ID)
 	})
 }
 
@@ -439,9 +446,9 @@ func hostedLibraryOrigin(cr hostedCreds, inv *Invocation) {
 	}
 	d := env.Data
 	emit(d, func() {
-		fmt.Println(sanitize(d.Lineage))
+		outln(sanitize(d.Lineage))
 		if d.Newer > 0 {
-			fmt.Printf("a newer version (v%d) exists: %s\n", d.Newer, sanitize(d.NewerNote))
+			outf("a newer version (v%d) exists: %s\n", d.Newer, sanitize(d.NewerNote))
 		}
 	})
 }
@@ -468,15 +475,15 @@ func hostedLibraryUsage(cr hostedCreds, inv *Invocation) {
 	}
 	d := env.Data
 	emit(d, func() {
-		fmt.Printf("@%s\n", e.Handle)
+		outf("@%s\n", e.Handle)
 		for _, w := range statWords(d.Stats) {
-			fmt.Printf("  %s\n", w)
+			outf("  %s\n", w)
 		}
 		for _, a := range d.Askers {
-			fmt.Printf("  %s: %d question(s), %d helpful, %d not helpful\n", sanitize(a.Name), a.Asks, a.Up, a.Down)
+			outf("  %s: %d question(s), %d helpful, %d not helpful\n", sanitize(a.Name), a.Asks, a.Up, a.Down)
 		}
 		if d.Note != "" {
-			fmt.Printf("  %s\n", sanitize(d.Note))
+			outf("  %s\n", sanitize(d.Note))
 		}
 	})
 }
@@ -499,7 +506,7 @@ func hostedLibraryReport(cr hostedCreds, inv *Invocation) {
 		die(err)
 	}
 	d := env.Data
-	emit(d, func() { fmt.Printf("reported @%s (%s). %s\n", e.Handle, d.Reason, sanitize(d.Note)) })
+	emit(d, func() { outf("reported @%s (%s). %s\n", e.Handle, d.Reason, sanitize(d.Note)) })
 }
 
 // ---- the entry's lifecycle --------------------------------------------------------------
@@ -525,7 +532,7 @@ func hostedLibraryDeprecate(cr hostedCreds, inv *Invocation) {
 	}
 	r := lifecycle(cr, e, "deprecate", body)
 	emit(r, func() {
-		fmt.Printf("@%s is deprecated: it keeps answering until %s, then retires.\n", r.Handle, firstN(r.DeprecatedUntil, 10))
+		outf("@%s is deprecated: it keeps answering until %s, then retires.\n", r.Handle, firstN(r.DeprecatedUntil, 10))
 	})
 }
 
@@ -535,7 +542,7 @@ func hostedLibraryRetire(cr hostedCreds, inv *Invocation) {
 	confirmHandle(e.Handle, inv.Str("confirm"), "retiring", "nothing was changed")
 	r := lifecycle(cr, e, "retire", map[string]any{})
 	emit(r, func() {
-		fmt.Printf("@%s is retired. It stops answering; its answer copies are deleted after 30 days; sessions already forked from it are not touched.\n", r.Handle)
+		outf("@%s is retired. It stops answering; its answer copies are deleted after 30 days; sessions already forked from it are not touched.\n", r.Handle)
 	})
 }
 
@@ -543,7 +550,7 @@ func hostedLibraryTransfer(cr hostedCreds, inv *Invocation) {
 	org := libraryOrg(cr, inv, "nothing was changed")
 	e := resolveLibrary(cr, org, inv.Arg(0), "nothing was changed")
 	r := lifecycle(cr, e, "transfer", map[string]any{"account_id": strings.TrimSpace(inv.Arg(1))})
-	emit(r, func() { fmt.Printf("@%s is now owned by %s, with the agent behind it.\n", r.Handle, r.OwnerAccountID) })
+	emit(r, func() { outf("@%s is now owned by %s, with the agent behind it.\n", r.Handle, r.OwnerAccountID) })
 }
 
 func hostedLibraryFeature(cr hostedCreds, inv *Invocation) {
@@ -551,7 +558,7 @@ func hostedLibraryFeature(cr hostedCreds, inv *Invocation) {
 	e := resolveLibrary(cr, org, inv.Arg(0), "nothing was changed")
 	r := lifecycle(cr, e, "feature", map[string]any{"featured": !inv.Bool("off")})
 	emit(r, func() {
-		fmt.Printf("@%s is %s.\n", r.Handle, map[bool]string{true: "featured", false: "no longer featured"}[r.Featured])
+		outf("@%s is %s.\n", r.Handle, map[bool]string{true: "featured", false: "no longer featured"}[r.Featured])
 	})
 }
 
@@ -565,9 +572,9 @@ func hostedLibraryVerify(cr hostedCreds, inv *Invocation) {
 	r := lifecycle(cr, e, "verify", body)
 	emit(r, func() {
 		if r.Verified {
-			fmt.Printf("@%s v%d is verified. A newer version does not inherit the badge.\n", r.Handle, r.VerifiedVersion)
+			outf("@%s v%d is verified. A newer version does not inherit the badge.\n", r.Handle, r.VerifiedVersion)
 		} else {
-			fmt.Printf("@%s has no verified version.\n", r.Handle)
+			outf("@%s has no verified version.\n", r.Handle)
 		}
 	})
 }
@@ -592,7 +599,7 @@ func hostedLibraryForks(cr hostedCreds, inv *Invocation) {
 		die(err)
 	}
 	emit(env.Data, func() {
-		fmt.Printf("forks of @%s are %s.\n", e.Handle, map[bool]string{true: "on", false: "off"}[env.Data.ForksAllowed])
+		outf("forks of @%s are %s.\n", e.Handle, map[bool]string{true: "on", false: "off"}[env.Data.ForksAllowed])
 	})
 }
 
@@ -632,7 +639,7 @@ func hostedLibraryPublish(cr hostedCreds, inv *Invocation) {
 	e := resolveLibrary(cr, org, inv.Arg(0), "nothing was published")
 	body := pointBody(inv, "nothing was published")
 	v := publishVersion(cr, e, body)
-	emit(v, func() { fmt.Printf("published @%s v%d (%s).\n", e.Handle, v.Seq, v.State) })
+	emit(v, func() { outf("published @%s v%d (%s).\n", e.Handle, v.Seq, v.State) })
 }
 
 func hostedLibraryEdit(cr hostedCreds, inv *Invocation) {
@@ -663,7 +670,7 @@ func hostedLibraryEdit(cr hostedCreds, inv *Invocation) {
 	if err := hostedMutate(cr, "PATCH", libPath(e.ID), body, &env); err != nil {
 		die(err)
 	}
-	emit(env.Data, func() { fmt.Printf("changed @%s.\n", env.Data.Handle) })
+	emit(env.Data, func() { outf("changed @%s.\n", env.Data.Handle) })
 }
 
 func hostedLibraryWithdraw(cr hostedCreds, inv *Invocation) {
@@ -676,7 +683,7 @@ func hostedLibraryWithdraw(cr hostedCreds, inv *Invocation) {
 	if err := hostedMutate(cr, "POST", libPath(e.ID, "/versions/"+url.PathEscape(v)+"/withdraw"), map[string]any{}, &env); err != nil {
 		die(err)
 	}
-	emit(env.Data, func() { fmt.Printf("@%s v%d is withdrawn.\n", e.Handle, env.Data.Seq) })
+	emit(env.Data, func() { outf("@%s v%d is withdrawn.\n", e.Handle, env.Data.Seq) })
 }
 
 func hostedLibraryReview(cr hostedCreds, inv *Invocation) {
@@ -693,7 +700,7 @@ func hostedLibraryReview(cr hostedCreds, inv *Invocation) {
 	if err := hostedMutate(cr, "POST", libPath(e.ID, "/versions/"+url.PathEscape(v)+"/review"), map[string]any{"decision": decision}, &env); err != nil {
 		die(err)
 	}
-	emit(env.Data, func() { fmt.Printf("@%s v%d: %s (%s).\n", e.Handle, env.Data.Seq, decision, env.Data.ReviewState) })
+	emit(env.Data, func() { outf("@%s v%d: %s (%s).\n", e.Handle, env.Data.Seq, decision, env.Data.ReviewState) })
 }
 
 func hostedLibrarySettings(cr hostedCreds, inv *Invocation) {
@@ -739,7 +746,7 @@ func hostedLibrarySettings(cr hostedCreds, inv *Invocation) {
 		out2 = env.Data
 	}
 	emit(out2, func() {
-		fmt.Printf("who may share: %s; a new version waits for review: %t\n", out2.WhoMayShare, out2.ReviewRequired)
+		outf("who may share: %s; a new version waits for review: %t\n", out2.WhoMayShare, out2.ReviewRequired)
 	})
 }
 
@@ -786,9 +793,9 @@ func hostedAgentShare(cr hostedCreds, inv *Invocation) {
 		v = venv.Data
 	}()
 	emit(map[string]any{"entry": e, "version": v}, func() {
-		fmt.Printf("shared %s/%s as @%s, version v%d (%s).\n", sess.Name, src.Name, e.Handle, v.Seq, v.State)
-		fmt.Println("People in the organization can ask it (ks library connect) or fork it (ks agent fork).")
-		fmt.Println("Asking reveals what the agent knows; a fork copies its workspace, but no keys, approvals or connections.")
+		outf("shared %s/%s as @%s, version v%d (%s).\n", sess.Name, src.Name, e.Handle, v.Seq, v.State)
+		outln("People in the organization can ask it (ks library connect) or fork it (ks agent fork).")
+		outln("Asking reveals what the agent knows; a fork copies its workspace, but no keys, approvals or connections.")
 	})
 }
 
@@ -828,19 +835,19 @@ func hostedAgentFork(cr hostedCreds, inv *Invocation) {
 		}
 		d := env.Data
 		emit(d, func() {
-			fmt.Printf("fork plan for @%s v%d: NOTHING was created\n", d.Handle, d.Version)
-			fmt.Printf("  lineage    %s\n", sanitize(d.Lineage))
-			fmt.Printf("  session    %s\n", sanitize(d.Name))
+			outf("fork plan for @%s v%d: NOTHING was created\n", d.Handle, d.Version)
+			outf("  lineage    %s\n", sanitize(d.Lineage))
+			outf("  session    %s\n", sanitize(d.Name))
 			for _, c := range d.Copies {
-				fmt.Printf("  copies     %s\n", sanitize(c))
+				outf("  copies     %s\n", sanitize(c))
 			}
 			for _, c := range d.DoesNotCopy {
-				fmt.Printf("  not copied %s\n", sanitize(c))
+				outf("  not copied %s\n", sanitize(c))
 			}
-			fmt.Printf("  keys       %s\n", sanitize(d.Keys.Note))
-			fmt.Printf("  cost       %s\n", sanitize(d.Cost))
-			fmt.Printf("  digest     %s\n", d.PlanDigest)
-			fmt.Printf("fork exactly this plan: ks agent fork @%s --execute %s --plan-id %s\n", e.Handle, d.PlanDigest, d.ID)
+			outf("  keys       %s\n", sanitize(d.Keys.Note))
+			outf("  cost       %s\n", sanitize(d.Cost))
+			outf("  digest     %s\n", d.PlanDigest)
+			outf("fork exactly this plan: ks agent fork @%s --execute %s --plan-id %s\n", e.Handle, d.PlanDigest, d.ID)
 		})
 		return
 	}
@@ -861,11 +868,11 @@ func hostedAgentFork(cr hostedCreds, inv *Invocation) {
 	}
 	d := env.Data
 	emit(d, func() {
-		fmt.Printf("forked: session %s %q. %s\n", d.SessionID, sanitize(d.Name), sanitize(d.Lineage))
+		outf("forked: session %s %q. %s\n", d.SessionID, sanitize(d.Name), sanitize(d.Lineage))
 		if d.Note != "" {
-			fmt.Println(sanitize(d.Note))
+			outln(sanitize(d.Note))
 		}
-		fmt.Printf("open it: ks session show %s\n", d.SessionID)
+		outf("open it: ks session show %s\n", d.SessionID)
 	})
 }
 
@@ -883,5 +890,5 @@ func hostedAdviceRate(cr hostedCreds, inv *Invocation) {
 	if err := hostedMutate(cr, "POST", "/api/v2/consultations/"+url.PathEscape(inv.Arg(0))+"/rating", map[string]any{"rating": rating}, &env); err != nil {
 		die(err)
 	}
-	emit(env.Data, func() { fmt.Printf("recorded: %s for %s.\n", env.Data.Rating, env.Data.ConsultationID) })
+	emit(env.Data, func() { outf("recorded: %s for %s.\n", env.Data.Rating, env.Data.ConsultationID) })
 }

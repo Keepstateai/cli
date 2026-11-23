@@ -361,7 +361,7 @@ func hostedSessionUse(cr hostedCreds, inv *Invocation) {
 	case inv.Bool("clear"):
 		if idx < 0 {
 			emit(map[string]any{"project_root": root, "cleared": false}, func() {
-				fmt.Printf("this project (%s) has no binding; nothing to clear\n", root)
+				outf("this project (%s) has no binding; nothing to clear\n", root)
 			})
 			return
 		}
@@ -371,7 +371,7 @@ func hostedSessionUse(cr hostedCreds, inv *Invocation) {
 			die(err)
 		}
 		emit(map[string]any{"project_root": root, "cleared": true, "was": was}, func() {
-			fmt.Printf("cleared: %s is no longer bound (it was session %s %q)\n", root, was.ShortID, was.Name)
+			outf("cleared: %s is no longer bound (it was session %s %q)\n", root, was.ShortID, was.Name)
 		})
 		return
 	case arg == "" && !inv.Bool("trust-repo"):
@@ -386,12 +386,12 @@ func hostedSessionUse(cr hostedCreds, inv *Invocation) {
 			"repository_suggestion": suggestion, "repository_suggestion_trusted": false}, func() {
 			if idx >= 0 {
 				b := bs[idx]
-				fmt.Printf("%s is bound to session %s %q (%s) for %s on %s, since %s\n", root, b.ShortID, b.Name, b.SessionID, b.AccountID, b.Origin, b.BoundAt)
+				outf("%s is bound to session %s %q (%s) for %s on %s, since %s\n", root, b.ShortID, b.Name, b.SessionID, b.AccountID, b.Origin, b.BoundAt)
 			} else {
-				fmt.Printf("%s has no binding; commands without --session ask or refuse\n", root)
+				outf("%s has no binding; commands without --session ask or refuse\n", root)
 			}
 			if suggestion != "" {
-				fmt.Printf("this repository's %s names %q: not trusted; to use it: ks session use --trust-repo --confirm %s\n", repoBindingFile, suggestion, suggestion)
+				outf("this repository's %s names %q: not trusted; to use it: ks session use --trust-repo --confirm %s\n", repoBindingFile, suggestion, suggestion)
 			}
 		})
 		return
@@ -438,7 +438,7 @@ func hostedSessionUse(cr hostedCreds, inv *Invocation) {
 		die(err)
 	}
 	emit(nb, func() {
-		fmt.Printf("bound: %s -> session %s %q, for %s on %s\n", root, r.ShortID, r.Name, cr.AccountID, origin)
+		outf("bound: %s -> session %s %q, for %s on %s\n", root, r.ShortID, r.Name, cr.AccountID, origin)
 	})
 }
 
@@ -560,7 +560,7 @@ func hostedAgentRename(cr hostedCreds, inv *Invocation) {
 		die(renameRefusal(err, "ks agent list --session "+sess.ShortID))
 	}
 	emit(map[string]any{"agent": env.Data, "from": a.Name, "session_id": agentSessionID(sess)}, func() {
-		fmt.Printf("renamed agent %s: %q -> %q (revision %d); its id, tasks and connections are unchanged\n", env.Data.ID, a.Name, env.Data.Name, env.Data.Revision)
+		outf("renamed agent %s: %q -> %q (revision %d); its id, tasks and connections are unchanged\n", env.Data.ID, a.Name, env.Data.Name, env.Data.Revision)
 	})
 }
 
@@ -621,6 +621,6 @@ func hostedSessionRename(cr hostedCreds, inv *Invocation) {
 		die(renameRefusal(err, "ks session show "+r.ShortID))
 	}
 	emit(map[string]any{"session": env.Data, "from": rec.Data.Name}, func() {
-		fmt.Printf("renamed session %s: %q -> %q (revision %d)\n", r.ShortID, rec.Data.Name, env.Data.Name, env.Data.Revision)
+		outf("renamed session %s: %q -> %q (revision %d)\n", r.ShortID, rec.Data.Name, env.Data.Name, env.Data.Revision)
 	})
 }

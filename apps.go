@@ -37,23 +37,32 @@ func hostedAppsList(cr hostedCreds, inv *Invocation) {
 	}
 	apps := env.Data.Items
 	emit(map[string]any{"apps": apps, "count": len(apps)}, func() {
-		if len(apps) == 0 {
-			fmt.Println("no app is connected to your account")
-			return
-		}
-		fmt.Printf("%-16s %-18s %-14s %-12s %s\n", "ID", "APP", "ACTS IN", "LAST USED", "VERIFIED")
-		for _, a := range apps {
-			fmt.Printf("%-16s %-18s %-14s %-12s %s\n", a.ID, cell(sanitize(a.Client), 18), cell(sanitize(a.ContextName), 14),
-				firstNonEmpty(firstN10(a.LastUsedAt), "never"), sanitize(a.Verification))
-		}
-		for _, a := range apps {
-			fmt.Printf("\n%s (%s) sends its sign-in codes to %s and may:\n", sanitize(a.Client), a.ID, sanitize(a.SendsCodesTo))
-			for _, w := range a.ScopeWords {
-				fmt.Println("  - " + sanitize(w))
-			}
-		}
-		fmt.Println("\nDisconnect one: ks apps disconnect <id>")
+		o, _ := cmdUI()
+		o.List(appsListScreen(apps))
 	})
+}
+
+// appsListScreen is ks apps list: the apps, then what each may do.
+func appsListScreen(apps []connectedApp) listScreen {
+	s := listScreen{Title: "Apps connected to your account", Detail: listCount(len(apps), "app", "apps"),
+		Cols: []Col{{Title: "App"}, {Title: "Acts in"}, {Title: "Last used"}, {Title: "Verified"}, {Title: "Id", Second: true}}}
+	for _, a := range apps {
+		s.Rows = append(s.Rows, []string{sanitize(a.Client), sanitize(a.ContextName), firstNonEmpty(firstN10(a.LastUsedAt), "never"), sanitize(a.Verification), a.ID})
+	}
+	if len(apps) == 0 {
+		s.Empty = "No app is connected to your account."
+		return s
+	}
+	s.Groups = []listGroup{{Rows: s.Rows}}
+	for _, a := range apps {
+		g := listGroup{Heading: sanitize(a.Client) + " (" + a.ID + ")", Lead: []string{"Sends its sign-in codes to " + sanitize(a.SendsCodesTo) + " and may:"}}
+		for _, w := range a.ScopeWords {
+			g.Lead = append(g.Lead, "- "+sanitize(w))
+		}
+		s.Groups = append(s.Groups, g)
+	}
+	s.Next = []string{"ks apps disconnect <id>"}
+	return s
 }
 
 func firstN10(s string) string {

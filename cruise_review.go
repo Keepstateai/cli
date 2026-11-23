@@ -149,15 +149,15 @@ func cruiseReview(inv *Invocation) {
 	}
 	emit(map[string]any{"job_id": st.JobID, "state": st.State, "review": st.Review, "cleanup": st.Cleanup, "spend": st.Spend}, func() {
 		if st.Review == nil {
-			fmt.Printf("job %s is %s (%s), not in review: there is nothing to decide\n", st.JobID, sanitize(st.StateLabel), sanitize(st.State))
+			outf("job %s is %s (%s), not in review: there is nothing to decide\n", st.JobID, sanitize(st.StateLabel), sanitize(st.State))
 		} else {
 			for _, l := range reviewLines(st) {
-				fmt.Println(l)
+				outln(l)
 			}
 		}
-		fmt.Println("  accounting     model spend " + moneyText(st.Spend.Model) + "; runtime and storage " + moneyText(st.Spend.Runtime))
+		outln("  accounting     model spend " + moneyText(st.Spend.Model) + "; runtime and storage " + moneyText(st.Spend.Runtime))
 		if st.Cleanup != nil {
-			fmt.Println(cleanupLine(st.Cleanup))
+			outln(cleanupLine(st.Cleanup))
 		}
 	})
 }
@@ -302,7 +302,7 @@ func cruiseResume(inv *Invocation) {
 		} else {
 			progress("the decision's record could not be read back; ks cruise logs %s shows it", id)
 		}
-		fmt.Println(id)
+		outln(id)
 	})
 }
 
@@ -351,7 +351,7 @@ func cruiseCancel(inv *Invocation) {
 			}
 			progress("accounting: model spend %s (costs already incurred stand)", moneyText(after.Spend.Model))
 		}
-		fmt.Println(id)
+		outln(id)
 	})
 }
 

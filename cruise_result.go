@@ -565,7 +565,7 @@ func cruiseResult(inv *Invocation) {
 		lines, ce := endedCard(id, st)
 		if !out.json {
 			for _, l := range lines {
-				fmt.Println(l)
+				outln(l)
 			}
 		}
 		fail(ce)
@@ -599,7 +599,7 @@ func cruiseResult(inv *Invocation) {
 	}
 	emit(doc, func() {
 		for _, l := range jobReceiptLines(id, st, dest != "") {
-			fmt.Println(l)
+			outln(l)
 		}
 		if dest != "" {
 			how := "sha256 checked"
@@ -610,7 +610,7 @@ func cruiseResult(inv *Invocation) {
 			if r.Badge != badgeVerified {
 				label = "NOT verified (" + badgeLine(r.Badge) + ")"
 			}
-			fmt.Printf("downloaded %s: %s bytes, %s; %s\n", dest, commas(written), how, label)
+			outf("downloaded %s: %s bytes, %s; %s\n", dest, commas(written), how, label)
 		}
 	})
 }

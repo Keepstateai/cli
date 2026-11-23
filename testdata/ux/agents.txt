@@ -1,0 +1,53 @@
+=== agents, list, 120 columns ===
+Agents in session sess_0123  3 agents
+
+  main Working (working) primary tsk_0123456789abcdef
+    agt_main00000001 · control held · advice busy
+
+  reviewer-with-a-long-name Ready (idle) - none
+    agt_review0000002
+
+  docs Paused (parked) - none
+    agt_docs000000003 · paused: out of credit — add credit (console), then resume
+
+Next: ks agent open <name> --session sess_0123
+=== agents, list, 80 columns ===
+Agents in session sess_0123  3 agents
+
+  main Working (working) primary tsk_0123456789abcdef
+    agt_main00000001 · control held · advice busy
+
+  reviewer-with-a-long-name Ready (idle) - none
+    agt_review0000002
+
+  docs Paused (parked) - none
+    agt_docs000000003 · paused: out of credit — add credit (console), then
+    resume
+
+Next: ks agent open <name> --session sess_0123
+=== agents, list, 60 columns ===
+Agents in session sess_0123  3 agents
+
+  main Working (working) primary tsk_0123456789abcdef
+    agt_main00000001 · control held · advice busy
+
+  reviewer-with-a-long-name Ready (idle) - none
+    agt_review0000002
+
+  docs Paused (parked) - none
+    agt_docs000000003 · paused: out of credit — add credit
+    (console), then resume
+
+Next: ks agent open <name> --session sess_0123
+=== agents, empty, 120 columns ===
+Agents in session sess_0123  no agents
+
+  There are no agents in this session yet.
+=== agents, empty, 80 columns ===
+Agents in session sess_0123  no agents
+
+  There are no agents in this session yet.
+=== agents, empty, 60 columns ===
+Agents in session sess_0123  no agents
+
+  There are no agents in this session yet.

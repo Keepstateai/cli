@@ -142,28 +142,28 @@ func agentCopyUsageChecks(inv *Invocation) {
 }
 
 func agentCopyPrintPlan(d agentCopyPlanView) {
-	fmt.Printf("copy plan for agent %s into %s: NOTHING was created\n", sanitize(d.AgentName), sanitize(firstNonEmpty(d.OrgName, d.OrgID)))
-	fmt.Printf("  from       %s\n", sanitize(d.Point.Words))
-	fmt.Printf("  copy name  %s\n", sanitize(d.Name))
+	outf("copy plan for agent %s into %s: NOTHING was created\n", sanitize(d.AgentName), sanitize(firstNonEmpty(d.OrgName, d.OrgID)))
+	outf("  from       %s\n", sanitize(d.Point.Words))
+	outf("  copy name  %s\n", sanitize(d.Name))
 	for _, c := range d.Copies {
-		fmt.Printf("  copies     %s\n", sanitize(c))
+		outf("  copies     %s\n", sanitize(c))
 	}
 	for _, c := range d.DoesNotCopy {
-		fmt.Printf("  not copied %s\n", sanitize(c))
+		outf("  not copied %s\n", sanitize(c))
 	}
-	fmt.Printf("  keys       %s\n", sanitize(d.Keys.Note))
-	fmt.Printf("  readers    %s\n", sanitize(d.WhoCanSee))
-	fmt.Printf("  storage    %s\n", sanitize(d.Storage.Words))
-	fmt.Printf("  pays       %s\n", sanitize(d.Billing))
-	fmt.Printf("  yours      %s\n", sanitize(d.SourceStays))
-	fmt.Printf("  pool       %s\n", sanitize(d.ShareWords))
+	outf("  keys       %s\n", sanitize(d.Keys.Note))
+	outf("  readers    %s\n", sanitize(d.WhoCanSee))
+	outf("  storage    %s\n", sanitize(d.Storage.Words))
+	outf("  pays       %s\n", sanitize(d.Billing))
+	outf("  yours      %s\n", sanitize(d.SourceStays))
+	outf("  pool       %s\n", sanitize(d.ShareWords))
 	for _, e := range d.Earlier {
-		fmt.Printf("  earlier    copied before on %s as %q into %s\n", sanitize(e.CopiedAt), sanitize(e.Name), sanitize(e.OrgName))
+		outf("  earlier    copied before on %s as %q into %s\n", sanitize(e.CopiedAt), sanitize(e.Name), sanitize(e.OrgName))
 	}
 	for _, w := range d.Warnings {
-		fmt.Printf("WARNING: %s\n", sanitize(w))
+		outf("WARNING: %s\n", sanitize(w))
 	}
-	fmt.Printf("  digest     %s\n", d.PlanDigest)
+	outf("  digest     %s\n", d.PlanDigest)
 }
 
 func hostedAgentCopyToOrg(cr hostedCreds, inv *Invocation) {
@@ -194,8 +194,8 @@ func hostedAgentCopyToOrg(cr hostedCreds, inv *Invocation) {
 		if exec == "" && !out.yes {
 			emit(env.Data, func() {
 				agentCopyPrintPlan(plan)
-				fmt.Printf("copy exactly this plan: %s --execute %s --plan-id %s\n", cmd, plan.PlanDigest, plan.ID)
-				fmt.Println("or plan and copy in one go with --yes; either way " + nothing + " until then.")
+				outf("copy exactly this plan: %s --execute %s --plan-id %s\n", cmd, plan.PlanDigest, plan.ID)
+				outln("or plan and copy in one go with --yes; either way " + nothing + " until then.")
 			})
 			return
 		}
@@ -242,19 +242,19 @@ func hostedAgentCopyToOrg(cr hostedCreds, inv *Invocation) {
 
 func agentCopyEmitResult(src agentRow, d agentCopyResultView, raw json.RawMessage) {
 	emit(raw, func() {
-		fmt.Printf("copied agent %s into %s: session %s %q, %s, from its saved point.\n", sanitize(src.Name), sanitize(firstNonEmpty(d.OrgName, d.OrgID)), d.SessionID, sanitize(d.Name), sanitize(d.RuntimeState))
-		fmt.Printf("  saved point  %s\n", d.CheckpointID)
+		outf("copied agent %s into %s: session %s %q, %s, from its saved point.\n", sanitize(src.Name), sanitize(firstNonEmpty(d.OrgName, d.OrgID)), d.SessionID, sanitize(d.Name), sanitize(d.RuntimeState))
+		outf("  saved point  %s\n", d.CheckpointID)
 		if l := d.Library; l != nil {
 			if l.Done {
-				fmt.Printf("  pool         added as @%s, version v%d\n", l.Handle, l.Version)
+				outf("  pool         added as @%s, version v%d\n", l.Handle, l.Version)
 			} else {
-				fmt.Printf("  pool         NOT added: stopped at the %s step (%s): %s\n", sanitize(l.Step), sanitize(l.Code), sanitize(l.Why))
+				outf("  pool         NOT added: stopped at the %s step (%s): %s\n", sanitize(l.Step), sanitize(l.Code), sanitize(l.Why))
 			}
 		}
 		if d.Note != "" {
-			fmt.Println(sanitize(d.Note))
+			outln(sanitize(d.Note))
 		}
-		fmt.Printf("open it: ks context use %s, then ks session show %s\n", d.OrgID, d.SessionID)
+		outf("open it: ks context use %s, then ks session show %s\n", d.OrgID, d.SessionID)
 	})
 }
 
@@ -279,11 +279,11 @@ func hostedAgentCopies(cr hostedCreds, inv *Invocation) {
 	}
 	emit(env.Data, func() {
 		if len(env.Data.Copies) == 0 {
-			fmt.Printf("agent %s has not been copied into an organization.\n", sanitize(src.Name))
+			outf("agent %s has not been copied into an organization.\n", sanitize(src.Name))
 			return
 		}
 		for _, c := range env.Data.Copies {
-			fmt.Printf("%s  %q in %s (%s)\n", c.CopiedAt, sanitize(c.Name), sanitize(firstNonEmpty(c.OrgName, c.OrgID)), c.OrgID)
+			outf("%s  %q in %s (%s)\n", c.CopiedAt, sanitize(c.Name), sanitize(firstNonEmpty(c.OrgName, c.OrgID)), c.OrgID)
 		}
 	})
 }

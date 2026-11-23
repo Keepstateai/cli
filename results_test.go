@@ -182,7 +182,7 @@ func TestResultListAndShowLabelWhoSaysWhat(t *testing.T) {
 	// a session's results: every task's, and a task whose results could not
 	// be read is named as unread and fails the command, never shown as empty
 	out, errs, code = auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "result", "list", "--session", "fleetres", "--agent", "main")
-	if code != exitFailed || !strings.Contains(out, "res_1") || !strings.Contains(out, "UNREAD  task tsk_gone") {
+	if code != exitFailed || !strings.Contains(out, "res_1") || !strings.Contains(out, "Not read: task tsk_gone") {
 		t.Fatalf("list --session: %d\n%s%s", code, out, errs)
 	}
 	out, _, code = auditExec(t, bin, cfg, t.TempDir(), fastEnv(cfg), "result", "show", "res_1")

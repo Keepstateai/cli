@@ -71,18 +71,18 @@ func hostedMemberShow(cr hostedCreds, inv *Invocation) {
 				home = t.Name + " (" + t.TeamID + ")"
 				tag += ", home team"
 			}
-			fmt.Printf("  team %s (%s)\n", t.Name, tag)
+			outf("  team %s (%s)\n", t.Name, tag)
 		}
-		fmt.Println("  home team " + home)
+		outln("  home team " + home)
 		if d.Profile == nil {
-			fmt.Println("Profile details are shown to the member and to the organization's owners and admins.")
+			outln("Profile details are shown to the member and to the organization's owners and admins.")
 			return
 		}
 		p := d.Profile
 		for _, kv := range [][2]string{{"name", p.DisplayName}, {"work email", p.WorkEmail}, {"job title", p.JobTitle}, {"department", p.Department},
 			{"cost center", p.CostCenter}, {"employee ref", p.EmployeeRef}, {"timezone", p.Timezone}, {"locale", p.Locale}} {
 			if kv[1] != "" {
-				fmt.Printf("  %-13s %s\n", kv[0], kv[1])
+				outf("  %-13s %s\n", kv[0], kv[1])
 			}
 		}
 	})
@@ -111,12 +111,12 @@ func hostedMemberSet(cr hostedCreds, inv *Invocation) {
 	}
 	m := orgMemberChange(cr, org, inv.Arg(0), change, "nothing was changed")
 	emit(m, func() {
-		fmt.Printf("%s: details set\n", m.AccountID)
+		outf("%s: details set\n", m.AccountID)
 		if _, ok := change["home_team_id"]; ok {
 			if m.HomeTeamID == "" {
-				fmt.Println("No home team: their spend counts against the organization only.")
+				outln("No home team: their spend counts against the organization only.")
 			} else {
-				fmt.Printf("Home team %s: they are in it, and from the budgets on their spend counts against it and the teams above it.\n", m.HomeTeamID)
+				outf("Home team %s: they are in it, and from the budgets on their spend counts against it and the teams above it.\n", m.HomeTeamID)
 			}
 		}
 	})
@@ -162,7 +162,7 @@ func hostedMemberRemove(cr hostedCreds, inv *Invocation) {
 	}
 	if !confirmed {
 		emit(map[string]any{"plan": p, "removed": false}, func() {
-			fmt.Printf("planned, NOT removed: nothing changed. Remove exactly as shown: ks member remove %s --organization %s --content %s --confirm %s\n", account, org, content, short(p.Digest))
+			outf("planned, NOT removed: nothing changed. Remove exactly as shown: ks member remove %s --organization %s --content %s --confirm %s\n", account, org, content, short(p.Digest))
 		})
 		return
 	}
@@ -181,19 +181,19 @@ func hostedMemberRemove(cr hostedCreds, inv *Invocation) {
 	}
 	r := renv.Data
 	emit(r, func() {
-		fmt.Printf("%s removed from %s. ", account, org)
+		outf("%s removed from %s. ", account, org)
 		if content == "transfer" {
-			fmt.Printf("%d organization sessions moved to you, tagged transferred. ", r.SessionsTransferred)
+			outf("%d organization sessions moved to you, tagged transferred. ", r.SessionsTransferred)
 			if r.JobsSettled > 0 {
-				fmt.Printf("%d organization Cruise jobs moved to you, tagged transferred. ", r.JobsSettled)
+				outf("%d organization Cruise jobs moved to you, tagged transferred. ", r.JobsSettled)
 			}
 		} else if r.JobsSettled > 0 {
-			fmt.Printf("%d live organization Cruise jobs cancelled, their records kept. ", r.JobsSettled)
+			outf("%d live organization Cruise jobs cancelled, their records kept. ", r.JobsSettled)
 		}
 		if r.JobsNote != "" {
-			fmt.Printf("%s. ", r.JobsNote)
+			outf("%s. ", r.JobsNote)
 		}
-		fmt.Printf("Their profile details are erased on %s; their personal account is not touched.\n", r.ProfileEraseAfter)
+		outf("Their profile details are erased on %s; their personal account is not touched.\n", r.ProfileEraseAfter)
 	})
 }
 
@@ -209,6 +209,6 @@ func hostedOrgLeave(cr hostedCreds, inv *Invocation) {
 		die(orgErr(err, "you have not left"))
 	}
 	emit(env.Data, func() {
-		fmt.Printf("You left %s. Your details there are erased on %s. Your personal account and its work are unchanged.\n", id, env.Data.ProfileEraseAfter)
+		outf("You left %s. Your details there are erased on %s. Your personal account and its work are unchanged.\n", id, env.Data.ProfileEraseAfter)
 	})
 }

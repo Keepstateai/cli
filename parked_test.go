@@ -184,8 +184,8 @@ func TestFundsParkReadsPausedOnEverySurface(t *testing.T) {
 	if out := run("session", "list"); !regexp.MustCompile(`agentsession00\s+Paused \(stopping\)\s+frozen\s+paused`).MatchString(out) {
 		t.Errorf("session list cells:\n%s", out)
 	}
-	if out := run("task", "list", "--session", agentSessionShort); !regexp.MustCompile(`tsk_live\s+3 paused`).MatchString(out) ||
-		!regexp.MustCompile(`tsk_next\s+4 paused`).MatchString(out) {
+	if out := run("task", "list", "--session", agentSessionShort); !regexp.MustCompile(`tsk_live\s+3\s+paused`).MatchString(out) ||
+		!regexp.MustCompile(`tsk_next\s+4\s+paused`).MatchString(out) {
 		t.Errorf("task list cells:\n%s", out)
 	}
 	// status puts the pause FIRST and the agent's word as frozen history

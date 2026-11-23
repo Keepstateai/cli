@@ -20,7 +20,7 @@ func TestTaskListShowsTheQueueInCommittedOrder(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("task list: exit %d\n%s%s", code, out, errs)
 	}
-	for _, want := range []string{"INSTRUCTION", "POS", "STATE", "ORIGIN", "AUTHOR", "tsk_1", recoveryBlocking, "tsk_3", "tsk_4"} {
+	for _, want := range []string{"Instruction", "Pos", "State", "Origin", "Author", "tsk_1", recoveryBlocking, "tsk_3", "tsk_4"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the queue listing lacks %q:\n%s", want, out)
 		}
@@ -374,8 +374,8 @@ func TestSessionCheckpointsSaysWhatARestoreActuallyCovers(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("session checkpoints: exit %d\n%s%s", code, out, errs)
 	}
-	for _, want := range []string{"SAVED POINT", "ckpt_newest", "valid", "ckpt_older", "superseded",
-		"WHOLE-SESSION", "EVERY agent"} {
+	for _, want := range []string{"Saved point", "ckpt_newest", "valid", "ckpt_older", "superseded",
+		"whole session", "every agent"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the saved-point listing lacks %q:\n%s", want, out)
 		}
@@ -761,13 +761,13 @@ func TestSessionCheckpointsSaysWhichAreUsableAndWhere(t *testing.T) {
 	lines := strings.Split(out, "\n")
 	row := func(id string) string {
 		for _, l := range lines {
-			if strings.HasPrefix(l, id+" ") {
-				return l
+			if strings.HasPrefix(strings.TrimSpace(l), id+" ") {
+				return strings.TrimSpace(l)
 			}
 		}
 		return ""
 	}
-	if !strings.Contains(lines[0], "USABLE") || !strings.Contains(lines[0], "POSITION") {
+	if !strings.Contains(out, "Usable") || !strings.Contains(out, "Position") {
 		t.Errorf("the listing has no USABLE and POSITION columns:\n%s", out)
 	}
 	fields := func(l string) []string { return strings.Fields(l) }

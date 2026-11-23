@@ -428,7 +428,9 @@ func agentRole(a agentRow) string {
 	return "-"
 }
 
-func agentLine(a agentRow) string {
+// agentCells are an agent's cells in a list: name, state, role, current task,
+// and (second) its id and what else is true of it.
+func agentCells(a agentRow) []string {
 	task := a.ActiveTaskID
 	if task == "" {
 		task = "none"
@@ -439,17 +441,33 @@ func agentLine(a agentRow) string {
 	if a.SessionRuntime != nil {
 		activity = stateWords("session_runtime", a.SessionRuntime.State)
 	}
-	line := fmt.Sprintf("%-16s %-16s %-24s %-8s %s", clip(a.Name, 16), clip(a.ID, 16), clip(activity, 24), agentRole(a), task)
+	var more []string
 	if a.Controller != "" || a.Consultation != "" {
-		line += fmt.Sprintf("  control %s · advice %s", figure(a.Controller), figure(a.Consultation))
+		more = append(more, fmt.Sprintf("control %s \u00b7 advice %s", figure(a.Controller), figure(a.Consultation)))
 	}
 	switch rt := a.SessionRuntime; {
 	case rt.funds():
-		line += "  " + fundsPausedLine
+		more = append(more, fundsPausedLine)
 	case rt != nil:
-		line += "  not running; the agent's last word was " + stateWords("agent_activity", a.Activity)
+		more = append(more, "not running; the agent's last word was "+stateWords("agent_activity", a.Activity))
 	}
-	return line
+	return []string{sanitize(a.Name), activity, agentRole(a), task, a.ID, strings.Join(more, "; ")}
+}
+
+var agentCols = []Col{{Title: "Agent"}, {Title: "State"}, {Title: "Role"}, {Title: "Current task"}, {Title: "Id", Second: true}, {Title: "Also", Second: true}}
+
+// agentListScreen is ks agent list for one session.
+func agentListScreen(sess string, agents []agentRow) listScreen {
+	s := listScreen{Title: "Agents in session " + sess, Detail: listCount(len(agents), "agent", "agents"), Cols: agentCols}
+	for _, a := range agents {
+		s.Rows = append(s.Rows, agentCells(a))
+	}
+	if len(agents) == 0 {
+		s.Empty = "There are no agents in this session yet."
+		return s
+	}
+	s.Next = []string{"ks agent open <name> --session " + sess}
+	return s
 }
 
 func hostedAgentList(cr hostedCreds, inv *Invocation) {
@@ -466,15 +484,8 @@ func hostedAgentList(cr hostedCreds, inv *Invocation) {
 		die(err)
 	}
 	emit(map[string]any{"session": sess.ID, "agents": agents, "count": len(agents)}, func() {
-		if len(agents) == 0 {
-			fmt.Printf("No agents in session %s.\n", sess.ShortID)
-			return
-		}
-		fmt.Printf("%-16s %-16s %-24s %-8s %s\n", "AGENT", "ID", "STATE", "ROLE", "CURRENT TASK")
-		for _, a := range agents {
-			fmt.Println(agentLine(a))
-		}
-		fmt.Printf("%d agent(s); open one: ks agent open <name> --session %s\n", len(agents), sess.ShortID)
+		o, _ := cmdUI()
+		o.List(agentListScreen(sess.ShortID, agents))
 	})
 }
 
@@ -512,43 +523,43 @@ func hostedAgentStatus(cr hostedCreds, inv *Invocation) {
 			doc["hold_unreadable"] = holdProblem
 		}
 		emit(doc, func() {
-			fmt.Printf("agent %s (%s) in session %s\n", a.Name, a.ID, sess.ShortID)
+			outf("agent %s (%s) in session %s\n", a.Name, a.ID, sess.ShortID)
 			// The funds park: a session that is not running comes FIRST, and
 			// the agent's own word is then its last before the pause
 			for _, l := range runtimeLines(a.SessionRuntime, "ks agent resume "+a.Name+" --session "+sess.ShortID) {
-				fmt.Println(l)
+				outln(l)
 			}
 			if a.SessionRuntime != nil {
-				fmt.Printf("  activity       FROZEN at %s (%s): the last word before the session stopped, not current\n", stateWords("agent_activity", a.Activity), age)
+				outf("  activity       FROZEN at %s (%s): the last word before the session stopped, not current\n", stateWords("agent_activity", a.Activity), age)
 			} else {
-				fmt.Printf("  activity       %s (%s)\n", stateWords("agent_activity", a.Activity), age)
+				outf("  activity       %s (%s)\n", stateWords("agent_activity", a.Activity), age)
 			}
 			if a.Activity == "recovery_required" {
-				fmt.Printf("  RECOVERY       its runner stopped and what it was doing is unknown: this agent is NOT ready; decide: ks agent queue show %s --session %s\n", a.Name, sess.ShortID)
+				outf("  RECOVERY       its runner stopped and what it was doing is unknown: this agent is NOT ready; decide: ks agent queue show %s --session %s\n", a.Name, sess.ShortID)
 			}
 			switch {
 			case holdProblem != "":
-				fmt.Printf("  queue hold     could not be READ, so it is not stated; it is not known to be free: %s\n", holdProblem)
+				outf("  queue hold     could not be READ, so it is not stated; it is not known to be free: %s\n", holdProblem)
 			case hold != nil && runnerStopped(hold.BlockingState):
-				fmt.Printf("  queue hold     HELD behind %s, whose outcome is UNKNOWN (the runner stopped in it): nothing starts until a person decides; ks agent queue show %s --session %s\n", hold.BlockingTask, a.Name, sess.ShortID)
+				outf("  queue hold     HELD behind %s, whose outcome is UNKNOWN (the runner stopped in it): nothing starts until a person decides; ks agent queue show %s --session %s\n", hold.BlockingTask, a.Name, sess.ShortID)
 			case hold != nil:
-				fmt.Printf("  queue hold     HELD behind %s (%s): nothing starts until a person decides; ks agent queue show %s --session %s\n", hold.BlockingTask, figure(hold.BlockingState), a.Name, sess.ShortID)
+				outf("  queue hold     HELD behind %s (%s): nothing starts until a person decides; ks agent queue show %s --session %s\n", hold.BlockingTask, figure(hold.BlockingState), a.Name, sess.ShortID)
 			}
 			if stale && a.SessionRuntime == nil {
-				fmt.Printf("  STALE          no observation for more than %s: this is the last known state, not the current one\n", staleAfter)
+				outf("  STALE          no observation for more than %s: this is the last known state, not the current one\n", staleAfter)
 			}
-			fmt.Printf("  role           %s\n", agentRole(a))
-			fmt.Printf("  runner model   %s\n", runnerModelLine(a))
-			fmt.Printf("  queue          %d waiting\n", waiting)
+			outf("  role           %s\n", agentRole(a))
+			outf("  runner model   %s\n", runnerModelLine(a))
+			outf("  queue          %d waiting\n", waiting)
 			if current != nil && a.SessionRuntime != nil {
-				fmt.Printf("  current task   %s at queue position %d: NOT moving, the session is not running (last recorded %s)\n", current.ID, current.QueueSeq, stateLabel("task_state", current.State))
+				outf("  current task   %s at queue position %d: NOT moving, the session is not running (last recorded %s)\n", current.ID, current.QueueSeq, stateLabel("task_state", current.State))
 			} else if current != nil {
-				fmt.Printf("  current task   %s (%s) at queue position %d\n", current.ID, stateLabel("task_state", current.State), current.QueueSeq)
+				outf("  current task   %s (%s) at queue position %d\n", current.ID, stateLabel("task_state", current.State), current.QueueSeq)
 			} else {
-				fmt.Printf("  current task   none\n")
+				outf("  current task   none\n")
 			}
-			fmt.Printf("  revision       %d (queue %d)\n", a.Revision, a.QueueRevision)
-			fmt.Printf("  observed       %s\n", figure(a.ObservedAt))
+			outf("  revision       %d (queue %d)\n", a.Revision, a.QueueRevision)
+			outf("  observed       %s\n", figure(a.ObservedAt))
 		})
 	}
 	show(a)
@@ -564,15 +575,15 @@ func hostedAgentStatus(cr hostedCreds, inv *Invocation) {
 			return
 		}
 		// the error is always said; reading it changes only the count
-		fmt.Printf("  error          %s\n", oscText(sanitize(rec.Msg), 300))
+		outf("  error          %s\n", oscText(sanitize(rec.Msg), 300))
 		if act := rec.Action; act != nil && act.Verb != "" {
-			fmt.Printf("  next           %s: %s\n", oscText(sanitize(act.Label), 80), oscText(sanitize(act.Verb), 200))
+			outf("  next           %s: %s\n", oscText(sanitize(act.Label), 80), oscText(sanitize(act.Verb), 200))
 		}
 		switch {
 		case rec.Read:
-			fmt.Println("  read           yes: it does not count in \"N need you\"; a new error counts again")
+			outln("  read           yes: it does not count in \"N need you\"; a new error counts again")
 		case unreadError(rec) && markErrorRead(cr, rec) == nil:
-			fmt.Println("  marked read    it no longer counts in \"N need you\" (ks agent list --all, the console); a new error counts again")
+			outln("  marked read    it no longer counts in \"N need you\" (ks agent list --all, the console); a new error counts again")
 		}
 	}
 	if !inv.Bool("watch") {
@@ -603,7 +614,7 @@ func hostedAgentStatus(cr hostedCreds, inv *Invocation) {
 		}
 		// the watch shows the error to a person: it is read
 		if !out.json && unreadError(rec) && markErrorRead(cr, rec) == nil {
-			fmt.Printf("  error          %s (marked read: it no longer counts in \"N need you\")\n", oscText(sanitize(rec.Msg), 300))
+			outf("  error          %s (marked read: it no longer counts in \"N need you\")\n", oscText(sanitize(rec.Msg), 300))
 		}
 	}
 	readStatus()
@@ -930,15 +941,15 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 			emit(map[string]any{"session": sess.ID, "agent": w.Agent, "runtime": w.Runtime, "recovery": w.Recovery, "woken": false, "session_runtime": a.SessionRuntime}, func() {
 				if a.SessionRuntime.funds() {
 					// The funds park: the pause and its cause come first
-					fmt.Printf("agent %s (%s) in session %s: %s\n", a.Name, a.ID, sess.ShortID, fundsPausedLine)
+					outf("agent %s (%s) in session %s: %s\n", a.Name, a.ID, sess.ShortID, fundsPausedLine)
 					for _, l := range runtimeLines(a.SessionRuntime, "ks agent open "+a.Name+" --session "+sess.ShortID+" --resume") {
-						fmt.Println(l)
+						outln(l)
 					}
 				}
-				fmt.Printf("agent %s (%s) in session %s: the session is %s and was NOT woken\n", a.Name, a.ID, sess.ShortID, stateWords("session_runtime", w.Runtime.State))
-				fmt.Printf("  %s\n", sanitize(w.Runtime.Note))
+				outf("agent %s (%s) in session %s: the session is %s and was NOT woken\n", a.Name, a.ID, sess.ShortID, stateWords("session_runtime", w.Runtime.State))
+				outf("  %s\n", sanitize(w.Runtime.Note))
 				if w.Runtime.LastSavedAt != "" {
-					fmt.Printf("  last saved %s (%s)\n", w.Runtime.LastSavedAt, figure(w.Runtime.CheckpointID))
+					outf("  last saved %s (%s)\n", w.Runtime.LastSavedAt, figure(w.Runtime.CheckpointID))
 				}
 				printOpenActions(w.Runtime.Actions, a.Name, sess)
 			})
@@ -947,7 +958,7 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 	}
 	if w.Recovery != nil {
 		emit(map[string]any{"session": sess.ID, "agent": w.Agent, "runtime": w.Runtime, "recovery": w.Recovery}, func() {
-			fmt.Printf("agent %s (%s) in session %s reads %s: %s\n", a.Name, a.ID, sess.ShortID, stateWords("agent_activity", w.Recovery.Activity), sanitize(w.Recovery.Note))
+			outf("agent %s (%s) in session %s reads %s: %s\n", a.Name, a.ID, sess.ShortID, stateWords("agent_activity", w.Recovery.Activity), sanitize(w.Recovery.Note))
 			printOpenActions(w.Recovery.Actions, a.Name, sess)
 		})
 		return
@@ -1001,23 +1012,23 @@ func hostedAgentOpen(cr hostedCreds, inv *Invocation) {
 			"resume":            map[string]any{"after_seq": w.Resume.AfterSeq, "cursor": w.Resume.Cursor},
 			"approvals_pending": pending,
 		}, func() {
-			fmt.Printf("agent %s (%s) in session %s\n", a.Name, a.ID, sess.ShortID)
-			fmt.Printf("  activity       %s\n", stateWords("agent_activity", w.Agent.Activity))
-			fmt.Printf("  control        %s\n", controlLine(w))
-			fmt.Printf("  queue          %d queued\n", w.QueueDepth)
+			outf("agent %s (%s) in session %s\n", a.Name, a.ID, sess.ShortID)
+			outf("  activity       %s\n", stateWords("agent_activity", w.Agent.Activity))
+			outf("  control        %s\n", controlLine(w))
+			outf("  queue          %d queued\n", w.QueueDepth)
 			switch {
 			case heldErr != "":
-				fmt.Printf("  held           could not be read, so it is not stated: %s\n", heldErr)
+				outf("  held           could not be read, so it is not stated: %s\n", heldErr)
 			case held != "":
-				fmt.Printf("  held           %s\n", held)
+				outf("  held           %s\n", held)
 			default:
-				fmt.Printf("  held           no hold stands on this queue\n")
+				outf("  held           no hold stands on this queue\n")
 			}
-			fmt.Printf("  events from    %d\n", w.Resume.AfterSeq)
+			outf("  events from    %d\n", w.Resume.AfterSeq)
 			for _, ap := range pending {
-				fmt.Println(approvalHuman(ap, decideVerbs(sess, ap)))
+				outln(approvalHuman(ap, decideVerbs(sess, ap)))
 			}
-			fmt.Printf("follow it: ks agent open %s --session %s\n", a.Name, sess.ShortID)
+			outf("follow it: ks agent open %s --session %s\n", a.Name, sess.ShortID)
 		})
 		return
 	}
@@ -1581,25 +1592,25 @@ func hostedAgentTell(cr hostedCreds, inv *Invocation) {
 				word = "already accepted and HELD"
 			}
 		}
-		fmt.Printf("%s: task %s for agent %s at queue position %d (%s)", word, t.ID, a.Name, t.QueueSeq, figure(t.State))
+		outf("%s: task %s for agent %s at queue position %d (%s)", word, t.ID, a.Name, t.QueueSeq, figure(t.State))
 		if t.Replayed {
 			fmt.Print("; the same instruction was submitted once")
 		}
-		fmt.Println()
+		outln()
 		if t.Runtime == nil {
 			if inv.Bool("resume") {
-				fmt.Println("the session is running; --resume had nothing to resume")
+				outln("the session is running; --resume had nothing to resume")
 			}
 			return
 		}
-		fmt.Printf("  the session is %s and was NOT woken: %s\n", figure(t.Runtime.State), sanitize(t.Runtime.Note))
+		outf("  the session is %s and was NOT woken: %s\n", figure(t.Runtime.State), sanitize(t.Runtime.Note))
 		switch {
 		case resumed != nil:
-			fmt.Printf("  resuming session %s (state: %s) because you asked with --resume; session time is metered again\n", sess.ShortID, figure(resumed["runtime_state"]))
+			outf("  resuming session %s (state: %s) because you asked with --resume; session time is metered again\n", sess.ShortID, figure(resumed["runtime_state"]))
 		case strings.HasSuffix(t.Runtime.NextAction, "/resume"):
-			fmt.Printf("  to run it: ks agent resume %s --session %s (or submit with --resume)\n", a.Name, sess.ShortID)
+			outf("  to run it: ks agent resume %s --session %s (or submit with --resume)\n", a.Name, sess.ShortID)
 		default:
-			fmt.Printf("  it runs after: %s\n", figure(t.Runtime.NextAction))
+			outf("  it runs after: %s\n", figure(t.Runtime.NextAction))
 		}
 	})
 }
@@ -1887,7 +1898,7 @@ func hostedAgentDecide(decision string) func(hostedCreds, *Invocation) {
 			die(err)
 		}
 		emit(map[string]any{"session": sess.ID, "approval": outcome.Approval, "decision": outcome.Decision, "decided_at": outcome.DecidedAt},
-			func() { fmt.Println(decisionLine(ap, outcome.Decision)) })
+			func() { outln(decisionLine(ap, outcome.Decision)) })
 	}
 }
 
@@ -2638,14 +2649,14 @@ func hostedAgentPause(cr hostedCreds, inv *Invocation) {
 			// what is said about the save is what the service said about it,
 			// never what would be nicer to hear
 			if p.CheckpointSafe {
-				fmt.Printf("session %s is parked: the save is complete and safe, and session time has stopped", sess.ShortID)
+				outf("session %s is parked: the save is complete and safe, and session time has stopped", sess.ShortID)
 			} else {
-				fmt.Printf("session %s is parked and session time has stopped; the service did not confirm its save as safe", sess.ShortID)
+				outf("session %s is parked and session time has stopped; the service did not confirm its save as safe", sess.ShortID)
 			}
 			if waited > 0 {
-				fmt.Printf(" (stopping finished %s after the save)", waited)
+				outf(" (stopping finished %s after the save)", waited)
 			}
-			fmt.Println()
+			outln()
 		})
 	}
 	if state == "parked" {
@@ -2759,7 +2770,7 @@ func hostedAgentResume(cr hostedCreds, inv *Invocation) {
 		}
 	}
 	emit(map[string]any{"session": sess.ID, "agent": a.ID, "runtime_state": res["runtime_state"], "note": res["note"]}, func() {
-		fmt.Printf("session %s is resuming from its last save (state: %s); session time is metered again\n",
+		outf("session %s is resuming from its last save (state: %s); session time is metered again\n",
 			sess.ShortID, figure(res["runtime_state"]))
 	})
 }

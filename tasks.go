@@ -119,6 +119,13 @@ func taskListLine(t taskRow) string {
 // instruction still to move in a session that is not running reads paused
 // (funds park) or not moving, never running (the funds park).
 func taskListLineIn(t taskRow, rt *sessionRuntimeDoc) string {
+	c := taskCells(t, rt)
+	return fmt.Sprintf("%-26s %4s %-12s %-9s %-10s %s", clip(c[0], 26), c[1], clip(c[2], 12), clip(c[3], 9), clip(c[4], 10), c[5])
+}
+
+// taskCells are one instruction's cells in a list: id, position, state,
+// origin, author, when submitted.
+func taskCells(t taskRow, rt *sessionRuntimeDoc) []string {
 	if t.SessionRuntime != nil {
 		rt = t.SessionRuntime
 	}
@@ -130,9 +137,35 @@ func taskListLineIn(t taskRow, rt *sessionRuntimeDoc) string {
 			state = "not moving"
 		}
 	}
-	return fmt.Sprintf("%-26s %4d %-12s %-9s %-10s %s",
-		clip(t.ID, 26), t.QueueSeq, clip(state, 12), clip(figure(t.Origin), 9),
-		clip(taskAuthor(t), 10), figure(t.CreatedAt))
+	return []string{t.ID, fmt.Sprintf("%d", t.QueueSeq), state, figure(t.Origin), taskAuthor(t), ago(t.CreatedAt)}
+}
+
+var taskCols = []Col{{Title: "Instruction"}, {Title: "Pos", Right: true}, {Title: "State"}, {Title: "Origin"}, {Title: "Author"}, {Title: "Submitted"}}
+
+// taskListScreen is ks task list: one group a queue.
+func taskListScreen(sess string, queues []taskQueue, total int) listScreen {
+	s := listScreen{Title: "Instructions in session " + sess, Detail: nounCount(total, "instruction", "instructions") + " across " + nounCount(len(queues), "agent", "agents"), Cols: taskCols}
+	if len(queues) == 0 {
+		s.Empty = "There are no agents in this session, so no instructions."
+		return s
+	}
+	for _, q := range queues {
+		g := listGroup{Heading: "Agent " + sanitize(q.Agent)}
+		g.Facts = runtimeFacts(q.SessionRuntime, "ks agent resume "+q.Agent+" --session "+sess)
+		switch {
+		case q.Unreadable != "":
+			g.Empty = "This queue could not be read, so it is not shown. It is not known to be empty: " + q.Unreadable
+		case len(q.Tasks) == 0:
+			g.Empty = "No instructions."
+		default:
+			for _, t := range q.Tasks {
+				g.Rows = append(g.Rows, taskCells(t, q.SessionRuntime))
+			}
+		}
+		s.Groups = append(s.Groups, g)
+	}
+	s.Next = []string{"ks task show <instruction> --session " + sess}
+	return s
 }
 
 // sortTasks puts the queue in the order it was COMMITTED, which is the only
@@ -203,30 +236,8 @@ func hostedTaskList(cr hostedCreds, inv *Invocation) {
 	}
 	emit(map[string]any{"session": sess.ID, "queues": out, "tasks": total,
 		"unreadable_queues": unreadable}, func() {
-		if len(out) == 0 {
-			fmt.Printf("No agents in session %s, so no instructions.\n", sess.ShortID)
-			return
-		}
-		for _, q := range out {
-			fmt.Printf("agent %s (%s)\n", q.Agent, q.AgentID)
-			for _, l := range runtimeLines(q.SessionRuntime, "ks agent resume "+q.Agent+" --session "+sess.ShortID) {
-				fmt.Println(l)
-			}
-			if q.Unreadable != "" {
-				fmt.Printf("  this queue could not be READ, so it is not shown; it is not known to be empty: %s\n", q.Unreadable)
-				continue
-			}
-			if len(q.Tasks) == 0 {
-				fmt.Printf("  no instructions\n")
-				continue
-			}
-			fmt.Printf("  %-26s %4s %-12s %-9s %-10s %s\n", "INSTRUCTION", "POS", "STATE", "ORIGIN", "AUTHOR", "SUBMITTED")
-			for _, t := range q.Tasks {
-				fmt.Printf("  %s\n", taskListLineIn(t, q.SessionRuntime))
-			}
-		}
-		fmt.Printf("%d instruction(s) across %d agent(s); one in full: ks task show <instruction> --session %s\n",
-			total, len(out), sess.ShortID)
+		o, _ := cmdUI()
+		o.List(taskListScreen(sess.ShortID, out, total))
 	})
 }
 
@@ -365,11 +376,11 @@ func hostedTaskShow(cr hostedCreds, inv *Invocation) {
 		"hold": holdState, "hold_unreadable": holdProblem,
 		"attempts": atts, "attempts_unreadable": errText(attErr),
 		"refused_closes": refusals, "refusals_unreadable": refusalProblem}, func() {
-		fmt.Printf("instruction %s\n", t.ID)
+		outf("instruction %s\n", t.ID)
 		if agentName != "" {
-			fmt.Printf("  agent          %s (%s) in session %s\n", agentName, t.AgentID, sessionShort)
+			outf("  agent          %s (%s) in session %s\n", agentName, t.AgentID, sessionShort)
 		} else {
-			fmt.Printf("  agent          %s\n", t.AgentID)
+			outf("  agent          %s\n", t.AgentID)
 		}
 		if rt := t.SessionRuntime; rt != nil {
 			// The funds park: the instruction is still to move and its session
@@ -382,94 +393,94 @@ func hostedTaskShow(cr hostedCreds, inv *Invocation) {
 				resume = "ks agent resume <agent> --session <session>"
 			}
 			if rt.funds() {
-				fmt.Printf("  state          %s\n", fundsPausedLine)
+				outf("  state          %s\n", fundsPausedLine)
 			} else {
-				fmt.Printf("  state          NOT moving: the session is %s\n", sanitize(stateLabel("session_runtime", rt.State)))
+				outf("  state          NOT moving: the session is %s\n", sanitize(stateLabel("session_runtime", rt.State)))
 			}
-			fmt.Printf("  last recorded  %s (frozen; nothing is moving while the session is not running)\n", stateLabel("task_state", t.State))
+			outf("  last recorded  %s (frozen; nothing is moving while the session is not running)\n", stateLabel("task_state", t.State))
 			for _, l := range runtimeLines(rt, resume) {
-				fmt.Println(l)
+				outln(l)
 			}
 		} else {
-			fmt.Printf("  state          %s\n", stateLabel("task_state", t.State))
+			outf("  state          %s\n", stateLabel("task_state", t.State))
 		}
 		if t.CancelRecovery != nil {
 			printCancelRecovery(t.CancelRecovery, cancelRecoveryHints(t.ID, agentName, sessionShort))
 		}
-		fmt.Printf("  queue position %d\n", t.QueueSeq)
-		fmt.Printf("  author         %s\n", taskAuthor(t))
-		fmt.Printf("  origin         %s\n", figure(t.Origin))
-		fmt.Printf("  submission     %s\n", notRecorded(t.SubmissionID))
-		fmt.Printf("  submitted      %s\n", figure(t.CreatedAt))
-		fmt.Printf("  last change    %s\n", figure(t.UpdatedAt))
-		fmt.Printf("  revision       %d\n", t.Revision)
-		fmt.Printf("  held because   %s\n", notRecorded(t.HeldReason))
-		fmt.Printf("  verification   %s\n", verificationLine(t))
-		fmt.Printf("  attempt        %s\n", attemptLine(t))
+		outf("  queue position %d\n", t.QueueSeq)
+		outf("  author         %s\n", taskAuthor(t))
+		outf("  origin         %s\n", figure(t.Origin))
+		outf("  submission     %s\n", notRecorded(t.SubmissionID))
+		outf("  submitted      %s\n", figure(t.CreatedAt))
+		outf("  last change    %s\n", figure(t.UpdatedAt))
+		outf("  revision       %d\n", t.Revision)
+		outf("  held because   %s\n", notRecorded(t.HeldReason))
+		outf("  verification   %s\n", verificationLine(t))
+		outf("  attempt        %s\n", attemptLine(t))
 		if attErr != nil {
-			fmt.Printf("  attempts       the history could not be READ and is not shown; it is not known to be empty: %s\n", sanitize(attErr.Error()))
+			outf("  attempts       the history could not be READ and is not shown; it is not known to be empty: %s\n", sanitize(attErr.Error()))
 		} else if len(atts) == 0 {
-			fmt.Printf("  attempts       none recorded\n")
+			outf("  attempts       none recorded\n")
 		} else {
-			fmt.Printf("  attempts       %d, oldest first:\n", len(atts))
+			outf("  attempts       %d, oldest first:\n", len(atts))
 			for _, at := range atts {
 				closed := at.ClosedState
 				if closed == "" {
 					closed = "-"
 				}
-				fmt.Printf("    %-26s index %-3d generation %-3d %-11s closed %-24s worker %s\n",
+				outf("    %-26s index %-3d generation %-3d %-11s closed %-24s worker %s\n",
 					at.ID, at.AttemptIndex, at.ExecutionEpoch, stateLabel("attempt_state", at.State), closed, notRecorded(at.WorkerID))
 				if at.RetryOf != "" || at.CheckpointID != "" || at.AuthorizedBy != "" {
-					fmt.Printf("      follows %s, from saved point %s, authorized by %s\n",
+					outf("      follows %s, from saved point %s, authorized by %s\n",
 						notRecorded(at.RetryOf), notRecorded(at.CheckpointID), notRecorded(at.AuthorizedBy))
 				}
 			}
 		}
 		switch {
 		case sessionForEvents == "":
-			fmt.Printf("  refused closes not read: name --session to read this instruction's journal\n")
+			outf("  refused closes not read: name --session to read this instruction's journal\n")
 		case refusalProblem != "":
-			fmt.Printf("  refused closes the journal could not be READ, so they are not shown; that is not the same as none: %s\n", refusalProblem)
+			outf("  refused closes the journal could not be READ, so they are not shown; that is not the same as none: %s\n", refusalProblem)
 		case len(refusals) == 0:
-			fmt.Printf("  refused closes none\n")
+			outf("  refused closes none\n")
 		default:
-			fmt.Printf("  refused closes %d. The service REFUSED to record a close of this instruction. The attempt is\n", len(refusals))
-			fmt.Printf("                 still running and nothing was recorded against it; it was not downgraded.\n")
+			outf("  refused closes %d. The service REFUSED to record a close of this instruction. The attempt is\n", len(refusals))
+			outf("                 still running and nothing was recorded against it; it was not downgraded.\n")
 			for _, rc := range refusals {
-				fmt.Printf("    %s attempt %s\n", figure(rc.At), notRecorded(rc.AttemptID))
+				outf("    %s attempt %s\n", figure(rc.At), notRecorded(rc.AttemptID))
 				for _, why := range rc.Contradictions {
-					fmt.Printf("      %s\n", why)
+					outf("      %s\n", why)
 				}
 			}
-			fmt.Printf("                 If nobody closes it honestly, an authorized person may record that the\n")
-			fmt.Printf("                 outcome could NOT be established — never that it succeeded or failed:\n")
-			fmt.Printf("                 ks task reconcile %s --session %s --finding \"what you checked\"\n",
+			outf("                 If nobody closes it honestly, an authorized person may record that the\n")
+			outf("                 outcome could NOT be established — never that it succeeded or failed:\n")
+			outf("                 ks task reconcile %s --session %s --finding \"what you checked\"\n",
 				t.ID, sessionShort)
 		}
 		if holdProblem != "" {
-			fmt.Printf("  queue hold     could not be read, so whether this instruction holds the queue is NOT stated: %s\n", holdProblem)
+			outf("  queue hold     could not be read, so whether this instruction holds the queue is NOT stated: %s\n", holdProblem)
 		} else {
-			fmt.Printf("  queue hold     %s\n", holdState)
+			outf("  queue hold     %s\n", holdState)
 		}
 		if adviceProblemText != "" {
-			fmt.Printf("  advice         %s\n", adviceProblemText)
+			outf("  advice         %s\n", adviceProblemText)
 		} else if len(advice.Consultations) == 0 {
-			fmt.Printf("  advice         this instruction consulted nobody\n")
+			outf("  advice         this instruction consulted nobody\n")
 		} else {
 			for _, l := range adviceSummaryLines(advice) {
-				fmt.Printf("  %s\n", l)
+				outf("  %s\n", l)
 			}
 		}
-		fmt.Printf("  instructions:\n")
+		outf("  instructions:\n")
 		if contentProblem != "" {
-			fmt.Printf("    the exact instructions could not be READ and are not shown; they are not known to be empty: %s\n", contentProblem)
+			outf("    the exact instructions could not be READ and are not shown; they are not known to be empty: %s\n", contentProblem)
 		} else if strings.TrimSpace(content.Text) == "" {
-			fmt.Printf("    not recorded\n")
+			outf("    not recorded\n")
 		} else {
 			for _, line := range strings.Split(strings.TrimRight(content.Text, "\n"), "\n") {
-				fmt.Printf("    %s\n", line)
+				outf("    %s\n", line)
 			}
-			fmt.Printf("    (%d bytes, %s)\n", content.Bytes, notRecorded(content.Digest))
+			outf("    (%d bytes, %s)\n", content.Bytes, notRecorded(content.Digest))
 		}
 	})
 }
@@ -548,22 +559,22 @@ func hostedTaskReconcile(cr hostedCreds, inv *Invocation) {
 		if got != nil && got.State != "" {
 			state = got.State
 		}
-		fmt.Printf("instruction %s now reads %s\n", t.ID, figure(state))
-		fmt.Printf("  this records that the outcome could NOT be established. It is not a success and not a\n")
-		fmt.Printf("  failure: nobody measured either, and nothing here claims one.\n")
-		fmt.Printf("  finding        %s\n", finding)
+		outf("instruction %s now reads %s\n", t.ID, figure(state))
+		outf("  this records that the outcome could NOT be established. It is not a success and not a\n")
+		outf("  failure: nobody measured either, and nothing here claims one.\n")
+		outf("  finding        %s\n", finding)
 		if env.Data.RecordedBy != "" {
-			fmt.Printf("  recorded by    %s\n", env.Data.RecordedBy)
+			outf("  recorded by    %s\n", env.Data.RecordedBy)
 		}
 		if n := len(env.Data.HeldTasks); n > 0 {
-			fmt.Printf("  held behind it %d instruction(s): %s\n", n, strings.Join(env.Data.HeldTasks, ", "))
-			fmt.Printf("  continuing them is a separate decision: ks agent queue resume %s --session %s --finding \"...\"\n",
+			outf("  held behind it %d instruction(s): %s\n", n, strings.Join(env.Data.HeldTasks, ", "))
+			outf("  continuing them is a separate decision: ks agent queue resume %s --session %s --finding \"...\"\n",
 				a.Name, sess.ShortID)
 		} else {
-			fmt.Printf("  held behind it nothing\n")
+			outf("  held behind it nothing\n")
 		}
 		if env.Data.Note != "" {
-			fmt.Printf("  note           %s\n", env.Data.Note)
+			outf("  note           %s\n", env.Data.Note)
 		}
 	})
 }
@@ -660,37 +671,37 @@ func hostedTaskCancel(cr hostedCreds, inv *Invocation) {
 		"agent": a.Name, "session": sess.ID}, func() {
 		switch state {
 		case "cancelling":
-			fmt.Printf("instruction %s now reads %s\n", t.ID, figure(state))
-			fmt.Printf("  cancellation is REQUESTED. The stopping outcome is not established yet,\n")
-			fmt.Printf("  and this does not say the work stopped.\n")
+			outf("instruction %s now reads %s\n", t.ID, figure(state))
+			outf("  cancellation is REQUESTED. The stopping outcome is not established yet,\n")
+			outf("  and this does not say the work stopped.\n")
 			// the negator stays on the SAME line as the claim it denies: a
 			// disclaimer split across two lines can be quoted as the claim
-			fmt.Printf("  effects already in flight stay unresolved.\n")
-			fmt.Printf("  nothing outside this service is claimed to be reversed.\n")
+			outf("  effects already in flight stay unresolved.\n")
+			outf("  nothing outside this service is claimed to be reversed.\n")
 			if env.Data.SignalDeadline != "" {
-				fmt.Printf("  by             %s the worker has either been handed the request or no\n", env.Data.SignalDeadline)
-				fmt.Printf("                 longer supervises this agent\n")
+				outf("  by             %s the worker has either been handed the request or no\n", env.Data.SignalDeadline)
+				outf("                 longer supervises this agent\n")
 			}
 			printCancelRecovery(env.Data.Recovery, cancelRecoveryHints(t.ID, a.Name, sess.ShortID))
 		case "cancelled":
-			fmt.Printf("instruction %s now reads %s\n", t.ID, figure(state))
-			fmt.Printf("  it will not run. Its identity, content and history are kept.\n")
+			outf("instruction %s now reads %s\n", t.ID, figure(state))
+			outf("  it will not run. Its identity, content and history are kept.\n")
 		case "":
-			fmt.Printf("instruction %s: the service returned no state for it\n", t.ID)
-			fmt.Printf("  nothing here claims it was cancelled.\n")
+			outf("instruction %s: the service returned no state for it\n", t.ID)
+			outf("  nothing here claims it was cancelled.\n")
 		default:
 			// a completion that won the race keeps its outcome
-			fmt.Printf("instruction %s reads %s\n", t.ID, figure(state))
-			fmt.Printf("  this is the outcome that stands; the cancellation did not replace it.\n")
+			outf("instruction %s reads %s\n", t.ID, figure(state))
+			outf("  this is the outcome that stands; the cancellation did not replace it.\n")
 		}
 		if env.Data.Replayed {
-			fmt.Printf("  the same request was already recorded; this changed nothing.\n")
+			outf("  the same request was already recorded; this changed nothing.\n")
 		}
-		fmt.Printf("  instructions committed after it stay held: cancelling one is not a queue\n")
-		fmt.Printf("  release, and continuing them is a separate decision.\n")
-		fmt.Printf("    ks agent queue resume %s --session %s --finding \"...\"\n", a.Name, sess.ShortID)
+		outf("  instructions committed after it stay held: cancelling one is not a queue\n")
+		outf("  release, and continuing them is a separate decision.\n")
+		outf("    ks agent queue resume %s --session %s --finding \"...\"\n", a.Name, sess.ShortID)
 		if env.Data.Note != "" {
-			fmt.Printf("  note           %s\n", env.Data.Note)
+			outf("  note           %s\n", env.Data.Note)
 		}
 	})
 }
@@ -819,13 +830,25 @@ func hostedSessionCheckpoints(cr hostedCreds, inv *Invocation) {
 		die(err)
 	}
 	emit(map[string]any{"session": r.ID, "checkpoints": rows, "count": len(rows)}, func() {
+		sc := listScreen{Title: "Saved points of session " + r.ShortID, Detail: listCount(len(rows), "saved point", "saved points"),
+			Cols: []Col{{Title: "Saved point"}, {Title: "Usable"}, {Title: "Position", Right: true}, {Title: "State"}, {Title: "Boundary"}, {Title: "Taken", Second: true}, {Title: "Attempt's instruction", Second: true}}}
 		if len(rows) == 0 {
-			fmt.Printf("Session %s has no saved points recorded.\n", r.ShortID)
-			return
+			sc.Empty = "This session has no saved points recorded."
 		}
-		fmt.Printf("%-26s %-6s %-8s %-11s %-19s %-26s %s\n", "SAVED POINT", "USABLE", "POSITION", "STATE", "BOUNDARY", "ATTEMPT'S INSTRUCTION", "TAKEN")
+		var notes []string
 		for _, c := range rows {
-			fmt.Println(checkpointLine(c))
+			task := c.TaskID
+			if task == "" {
+				task = "-"
+			}
+			usable, pos := "no", "-"
+			if c.usable() {
+				usable = "yes"
+			}
+			if c.Position > 0 && c.usable() {
+				pos = fmt.Sprint(c.Position)
+			}
+			sc.Rows = append(sc.Rows, []string{c.ID, usable, pos, figure(c.State), figure(c.Boundary), figure(c.CreatedAt), task})
 			if !c.usable() {
 				// a saved point no longer kept, or a failed save, stays
 				// visible with why, and is never offered
@@ -836,7 +859,7 @@ func hostedSessionCheckpoints(cr hostedCreds, inv *Invocation) {
 				if why == "" {
 					why = "the service recorded no reason"
 				}
-				fmt.Printf("    not usable: %s\n", sanitize(why))
+				notes = append(notes, "The saved point "+c.ID+" is not usable: "+sanitize(why)+".")
 			}
 			if c.Parent != "" || len(c.Chunks) > 0 {
 				var parts []string
@@ -845,16 +868,17 @@ func hostedSessionCheckpoints(cr hostedCreds, inv *Invocation) {
 						parts = append(parts, fmt.Sprintf("%s %d", k, n))
 					}
 				}
-				fmt.Printf("    follows %s; chunks %s\n", notRecorded(c.Parent), notRecorded(strings.Join(parts, ", ")))
+				notes = append(notes, fmt.Sprintf("The saved point %s follows %s; chunks %s.", c.ID, notRecorded(c.Parent), notRecorded(strings.Join(parts, ", "))))
 			}
 		}
-		fmt.Printf("\nA saved point is a WHOLE-SESSION saved point. Restoring one returns EVERY agent and\n")
-		fmt.Printf("EVERY instruction in this session to that moment; it is not a file-level or a\n")
-		fmt.Printf("single-instruction rollback.\n")
-		fmt.Printf("The service keeps the three most recent saved points and the oldest one from within the hour\n")
-		fmt.Printf("before the newest; any of them may be named, newest first by POSITION.\n")
-		fmt.Printf("%d saved point(s). Name a usable one: ks session restore %s --checkpoint <saved point>, or\n", len(rows), r.ShortID)
-		fmt.Printf("ks session fork %s --plan --checkpoint <saved point>\n", r.ShortID)
+		if len(rows) > 0 {
+			sc.Notes = append(notes,
+				"A saved point covers the whole session. Restoring one returns every agent and every instruction in this session to that moment; it is not a file-level or a single-instruction rollback.",
+				"The service keeps the three most recent saved points and the oldest one from within the hour before the newest; any of them may be named, newest first by position.")
+			sc.Next = []string{"ks session restore " + r.ShortID + " --checkpoint <saved point>", "ks session fork " + r.ShortID + " --plan --checkpoint <saved point>"}
+		}
+		o, _ := cmdUI()
+		o.List(sc)
 	})
 }
 
@@ -1048,41 +1072,41 @@ func hostedTaskResume(cr hostedCreds, inv *Invocation) {
 	emit(map[string]any{"session": sess.ID, "task": t.ID, "checkpoint": chosen,
 		"restore": res, "attempt": newest, "attempts": atts,
 		"attempts_unreadable": errText(aerr)}, func() {
-		fmt.Printf("restored session %s from saved point %s\n", sess.ShortID, chosen.ID)
-		fmt.Printf("  scope          %s\n", figure(res.Scope))
+		outf("restored session %s from saved point %s\n", sess.ShortID, chosen.ID)
+		outf("  scope          %s\n", figure(res.Scope))
 		for _, p := range res.Phases {
 			mark := "done"
 			if !p.Done {
 				mark = "STOPPED"
 			}
-			fmt.Printf("  %-14s %s %s\n", p.Phase, mark, p.Detail)
+			outf("  %-14s %s %s\n", p.Phase, mark, p.Detail)
 		}
 		if res.StoppedAt != "" {
-			fmt.Printf("  the restore STOPPED at %s; the guest may or may not have been replaced — the phases above say which\n", res.StoppedAt)
+			outf("  the restore STOPPED at %s; the guest may or may not have been replaced — the phases above say which\n", res.StoppedAt)
 		}
 		if res.NewEpoch != 0 {
-			fmt.Printf("  generation     %d (every earlier worker is now refused)\n", res.NewEpoch)
+			outf("  generation     %d (every earlier worker is now refused)\n", res.NewEpoch)
 		}
 		if n := len(res.SupersededAtts); n > 0 {
-			fmt.Printf("  superseded     %d attempt(s): %s\n", n, strings.Join(res.SupersededAtts, ", "))
+			outf("  superseded     %d attempt(s): %s\n", n, strings.Join(res.SupersededAtts, ", "))
 		}
 		if aerr != nil {
-			fmt.Printf("  new attempt    the attempt history could not be READ, so it is not shown; it is not known to be absent: %s\n", sanitize(aerr.Error()))
+			outf("  new attempt    the attempt history could not be READ, so it is not shown; it is not known to be absent: %s\n", sanitize(aerr.Error()))
 		} else if newest == nil {
-			fmt.Printf("  new attempt    the service linked none to this saved point, and this client invents none\n")
+			outf("  new attempt    the service linked none to this saved point, and this client invents none\n")
 		} else {
-			fmt.Printf("  new attempt    %s (index %d, generation %d)\n", newest.ID, newest.AttemptIndex, newest.ExecutionEpoch)
-			fmt.Printf("                 follows %s, from saved point %s, authorized by %s\n",
+			outf("  new attempt    %s (index %d, generation %d)\n", newest.ID, newest.AttemptIndex, newest.ExecutionEpoch)
+			outf("                 follows %s, from saved point %s, authorized by %s\n",
 				notRecorded(newest.RetryOf), notRecorded(newest.CheckpointID), notRecorded(newest.AuthorizedBy))
 		}
 		if res.HoldID != "" {
-			fmt.Printf("  queue          HELD (%s). Nothing was released and nothing was started: continuing the\n", res.HoldID)
-			fmt.Printf("                 queue is a separate decision — ks agent queue resume %s --session %s --finding \"...\"\n",
+			outf("  queue          HELD (%s). Nothing was released and nothing was started: continuing the\n", res.HoldID)
+			outf("                 queue is a separate decision — ks agent queue resume %s --session %s --finding \"...\"\n",
 				a.Name, sess.ShortID)
 		}
 		continuationLines(res)
 		if res.Note != "" {
-			fmt.Printf("  note           %s\n", res.Note)
+			outf("  note           %s\n", res.Note)
 		}
 	})
 	continuationUnknown(res, sess.ShortID)
@@ -1119,24 +1143,24 @@ type restoreAnswer struct {
 func continuationLines(res restoreAnswer) {
 	switch res.StackCompatibility {
 	case "verified":
-		fmt.Printf("  stack          verified: the saved point was taken on the engine's pinned stack\n")
+		outf("  stack          verified: the saved point was taken on the engine's pinned stack\n")
 	case "incompatible":
-		fmt.Printf("  stack          INCOMPATIBLE: the saved point was taken on a different pinned stack; nothing was restored\n")
+		outf("  stack          INCOMPATIBLE: the saved point was taken on a different pinned stack; nothing was restored\n")
 		for _, p := range res.Phases {
 			if !p.Done && strings.Contains(p.Detail, "stack") {
-				fmt.Printf("                 %s\n", sanitize(p.Detail))
+				outf("                 %s\n", sanitize(p.Detail))
 			}
 		}
 	default:
-		fmt.Printf("  stack          NOT established: the engine did not verify the saved point's pinned stack (%s), so exact continuation on the same stack is not claimed\n", figure(res.StackCompatibility))
+		outf("  stack          NOT established: the engine did not verify the saved point's pinned stack (%s), so exact continuation on the same stack is not claimed\n", figure(res.StackCompatibility))
 	}
 	c := res.Continuation
 	if c == "" {
 		c = "not stated by the service"
 	}
-	fmt.Printf("  continuation   %s\n", sanitize(c))
+	outf("  continuation   %s\n", sanitize(c))
 	if res.ContinuationNote != "" {
-		fmt.Printf("                 %s\n", sanitize(res.ContinuationNote))
+		outf("                 %s\n", sanitize(res.ContinuationNote))
 	}
 }
 
@@ -1282,27 +1306,27 @@ func printCancelRecovery(r *cancelRecovery, hints map[string]string) {
 	}
 	if !r.Overdue {
 		if r.OverdueAt != "" {
-			fmt.Printf("  interrupt wait %d s: if the stop is not confirmed by %s, recovery actions are offered\n", r.InterruptWaitSeconds, r.OverdueAt)
+			outf("  interrupt wait %d s: if the stop is not confirmed by %s, recovery actions are offered\n", r.InterruptWaitSeconds, r.OverdueAt)
 		} else if r.Note != "" {
-			fmt.Printf("  interrupt wait %s\n", r.Note)
+			outf("  interrupt wait %s\n", r.Note)
 		}
 		return
 	}
-	fmt.Printf("  NOT STOPPED: the stop was not confirmed within the %d s interrupt wait.\n", r.InterruptWaitSeconds)
+	outf("  NOT STOPPED: the stop was not confirmed within the %d s interrupt wait.\n", r.InterruptWaitSeconds)
 	if r.Note != "" {
-		fmt.Printf("  note           %s\n", r.Note)
+		outf("  note           %s\n", r.Note)
 	}
 	if len(r.Options) == 0 {
-		fmt.Printf("  the service named no recovery action; nothing was taken\n")
+		outf("  the service named no recovery action; nothing was taken\n")
 		return
 	}
-	fmt.Printf("  choose one; none is taken for you:\n")
+	outf("  choose one; none is taken for you:\n")
 	for _, o := range r.Options {
-		fmt.Printf("    %-15s %s\n", o.Action, o.Request)
-		fmt.Printf("    %-15s does: %s\n", "", o.Effect)
-		fmt.Printf("    %-15s does not: %s\n", "", o.DoesNot)
+		outf("    %-15s %s\n", o.Action, o.Request)
+		outf("    %-15s does: %s\n", "", o.Effect)
+		outf("    %-15s does not: %s\n", "", o.DoesNot)
 		if h := hints[o.Action]; h != "" {
-			fmt.Printf("    %-15s ks: %s\n", "", h)
+			outf("    %-15s ks: %s\n", "", h)
 		}
 	}
 }

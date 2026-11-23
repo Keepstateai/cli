@@ -179,22 +179,32 @@ func hostedFileList(cr hostedCreds, inv *Invocation) {
 	}
 	l := env.Data
 	emit(l, func() {
-		fmt.Printf("%s (session %s)\n", visible(l.Path), sess.ShortID)
-		for _, e := range l.Entries {
-			name := visible(e.Name)
-			if e.Type == "dir" {
-				name += "/"
-			}
-			note := ""
-			if e.Redacted {
-				note = "  [redacted: its contents are never shown]"
-			}
-			fmt.Printf("  %-5s %-6s %12s  %s%s\n", visible(e.Type), visible(e.Mode), commas(e.Size), name, note)
-		}
-		if l.Truncated {
-			fmt.Printf("showing %d of %d entries; the list was cut at the service's bound\n", len(l.Entries), l.Total)
-		}
+		o, _ := cmdUI()
+		o.List(fileListScreen(l, "in session "+sess.ShortID))
 	})
+}
+
+// fileListScreen is ks file list: one directory of a session's workspace.
+func fileListScreen(l fileList, where string) listScreen {
+	s := listScreen{Title: visible(l.Path), Detail: where + ", " + listCount(len(l.Entries), "entry", "entries"),
+		Cols: []Col{{Title: "Type"}, {Title: "Mode"}, {Title: "Size", Right: true}, {Title: "Name", Wrap: true, Second: true}}}
+	for _, e := range l.Entries {
+		name := visible(e.Name)
+		if e.Type == "dir" {
+			name += "/"
+		}
+		if e.Redacted {
+			name += "  [redacted: its contents are never shown]"
+		}
+		s.Rows = append(s.Rows, []string{visible(e.Type), visible(e.Mode), commas(e.Size), name})
+	}
+	if len(l.Entries) == 0 {
+		s.Empty = "This directory is empty."
+	}
+	if l.Truncated {
+		s.Notes = []string{fmt.Sprintf("Showing %d of %d entries; the list was cut at the service's bound.", len(l.Entries), l.Total)}
+	}
+	return s
 }
 
 func hostedFileShow(cr hostedCreds, inv *Invocation) {
@@ -257,19 +267,19 @@ func hostedFileShow(cr hostedCreds, inv *Invocation) {
 		}
 		progress("%s (session %s): %s bytes shown, sha256 %s%s", visible(c.Path), sess.ShortID, commas(c.Returned), short(c.SHA256Returned), more)
 		if o := inv.Str("out"); o != "" {
-			fmt.Printf("wrote %s bytes to %s\n", commas(c.Returned), o)
+			outf("wrote %s bytes to %s\n", commas(c.Returned), o)
 			return
 		}
 		if !utf8.Valid(raw) || strings.ContainsRune(string(raw), 0) {
-			fmt.Printf("%s is not text (%s bytes); it is not printed. Write it to a file: ks file show %s --session %s --out FILE\n", visible(c.Path), commas(c.Returned), p, sess.ShortID)
+			outf("%s is not text (%s bytes); it is not printed. Write it to a file: ks file show %s --session %s --out FILE\n", visible(c.Path), commas(c.Returned), p, sess.ShortID)
 			return
 		}
 		fmt.Print(visible(string(raw)))
 		if len(raw) > 0 && raw[len(raw)-1] != '\n' {
-			fmt.Println()
+			outln()
 		}
 		if c.Truncated {
-			fmt.Printf("[cut at %s of %s bytes]\n", commas(c.Returned), commas(c.Size))
+			outf("[cut at %s of %s bytes]\n", commas(c.Returned), commas(c.Size))
 		}
 	})
 }
@@ -308,7 +318,7 @@ func hostedFileDownload(cr hostedCreds, inv *Invocation) {
 	d := fetchVerifiedFile(cr, route, p, dest, "session "+sess.ShortID, func(err error) error { return inspectRefusal(err, sess) })
 	d.SessionID = agentSessionID(sess)
 	emit(d, func() {
-		fmt.Printf("wrote %s bytes to %s (session %s, sha256 %s, checked)\n", commas(d.Bytes), dest, sess.ShortID, short(d.SHA256))
+		outf("wrote %s bytes to %s (session %s, sha256 %s, checked)\n", commas(d.Bytes), dest, sess.ShortID, short(d.SHA256))
 	})
 }
 
@@ -427,18 +437,18 @@ func hostedAgentLogs(cr hostedCreds, inv *Invocation) {
 	}
 	if !inv.Bool("follow") {
 		emit(p, func() {
-			fmt.Printf("logs of session %s (%s)\n", sess.ShortID, p.RuntimeState)
+			outf("logs of session %s (%s)\n", sess.ShortID, p.RuntimeState)
 			for _, e := range p.Entries {
-				fmt.Println(logLine(e))
+				outln(logLine(e))
 			}
 			for _, l := range logStatusLines(p) {
-				fmt.Println(l)
+				outln(l)
 			}
 			if len(p.Entries) == 0 {
-				fmt.Println("no log lines from this cursor")
+				outln("no log lines from this cursor")
 			}
 			if p.NextCursor != "" {
-				fmt.Printf("continue: ks agent logs --session %s --cursor %s\n", sess.ShortID, p.NextCursor)
+				outf("continue: ks agent logs --session %s --cursor %s\n", sess.ShortID, p.NextCursor)
 			}
 		})
 		return

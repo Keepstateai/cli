@@ -166,17 +166,17 @@ func choiceIndex(answer string, n int) (int, bool) {
 
 func printOpenActions(actions []openAction, name string, sess inventoryRow) {
 	for _, a := range actions {
-		fmt.Printf("  %-22s %s\n", a.Label, sanitize(a.Request))
+		outf("  %-22s %s\n", a.Label, sanitize(a.Request))
 		if a.Discloses != "" {
-			fmt.Printf("  %-22s %s\n", "", sanitize(a.Discloses))
+			outf("  %-22s %s\n", "", sanitize(a.Discloses))
 		}
 		switch a.Action {
 		case "resume_session":
-			fmt.Printf("  %-22s ks: ks agent open %s --session %s --resume\n", "", name, sess.ShortID)
+			outf("  %-22s ks: ks agent open %s --session %s --resume\n", "", name, sess.ShortID)
 		case "view_saved_transcript":
-			fmt.Printf("  %-22s ks: ks agent logs --session %s\n", "", sess.ShortID)
+			outf("  %-22s ks: ks agent logs --session %s\n", "", sess.ShortID)
 		case "open_recovery":
-			fmt.Printf("  %-22s ks: ks agent queue show %s --session %s\n", "", name, sess.ShortID)
+			outf("  %-22s ks: ks agent queue show %s --session %s\n", "", name, sess.ShortID)
 		}
 	}
 }

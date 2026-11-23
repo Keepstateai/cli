@@ -66,7 +66,7 @@ func TestOrganizationContext(t *testing.T) {
 	}
 	// the organization's records, both pages, the context said
 	out, _, code = run("organization", "sessions")
-	if code != 0 || !strings.Contains(out, "Context: organization org_a") || !strings.Contains(out, "session_1") || !strings.Contains(out, "session_2") || !strings.Contains(out, "transferred from acct_gone") {
+	if code != 0 || !strings.Contains(out, "Sessions of the organization org_a") || !strings.Contains(out, "session_1") || !strings.Contains(out, "session_2") || !strings.Contains(out, "transferred from acct_gone") {
 		t.Fatalf("organization sessions: %d %s", code, out)
 	}
 	// an organization you do not belong to is refused and changes nothing

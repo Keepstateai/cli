@@ -1,0 +1,34 @@
+=== files, list, 120 columns ===
+src  in session sess_0123, 3 entries
+
+  Type  Mode   Size  Name
+  file  0644  1,204  main.go
+  dir   0755      0  internal/
+  file  0600     40  .env [redacted: its contents are never shown]
+=== files, list, 80 columns ===
+src  in session sess_0123, 3 entries
+
+  Type  Mode   Size  Name
+  file  0644  1,204  main.go
+  dir   0755      0  internal/
+  file  0600     40  .env [redacted: its contents are never shown]
+=== files, list, 60 columns ===
+src  in session sess_0123, 3 entries
+
+  Type  Mode   Size  Name
+  file  0644  1,204  main.go
+  dir   0755      0  internal/
+  file  0600     40  .env [redacted: its contents are never
+                     shown]
+=== files, empty, 120 columns ===
+.  in session sess_0123, no entries
+
+  This directory is empty.
+=== files, empty, 80 columns ===
+.  in session sess_0123, no entries
+
+  This directory is empty.
+=== files, empty, 60 columns ===
+.  in session sess_0123, no entries
+
+  This directory is empty.

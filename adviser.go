@@ -325,9 +325,9 @@ func hostedAdviserConnect(cr hostedCreds, inv *Invocation) {
 	}
 	g := env.Data
 	emit(map[string]any{"grant": g, "from": from, "adviser": to, "confirmed": true}, func() {
-		fmt.Printf("connected: %s may consult %s (grant %s, revision %d, %s)\n", from.label(), to.label(), g.ID, g.GrantRevision, grantState(g))
-		fmt.Println(resolvedLimitsLine(g))
-		fmt.Printf("it stays connected until you remove it: ks adviser disconnect %s\n", g.ID)
+		outf("connected: %s may consult %s (grant %s, revision %d, %s)\n", from.label(), to.label(), g.ID, g.GrantRevision, grantState(g))
+		outln(resolvedLimitsLine(g))
+		outf("it stays connected until you remove it: ks adviser disconnect %s\n", g.ID)
 	})
 }
 
@@ -363,14 +363,21 @@ func hostedAdviserList(cr hostedCreds, inv *Invocation) {
 	}
 	gs := env.Data.Items
 	emit(map[string]any{"agent": a.ID, "grants": gs, "count": len(gs)}, func() {
-		if len(gs) == 0 {
-			fmt.Printf("agent %s has no adviser connections. Connect one: ks adviser connect <session>/<agent> --session %s\n", a.Name, sess.ShortID)
-			return
-		}
-		fmt.Printf("%-18s %-8s %-8s %-28s\n", "GRANT", "STATE", "", "OTHER END")
+		sc := listScreen{Title: "Adviser connections of agent " + sanitize(a.Name), Detail: listCount(len(gs), "connection", "connections"),
+			Cols: []Col{{Title: "Grant"}, {Title: "State"}, {Title: "Direction"}, {Title: "Other end", Flex: true}, {Title: "Revision", Right: true}, {Title: "Ended", Wrap: true, Second: true}}}
 		for _, g := range gs {
-			fmt.Println(grantLine(g, a.ID))
+			dir, other := "consults", g.TargetSessionName+"/"+g.TargetAgentName
+			if g.TargetAgentID == a.ID {
+				dir, other = "advises", g.SourceSessionName+"/"+g.SourceAgentName
+			}
+			sc.Rows = append(sc.Rows, []string{g.ID, grantState(g), dir, sanitize(other), fmt.Sprintf("%d", g.GrantRevision), sanitize(g.EndedWords)})
 		}
+		if len(gs) == 0 {
+			sc.Empty = "This agent has no adviser connections."
+			sc.Next = []string{"ks adviser connect <session>/<agent> --session " + sess.ShortID}
+		}
+		o, _ := cmdUI()
+		o.List(sc)
 	})
 }
 
@@ -385,10 +392,10 @@ func hostedAdviserDisconnect(cr hostedCreds, inv *Invocation) {
 	g := env.Data
 	emit(map[string]any{"grant": g, "stops": "every future consultation over this connection, at once",
 		"not_recalled": "advice already delivered, and questions already answered, stay where they are"}, func() {
-		fmt.Printf("disconnected %s: %s/%s may no longer consult %s/%s (revoked %s)\n", g.ID,
+		outf("disconnected %s: %s/%s may no longer consult %s/%s (revoked %s)\n", g.ID,
 			g.SourceSessionName, g.SourceAgentName, g.TargetSessionName, g.TargetAgentName, g.RevokedAt)
-		fmt.Println("stops: every future consultation over this connection, at once")
-		fmt.Println("not recalled: advice already delivered stays where it is")
+		outln("stops: every future consultation over this connection, at once")
+		outln("not recalled: advice already delivered stays where it is")
 	})
 }
 
@@ -457,11 +464,9 @@ func hostedAdviserDiscover(cr hostedCreds, inv *Invocation) {
 	}
 	items := env.Data.Items
 	emit(map[string]any{"agents": items, "count": len(items)}, func() {
-		if len(items) == 0 {
-			fmt.Println("no agents you may consult; discovery creates none")
-			return
-		}
-		fmt.Printf("%-28s %-12s %-32s %s\n", "SELECTOR", "AVAILABILITY", "RUNNER", "LAST SEEN")
+		sc := listScreen{Title: "Agents you may consult", Detail: listCount(len(items), "agent", "agents"),
+			Cols: []Col{{Title: "Selector", Flex: true}, {Title: "Availability"}, {Title: "Runner"}, {Title: "Last seen"}}}
+		amb := false
 		for _, e := range items {
 			runner := strings.TrimSpace(strings.Join([]string{e.RunnerMode, e.RunnerVersion, e.RunnerModel}, " "))
 			if runner == "" {
@@ -470,9 +475,19 @@ func hostedAdviserDiscover(cr hostedCreds, inv *Invocation) {
 			sel := visible(sanitize(e.Selector))
 			if e.NameAmbiguous {
 				sel += " *"
+				amb = true
 			}
-			fmt.Printf("%-28s %-12s %-32s %s\n", clip(sel, 28), figure(e.Availability), clip(sanitize(runner), 32), figure(e.LastSeenAt))
+			sc.Rows = append(sc.Rows, []string{sel, figure(e.Availability), sanitize(runner), figure(e.LastSeenAt)})
 		}
-		fmt.Println("* the agent name is shared: use the selector or the id. Connect one: ks adviser connect <session>/<agent> --session <yours>")
+		if len(items) == 0 {
+			sc.Empty = "There are no agents you may consult. Discovery creates none."
+		} else {
+			if amb {
+				sc.Notes = append(sc.Notes, "* The agent name is shared: use the selector or the id.")
+			}
+			sc.Next = []string{"ks adviser connect <session>/<agent> --session <yours>"}
+		}
+		o, _ := cmdUI()
+		o.List(sc)
 	})
 }

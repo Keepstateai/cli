@@ -127,21 +127,12 @@ func hostedAgentFilesList(cr hostedCreds, inv *Invocation) {
 	}
 	l := env.Data
 	emit(l, func() {
-		fmt.Printf("%s (%s)\n", visible(l.Path), inv.Arg(0))
-		for _, e := range l.Entries {
-			name := visible(e.Name)
-			if e.Type == "dir" {
-				name += "/"
-			}
-			note := ""
-			if e.Redacted {
-				note = "  [redacted: its contents are never given]"
-			}
-			fmt.Printf("  %-5s %-6s %12s  %s%s\n", visible(e.Type), visible(e.Mode), commas(e.Size), name, note)
+		o, _ := cmdUI()
+		sc := fileListScreen(l, "of "+sanitize(inv.Arg(0)))
+		for i := range sc.Rows {
+			sc.Rows[i][3] = strings.Replace(sc.Rows[i][3], "never shown", "never given", 1)
 		}
-		if l.Truncated {
-			fmt.Printf("showing %d of %d entries; the list was cut at the service's bound\n", len(l.Entries), l.Total)
-		}
+		o.List(sc)
 	})
 }
 
@@ -215,7 +206,7 @@ func hostedAgentFilesGet(cr hostedCreds, inv *Invocation) {
 	route := adviserFilesBase(asker, adv) + "/download?" + url.Values{"path": {p}}.Encode()
 	d := fetchVerifiedFile(cr, route, p, dest, inv.Arg(0), refuse)
 	emit(d, func() {
-		fmt.Printf("wrote %s bytes to %s (from %s, sha256 %s, checked)\n", commas(d.Bytes), dest, inv.Arg(0), short(d.SHA256))
+		outf("wrote %s bytes to %s (from %s, sha256 %s, checked)\n", commas(d.Bytes), dest, inv.Arg(0), short(d.SHA256))
 	})
 }
 
@@ -240,15 +231,15 @@ func showAdviserFile(cr hostedCreds, inv *Invocation, asker, adv agentRow, p str
 	emit(c, func() {
 		progress("%s (%s): %s bytes shown, sha256 %s", visible(c.Path), inv.Arg(0), commas(c.Returned), short(c.SHA256Returned))
 		if !utf8.Valid(raw) || strings.ContainsRune(string(raw), 0) {
-			fmt.Printf("%s is not text (%s bytes); it is not printed. Fetch it: ks agent files get %s %s\n", visible(c.Path), commas(c.Returned), inv.Arg(0), p)
+			outf("%s is not text (%s bytes); it is not printed. Fetch it: ks agent files get %s %s\n", visible(c.Path), commas(c.Returned), inv.Arg(0), p)
 			return
 		}
 		fmt.Print(visible(string(raw)))
 		if len(raw) > 0 && raw[len(raw)-1] != '\n' {
-			fmt.Println()
+			outln()
 		}
 		if c.Truncated {
-			fmt.Printf("[cut at %s of %s bytes; ks agent files get brings the whole file]\n", commas(c.Returned), commas(c.Size))
+			outf("[cut at %s of %s bytes; ks agent files get brings the whole file]\n", commas(c.Returned), commas(c.Size))
 		}
 	})
 }
@@ -265,11 +256,9 @@ func hostedAgentFilesLog(cr hostedCreds, inv *Invocation) {
 	}
 	rows := env.Data.Items
 	emit(map[string]any{"agent": asker.ID, "fetches": rows, "count": len(rows)}, func() {
-		if len(rows) == 0 {
-			fmt.Printf("no file has been asked for by or of %s yet\n", asker.Name)
-			return
-		}
-		fmt.Printf("%-20s %-9s %-9s %-8s %12s  %s\n", "TIME", "DIRECTION", "OP", "OUTCOME", "BYTES", "PATH")
+		o, _ := cmdUI()
+		sc := listScreen{Title: "Files asked for by or of " + sanitize(asker.Name), Detail: listCount(len(rows), "request", "requests"),
+			Cols: []Col{{Title: "Time"}, {Title: "Direction"}, {Title: "Op"}, {Title: "Outcome"}, {Title: "Bytes", Right: true}, {Title: "Path", Wrap: true, Second: true}}}
 		for _, f := range rows {
 			dir := "asked"
 			if f.Adviser == asker.ID {
@@ -279,8 +268,12 @@ func hostedAgentFilesLog(cr hostedCreds, inv *Invocation) {
 			if f.Code != "" {
 				outcome += " (" + f.Code + ")"
 			}
-			fmt.Printf("%-20s %-9s %-9s %-8s %12s  %s\n", sanitize(f.At), dir, sanitize(f.Op), sanitize(outcome), commas(f.Bytes), visible(path.Clean(f.Path)))
+			sc.Rows = append(sc.Rows, []string{sanitize(f.At), dir, sanitize(f.Op), sanitize(outcome), commas(f.Bytes), visible(path.Clean(f.Path))})
 		}
+		if len(rows) == 0 {
+			sc.Empty = "No file has been asked for by or of " + sanitize(asker.Name) + " yet."
+		}
+		o.List(sc)
 	})
 }
 
@@ -325,8 +318,8 @@ func hostedAgentFilesAllow(cr hostedCreds, inv *Invocation) {
 	}
 	emit(map[string]any{"files": setting, "connections": done, "count": len(done)}, func() {
 		for _, g := range done {
-			fmt.Printf("connection %s: files %s (%s may now read %s's files: %v)\n", g.ID, setting, asker.Name, inv.Arg(0), setting == "read")
+			outf("connection %s: files %s (%s may now read %s's files: %v)\n", g.ID, setting, asker.Name, inv.Arg(0), setting == "read")
 		}
-		fmt.Println("takes effect on the next request; nothing already fetched is recalled")
+		outln("takes effect on the next request; nothing already fetched is recalled")
 	})
 }

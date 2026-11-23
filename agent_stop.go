@@ -95,9 +95,9 @@ func hostedAgentStop(cr hostedCreds, inv *Invocation) {
 	d := env.Data
 	emit(d, func() {
 		if d.Interrupted != "" {
-			fmt.Printf("stop requested: instruction %s now reads %s (asked to stop at a safe boundary; not claimed stopped)\n", d.Interrupted, stateLabel("task_state", d.TaskState))
+			outf("stop requested: instruction %s now reads %s (asked to stop at a safe boundary; not claimed stopped)\n", d.Interrupted, stateLabel("task_state", d.TaskState))
 		} else {
-			fmt.Println("stop requested: no instruction was in flight")
+			outln("stop requested: no instruction was in flight")
 		}
 		hold := "the queue is held"
 		if d.Hold != nil && d.Hold.ID != "" {
@@ -106,16 +106,16 @@ func hostedAgentStop(cr hostedCreds, inv *Invocation) {
 		if d.AlreadyHeld {
 			hold += "; it was already held"
 		}
-		fmt.Printf("  %s: %d instruction(s) wait and nothing further starts\n", hold, len(d.HeldTasks))
-		fmt.Printf("  session %s is %s: %s\n", sess.ShortID, stateLabel("session_runtime", d.SessionState), sanitize(d.Charges))
+		outf("  %s: %d instruction(s) wait and nothing further starts\n", hold, len(d.HeldTasks))
+		outf("  session %s is %s: %s\n", sess.ShortID, stateLabel("session_runtime", d.SessionState), sanitize(d.Charges))
 		if d.Park.Label != "" {
-			fmt.Printf("  %s (separate, not done): %s — ks agent pause %s --session %s\n", d.Park.Label, sanitize(d.Park.Request), a.Name, sess.ShortID)
+			outf("  %s (separate, not done): %s — ks agent pause %s --session %s\n", d.Park.Label, sanitize(d.Park.Request), a.Name, sess.ShortID)
 		}
 		if d.Resume != "" {
-			fmt.Printf("  to continue: %s\n", sanitize(d.Resume))
+			outf("  to continue: %s\n", sanitize(d.Resume))
 		}
 		if d.Note != "" {
-			fmt.Println("  " + sanitize(d.Note))
+			outln("  " + sanitize(d.Note))
 		}
 	})
 }

@@ -128,9 +128,9 @@ func hostedRunAgent(cr hostedCreds, inv *Invocation) {
 		return
 	}
 	emit(facts, func() {
-		fmt.Printf("agent %s is %s in session %s%s\n", agentRef, startedWord(p), rec.ID, runningModel(rec))
-		fmt.Println(p.Note)
-		fmt.Printf("next: ks agent open %s --session %s   (or: ks agent tell %s \"...\" --session %s)\n", agentRef, rec.ID, agentRef, rec.ID)
+		outf("agent %s is %s in session %s%s\n", agentRef, startedWord(p), rec.ID, runningModel(rec))
+		outln(p.Note)
+		outf("next: ks agent open %s --session %s   (or: ks agent tell %s \"...\" --session %s)\n", agentRef, rec.ID, agentRef, rec.ID)
 	})
 }
 

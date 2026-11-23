@@ -88,37 +88,37 @@ func orgBillingAddress(p *customerOrgBillingProfile) string {
 }
 
 func printOrgBilling(b customerOrgBilling) {
-	fmt.Printf("Billing details of %s\n", b.OrgID)
+	outf("Billing details of %s\n", b.OrgID)
 	if b.Profile == nil {
-		fmt.Println("  none yet: a purchase and a statement need the legal name, address and country")
+		outln("  none yet: a purchase and a statement need the legal name, address and country")
 	} else {
 		p := b.Profile
-		fmt.Printf("  legal name   %s\n", p.LegalName)
-		fmt.Printf("  address      %s\n", orgBillingAddress(p))
+		outf("  legal name   %s\n", p.LegalName)
+		outf("  address      %s\n", orgBillingAddress(p))
 		if p.TaxID != "" {
-			fmt.Printf("  tax id       %s (%s)\n", p.TaxID, p.TaxIDType)
+			outf("  tax id       %s (%s)\n", p.TaxID, p.TaxIDType)
 		} else {
-			fmt.Println("  tax id       none")
+			outln("  tax id       none")
 		}
 		if p.PONumber != "" {
-			fmt.Printf("  PO number    %s\n", p.PONumber)
+			outf("  PO number    %s\n", p.PONumber)
 		}
-		fmt.Printf("  revision %d, changed %s by %s\n", p.Revision, p.UpdatedAt, p.UpdatedBy)
+		outf("  revision %d, changed %s by %s\n", p.Revision, p.UpdatedAt, p.UpdatedBy)
 	}
 	if len(b.Missing) > 0 {
-		fmt.Printf("  still needed to buy credit and issue a statement: %s\n", strings.Join(b.Missing, ", "))
+		outf("  still needed to buy credit and issue a statement: %s\n", strings.Join(b.Missing, ", "))
 	}
-	fmt.Printf("Statements are issued by %s, %s.\n", b.Issuer.Name, b.Issuer.Address)
+	outf("Statements are issued by %s, %s.\n", b.Issuer.Name, b.Issuer.Address)
 	if len(b.Contacts) == 0 {
-		fmt.Println("No billing contacts: statement notices and credit alerts go to the organization's owners.")
+		outln("No billing contacts: statement notices and credit alerts go to the organization's owners.")
 	} else {
-		fmt.Println("Billing contacts:")
+		outln("Billing contacts:")
 		for _, c := range b.Contacts {
-			fmt.Printf("  %s  %s%s\n", c.AccountID, c.Kind, orgContactReceives(c))
+			outf("  %s  %s%s\n", c.AccountID, c.Kind, orgContactReceives(c))
 		}
 	}
 	if b.Note != "" {
-		fmt.Println(b.Note)
+		outln(b.Note)
 	}
 }
 
@@ -184,7 +184,7 @@ func hostedOrgBillingSet(cr hostedCreds, inv *Invocation) {
 	b := env.Data
 	emit(b, func() {
 		printOrgBilling(b)
-		fmt.Println("Saved. The next statement and the next purchase carry these details; statements already issued do not change.")
+		outln("Saved. The next statement and the next purchase carry these details; statements already issued do not change.")
 	})
 }
 
@@ -200,14 +200,16 @@ func hostedOrgBillingContacts(cr hostedCreds, inv *Invocation) {
 	}
 	cs := env.Data.Items
 	emit(map[string]any{"organization": org, "contacts": cs, "count": len(cs)}, func() {
-		if len(cs) == 0 {
-			fmt.Println("No billing contacts: statement notices and credit alerts go to the organization's owners.")
-			return
-		}
-		fmt.Printf("%-40s %-11s %-8s %s\n", "CONTACT", "RECEIVES", "ROLE", "ADDED")
+		sc := listScreen{Title: "Billing contacts of " + org, Detail: listCount(len(cs), "contact", "contacts"),
+			Cols: []Col{{Title: "Contact"}, {Title: "Receives"}, {Title: "Role"}, {Title: "Added", Wrap: true, Second: true}}}
 		for _, c := range cs {
-			fmt.Printf("%-40s %-11s %-8s %s%s\n", c.AccountID, c.Kind, c.Role, c.AddedAt, orgContactReceives(c))
+			sc.Rows = append(sc.Rows, []string{c.AccountID, c.Kind, c.Role, c.AddedAt + orgContactReceives(c)})
 		}
+		if len(cs) == 0 {
+			sc.Empty = "There are no billing contacts: statement notices and credit alerts go to the organization's owners."
+		}
+		o, _ := cmdUI()
+		o.List(sc)
 	})
 }
 
@@ -229,7 +231,7 @@ func hostedOrgBillingContactAdd(cr hostedCreds, inv *Invocation) {
 	}
 	c := env.Data
 	emit(c, func() {
-		fmt.Printf("%s is a billing contact of %s and receives %s by the address they sign in with.\n", c.AccountID, org, map[string]string{"both": "statement notices and credit alerts", "statements": "statement notices", "alerts": "credit alerts"}[c.Kind])
+		outf("%s is a billing contact of %s and receives %s by the address they sign in with.\n", c.AccountID, org, map[string]string{"both": "statement notices and credit alerts", "statements": "statement notices", "alerts": "credit alerts"}[c.Kind])
 	})
 }
 
@@ -242,7 +244,7 @@ func hostedOrgBillingContactRemove(cr hostedCreds, inv *Invocation) {
 	if err := hostedCall(cr, "DELETE", "/api/v2/orgs/"+url.PathEscape(org)+"/billing/contacts/"+url.PathEscape(inv.Arg(0)), nil, &env); err != nil {
 		die(orgErr(err, nothing))
 	}
-	emit(env.Data, func() { fmt.Printf("%s no longer receives %s's statement notices or alerts.\n", inv.Arg(0), org) })
+	emit(env.Data, func() { outf("%s no longer receives %s's statement notices or alerts.\n", inv.Arg(0), org) })
 }
 
 // ---- buying credit as the organization ---------------------------------------------
@@ -289,9 +291,9 @@ func hostedOrgBuy(cr hostedCreds, inv *Invocation) {
 	if !out.yes {
 		preview := map[string]any{"organization": org, "amount_micros": amount, "bill_to": p.LegalName, "address": orgBillingAddress(p), "tax_id_sent": withTax, "confirmed": false}
 		emit(preview, func() {
-			fmt.Printf("You are buying %s of credit for the organization %s. The receipt from Polar will name %s.\n", dollars(amount), org, receipt)
-			fmt.Printf("  billed to  %s\n", orgBillingAddress(p))
-			fmt.Println("The credit is the organization's, never yours. Nothing was bought; run again with --yes to open the payment page.")
+			outf("You are buying %s of credit for the organization %s. The receipt from Polar will name %s.\n", dollars(amount), org, receipt)
+			outf("  billed to  %s\n", orgBillingAddress(p))
+			outln("The credit is the organization's, never yours. Nothing was bought; run again with --yes to open the payment page.")
 		})
 		return
 	}
@@ -314,9 +316,9 @@ func hostedOrgBuy(cr hostedCreds, inv *Invocation) {
 	}
 	c := env.Data
 	emit(c, func() {
-		fmt.Println(c.Note)
-		fmt.Printf("Pay on Polar's page: %s\n", c.URL)
-		fmt.Println("The credit arrives when Polar confirms the payment: ks organization credits " + org)
+		outln(c.Note)
+		outf("Pay on Polar's page: %s\n", c.URL)
+		outln("The credit arrives when Polar confirms the payment: ks organization credits " + org)
 	})
 }
 
@@ -359,36 +361,36 @@ func hostedOrgCredits(cr hostedCreds, inv *Invocation) {
 	c := env.Data
 	emit(c, func() {
 		if c.Sponsored > 0 {
-			fmt.Printf("The organization %s's credit: %s (bought: %s, credit from KeepState: %s)\n", org, receiptMoney(c.Balance), receiptMoney(c.Purchased), receiptMoney(c.Sponsored))
-			fmt.Println("Credit from KeepState was given, not bought: no payment was taken and no invoice is made for it.")
+			outf("The organization %s's credit: %s (bought: %s, credit from KeepState: %s)\n", org, receiptMoney(c.Balance), receiptMoney(c.Purchased), receiptMoney(c.Sponsored))
+			outln("Credit from KeepState was given, not bought: no payment was taken and no invoice is made for it.")
 		} else {
-			fmt.Printf("The organization %s's credit: %s (bought: %s)\n", org, receiptMoney(c.Balance), receiptMoney(c.Purchased))
+			outf("The organization %s's credit: %s (bought: %s)\n", org, receiptMoney(c.Balance), receiptMoney(c.Purchased))
 		}
 		if !c.HasBought {
-			fmt.Println("It has bought no credit yet: buy some with ks organization buy " + org + " --amount 50")
+			outln("It has bought no credit yet: buy some with ks organization buy " + org + " --amount 50")
 		}
 		if len(c.Orders) > 0 {
-			fmt.Println("Purchases:")
+			outln("Purchases:")
 			for _, o := range c.Orders {
 				po := ""
 				if o.PONumber != "" {
 					po = "  PO " + o.PONumber
 				}
-				fmt.Printf("  %s  %-8s %s%s\n", o.CreatedAt, o.Status, receiptMoney(o.AmountMicros), po)
+				outf("  %s  %-8s %s%s\n", o.CreatedAt, o.Status, receiptMoney(o.AmountMicros), po)
 			}
 		}
 		if len(c.Entries) > 0 {
-			fmt.Println("Ledger, newest first:")
+			outln("Ledger, newest first:")
 			for _, e := range c.Entries {
 				what := ""
 				if e.Label != "" {
 					what = "  " + sanitize(e.Label)
 				}
-				fmt.Printf("  %s  %-6s %12s  balance %s%s\n", e.TS, e.Kind, receiptMoney(e.AmountMicros), receiptMoney(e.BalanceAfter), what)
+				outf("  %s  %-6s %12s  balance %s%s\n", e.TS, e.Kind, receiptMoney(e.AmountMicros), receiptMoney(e.BalanceAfter), what)
 			}
 		}
 		if c.More {
-			fmt.Println("Older ledger rows are kept on the service.")
+			outln("Older ledger rows are kept on the service.")
 		}
 	})
 }
@@ -444,18 +446,21 @@ func hostedOrgStatements(cr hostedCreds, inv *Invocation) {
 	}
 	st := env.Data.Items
 	emit(map[string]any{"organization": org, "statements": st, "count": len(st)}, func() {
-		if len(st) == 0 {
-			fmt.Println("No statements yet. An owner or billing member issues one: ks organization statement issue " + org)
-			return
-		}
-		fmt.Printf("%-14s %-4s %-12s %-28s %s\n", "STATEMENT", "#", "TOTAL", "BILLED TO", "PERIOD")
+		sc := listScreen{Title: "Statements of " + org, Detail: listCount(len(st), "statement", "statements"),
+			Cols: []Col{{Title: "Statement"}, {Title: "No", Right: true}, {Title: "Total", Right: true}, {Title: "Billed to", Flex: true}, {Title: "Period", Wrap: true, Second: true}}}
 		for _, s := range st {
 			extra := ""
 			if s.Corrects != "" {
 				extra = " (corrects " + s.Corrects + ")"
 			}
-			fmt.Printf("%-14s %-4d %-12s %-28s %s%s\n", s.ID, s.Seq, receiptMoney(s.Total), s.BillTo, orgPeriod(s.From, s.To), extra)
+			sc.Rows = append(sc.Rows, []string{s.ID, fmt.Sprintf("%d", s.Seq), receiptMoney(s.Total), s.BillTo, orgPeriod(s.From, s.To) + extra})
 		}
+		if len(st) == 0 {
+			sc.Empty = "There are no statements yet. An owner or billing member issues one."
+			sc.Next = []string{"ks organization statement issue " + org}
+		}
+		o, _ := cmdUI()
+		o.List(sc)
 	})
 }
 
@@ -477,8 +482,8 @@ func hostedOrgStatementIssue(cr hostedCreds, inv *Invocation) {
 			what = "a correction of " + inv.Str("corrects") + " (a new statement for its period; it stands as issued)"
 		}
 		emit(map[string]any{"organization": org, "request": body, "confirmed": false}, func() {
-			fmt.Printf("This issues %s for the organization %s, with its billing details as they are now; the statement never changes afterwards, and issuing it settles the period's usage from the organization's credit.\n", what, org)
-			fmt.Println("Nothing was issued; run again with --yes.")
+			outf("This issues %s for the organization %s, with its billing details as they are now; the statement never changes afterwards, and issuing it settles the period's usage from the organization's credit.\n", what, org)
+			outln("Nothing was issued; run again with --yes.")
 		})
 		return
 	}
@@ -491,7 +496,7 @@ func hostedOrgStatementIssue(cr hostedCreds, inv *Invocation) {
 	s := env.Data
 	emit(s, func() {
 		fmt.Print(s.Text)
-		fmt.Printf("\nIssued %s. Check it any time: ks organization statement verify %s --organization %s\n", s.Statement.ID, s.Statement.ID, org)
+		outf("\nIssued %s. Check it any time: ks organization statement verify %s --organization %s\n", s.Statement.ID, s.Statement.ID, org)
 	})
 }
 
@@ -507,7 +512,7 @@ func hostedOrgStatementShow(cr hostedCreds, inv *Invocation) {
 	emit(s, func() {
 		fmt.Print(s.Text)
 		if len(s.CorrectedBy) > 0 {
-			fmt.Printf("\nCorrected by: %s (this statement stands as issued)\n", strings.Join(s.CorrectedBy, ", "))
+			outf("\nCorrected by: %s (this statement stands as issued)\n", strings.Join(s.CorrectedBy, ", "))
 		}
 	})
 }
@@ -524,7 +529,7 @@ func hostedOrgStatementVerify(cr hostedCreds, inv *Invocation) {
 	ok, _ := v["reconciled"].(bool)
 	emit(v, func() {
 		if ok {
-			fmt.Printf("%s verifies: its total, its content hash, its chain, its billing details and the engine's statement all agree.\n", inv.Arg(0))
+			outf("%s verifies: its total, its content hash, its chain, its billing details and the engine's statement all agree.\n", inv.Arg(0))
 			return
 		}
 		var bad []string
@@ -533,7 +538,7 @@ func hostedOrgStatementVerify(cr hostedCreds, inv *Invocation) {
 				bad = append(bad, strings.TrimSuffix(k, "_ok"))
 			}
 		}
-		fmt.Printf("%s does NOT verify: %s.\n", inv.Arg(0), strings.Join(bad, ", "))
+		outf("%s does NOT verify: %s.\n", inv.Arg(0), strings.Join(bad, ", "))
 	})
 	if !ok {
 		fail(&cliError{Code: exitFailed, Kind: "statement_unverified", Message: inv.Arg(0) + " does not verify"})
@@ -575,18 +580,18 @@ func capCount(v *int64) string {
 }
 
 func printOrgCaps(c customerOrgCaps) {
-	fmt.Printf("Caps on model use on KeepState's key for the organization %s (all its members together):\n", c.OrgID)
-	fmt.Printf("  %-18s %-12s %-12s %s\n", "", "IN FORCE", "CEILING", "LOWERED BY THE OWNER")
+	outf("Caps on model use on KeepState's key for the organization %s (all its members together):\n", c.OrgID)
+	outf("  %-18s %-12s %-12s %s\n", "", "IN FORCE", "CEILING", "LOWERED BY THE OWNER")
 	lowered := func(v *int64, f func(*int64) string) string {
 		if v == nil {
 			return "no (the ceiling)"
 		}
 		return f(v)
 	}
-	fmt.Printf("  %-18s %-12s %-12s %s\n", "a day", capMoney(c.InForce.Daily), capMoney(c.Ceiling.Daily), lowered(c.Lowered.Daily, capMoney))
-	fmt.Printf("  %-18s %-12s %-12s %s\n", "a month", capMoney(c.InForce.Monthly), capMoney(c.Ceiling.Monthly), lowered(c.Lowered.Monthly, capMoney))
-	fmt.Printf("  %-18s %-12s %-12s %s\n", "calls at once", capCount(c.InForce.Concurrent), capCount(c.Ceiling.Concurrent), lowered(c.Lowered.Concurrent, capCount))
-	fmt.Printf("Used now: %s today, %s this month, %d calls in flight.\n", receiptMoney(c.SpentToday), receiptMoney(c.SpentMonth), c.InFlight)
+	outf("  %-18s %-12s %-12s %s\n", "a day", capMoney(c.InForce.Daily), capMoney(c.Ceiling.Daily), lowered(c.Lowered.Daily, capMoney))
+	outf("  %-18s %-12s %-12s %s\n", "a month", capMoney(c.InForce.Monthly), capMoney(c.Ceiling.Monthly), lowered(c.Lowered.Monthly, capMoney))
+	outf("  %-18s %-12s %-12s %s\n", "calls at once", capCount(c.InForce.Concurrent), capCount(c.Ceiling.Concurrent), lowered(c.Lowered.Concurrent, capCount))
+	outf("Used now: %s today, %s this month, %d calls in flight.\n", receiptMoney(c.SpentToday), receiptMoney(c.SpentMonth), c.InFlight)
 }
 
 func fetchOrgCaps(cr hostedCreds, org, nothing string) customerOrgCaps {

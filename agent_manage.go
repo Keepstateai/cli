@@ -57,7 +57,7 @@ func hostedAgentRemove(cr hostedCreds, inv *Invocation) {
 		}
 		d := env.Data
 		emit(d, func() {
-			fmt.Printf("removal plan %s for agent %s (%s) in session %s: NOTHING was removed (plan expires %s)\n", d.ID, a.Name, a.ID, sess.ShortID, figure(d.ExpiresAt))
+			outf("removal plan %s for agent %s (%s) in session %s: NOTHING was removed (plan expires %s)\n", d.ID, a.Name, a.ID, sess.ShortID, figure(d.ExpiresAt))
 			keys := make([]string, 0, len(d.Plan))
 			for k := range d.Plan {
 				keys = append(keys, k)
@@ -66,7 +66,7 @@ func hostedAgentRemove(cr hostedCreds, inv *Invocation) {
 			for _, k := range keys {
 				printPlanSection(d.Plan, k, k)
 			}
-			fmt.Printf("remove exactly this: ks agent remove %s --session %s --execute %s\n", a.Name, sess.ShortID, d.ID)
+			outf("remove exactly this: ks agent remove %s --session %s --execute %s\n", a.Name, sess.ShortID, d.ID)
 		})
 		return
 	}
@@ -92,7 +92,7 @@ func hostedAgentRemove(cr hostedCreds, inv *Invocation) {
 	}
 	d := env.Data
 	emit(d, func() {
-		fmt.Printf("removed agent %s (%s): %d pending instruction(s) cancelled, %d asked to stop, %d control lease(s) released; the session and its history are preserved\n",
+		outf("removed agent %s (%s): %d pending instruction(s) cancelled, %d asked to stop, %d control lease(s) released; the session and its history are preserved\n",
 			a.Name, a.ID, d.TasksCancelled, d.TasksCancelling, d.Controllers)
 	})
 }
@@ -116,6 +116,6 @@ func hostedAgentCreate(cr hostedCreds, inv *Invocation) {
 		die(err)
 	}
 	emit(env.Data, func() {
-		fmt.Printf("created agent %s (%s) in session %s\n", env.Data.Name, env.Data.ID, sess.ShortID)
+		outf("created agent %s (%s) in session %s\n", env.Data.Name, env.Data.ID, sess.ShortID)
 	})
 }

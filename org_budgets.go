@@ -165,7 +165,7 @@ func budgetSpentText(b customerOrgBudget) string {
 }
 
 func budgetLine(b customerOrgBudget) {
-	fmt.Printf("%s  %s: %s a month; %s; %s\n", b.ID, budgetScopeText(b), dollars(b.Amount), budgetSpentText(b), b.Status)
+	outf("%s  %s: %s a month; %s; %s\n", b.ID, budgetScopeText(b), dollars(b.Amount), budgetSpentText(b), b.Status)
 }
 
 func fetchOrgBudgets(cr hostedCreds, org, period string) ([]customerOrgBudget, error) {
@@ -236,17 +236,23 @@ func hostedBudgetList(cr hostedCreds, inv *Invocation) {
 		die(orgErr(err, "nothing was read"))
 	}
 	emit(map[string]any{"organization": org, "budgets": budgets, "count": len(budgets)}, func() {
-		if len(budgets) == 0 {
-			fmt.Println("No budgets you may read. An owner, admin or billing member sets one: ks budget set --team TEAM --monthly 500 --organization " + org)
-			return
-		}
+		sc := listScreen{Title: "Budgets of " + org, Detail: listCount(len(budgets), "budget", "budgets"),
+			Cols: []Col{{Title: "Budget"}, {Title: "Scope"}, {Title: "A month", Right: true}, {Title: "Status"}, {Title: "Spent", Wrap: true, Second: true}}}
 		for _, b := range budgets {
-			budgetLine(b)
+			spent := budgetSpentText(b)
 			if b.Overcommit != nil {
-				fmt.Printf("    the %d team budgets under it add up to %s; each is enforced on its own\n", b.Overcommit.Count, dollars(b.Overcommit.Children))
+				spent += fmt.Sprintf("\nThe %d team budgets under it add up to %s; each is enforced on its own.", b.Overcommit.Count, dollars(b.Overcommit.Children))
 			}
+			sc.Rows = append(sc.Rows, []string{b.ID, budgetScopeText(b), dollars(b.Amount), b.Status, spent})
 		}
-		fmt.Println("Budgets count KeepState's charges only; " + providerTokensWords + ".")
+		if len(budgets) == 0 {
+			sc.Empty = "There are no budgets you may read. An owner, admin or billing member sets one."
+			sc.Next = []string{"ks budget set --team TEAM --monthly 500 --organization " + org}
+		} else {
+			sc.Notes = []string{"Budgets count KeepState's charges only; " + providerTokensWords + "."}
+		}
+		o, _ := cmdUI()
+		o.List(sc)
 	})
 }
 
@@ -263,13 +269,13 @@ func hostedBudgetShow(cr hostedCreds, inv *Invocation) {
 	emit(d, func() {
 		budgetLine(d)
 		if d.Words != "" {
-			fmt.Println(d.Words + ".")
+			outln(d.Words + ".")
 		}
 		var alerts []string
 		for _, a := range d.AlertPcts {
 			alerts = append(alerts, strconv.Itoa(a)+"%")
 		}
-		fmt.Printf("Alerts at %s; at the limit new work is saved and paused, never killed, and a person resumes it.\n", strings.Join(alerts, ", "))
+		outf("Alerts at %s; at the limit new work is saved and paused, never killed, and a person resumes it.\n", strings.Join(alerts, ", "))
 	})
 }
 
@@ -323,7 +329,7 @@ func hostedBudgetSet(cr hostedCreds, inv *Invocation) {
 		}
 		budgetLine(d)
 		if d.Overcommit != nil {
-			fmt.Printf("The %d team budgets under it add up to %s; each is enforced on its own, so the tightest stops first.\n", d.Overcommit.Count, dollars(d.Overcommit.Children))
+			outf("The %d team budgets under it add up to %s; each is enforced on its own, so the tightest stops first.\n", d.Overcommit.Count, dollars(d.Overcommit.Children))
 		}
 	})
 }
@@ -342,7 +348,7 @@ func hostedBudgetClear(cr hostedCreds, inv *Invocation) {
 		die(orgErr(err, "nothing was changed"))
 	}
 	emit(env.Data, func() {
-		fmt.Printf("Cleared the budget of %s (%s). The budgets above it still hold.\n", budgetScopeText(*b), b.ID)
+		outf("Cleared the budget of %s (%s). The budgets above it still hold.\n", budgetScopeText(*b), b.ID)
 	})
 }
 
@@ -362,10 +368,10 @@ func hostedBudgetAsk(cr hostedCreds, inv *Invocation) {
 	d := env.Data
 	emit(d, func() {
 		if d.Words != "" {
-			fmt.Println(d.Words + ".")
+			outln(d.Words + ".")
 			return
 		}
-		fmt.Printf("Asked to raise the budget of %s (%s); %d people who may raise it were told.\n", budgetScopeText(*b), b.ID, len(d.Recipients))
+		outf("Asked to raise the budget of %s (%s); %d people who may raise it were told.\n", budgetScopeText(*b), b.ID, len(d.Recipients))
 	})
 }
 
@@ -399,22 +405,22 @@ func hostedOrgSpend(cr hostedCreds, inv *Invocation) {
 	}
 	d := env.Data
 	emit(d, func() {
-		fmt.Printf("Spend for %s (KeepState's charges, and holds of calls still open):\n", d.Period)
+		outf("Spend for %s (KeepState's charges, and holds of calls still open):\n", d.Period)
 		for _, r := range d.Items {
 			budget := ""
 			if r.BudgetAmount != nil {
 				budget = "; budget " + dollars(*r.BudgetAmount)
 			}
-			fmt.Printf("  %-6s %s: %s spent, %s held%s; %d provider-billed tokens\n", r.ScopeKind, r.Name, moneyOrUnavailable(r.Charged), moneyOrUnavailable(r.Held), budget, r.ProviderTokens)
+			outf("  %-6s %s: %s spent, %s held%s; %d provider-billed tokens\n", r.ScopeKind, r.Name, moneyOrUnavailable(r.Charged), moneyOrUnavailable(r.Held), budget, r.ProviderTokens)
 		}
 		if d.DaysUnavailable {
-			fmt.Println("By UTC day: unavailable, not zero: the service could not read them just now; read it again.")
+			outln("By UTC day: unavailable, not zero: the service could not read them just now; read it again.")
 		} else if len(d.Days) > 0 {
-			fmt.Println("The organization by UTC day (what was counted that day, and the holds of calls made that day still open):")
+			outln("The organization by UTC day (what was counted that day, and the holds of calls made that day still open):")
 			for _, x := range d.Days {
-				fmt.Printf("  %s  %s spent, %s held\n", x.Date, dollars(x.Charged), dollars(x.Held))
+				outf("  %s  %s spent, %s held\n", x.Date, dollars(x.Charged), dollars(x.Held))
 			}
 		}
-		fmt.Println("Provider-billed tokens: " + providerTokensWords + ".")
+		outln("Provider-billed tokens: " + providerTokensWords + ".")
 	})
 }

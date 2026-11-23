@@ -41,23 +41,23 @@ func hostedSessionRestore(cr hostedCreds, inv *Invocation) {
 	}
 	res := env.Data
 	emit(res, func() {
-		fmt.Printf("restore of session %s from saved point %s (%s)\n", sess.ShortID, res.CheckpointID, figure(res.Scope))
+		outf("restore of session %s from saved point %s (%s)\n", sess.ShortID, res.CheckpointID, figure(res.Scope))
 		for _, p := range res.Phases {
 			mark := "done"
 			if !p.Done {
 				mark = "STOPPED"
 			}
-			fmt.Printf("  %-14s %s %s\n", p.Phase, mark, sanitize(p.Detail))
+			outf("  %-14s %s %s\n", p.Phase, mark, sanitize(p.Detail))
 		}
 		if res.StoppedAt != "" {
-			fmt.Printf("  the restore STOPPED at %s\n", res.StoppedAt)
+			outf("  the restore STOPPED at %s\n", res.StoppedAt)
 		}
 		continuationLines(res)
 		if res.HoldID != "" {
-			fmt.Printf("  queue          HELD (%s); nothing was released\n", res.HoldID)
+			outf("  queue          HELD (%s); nothing was released\n", res.HoldID)
 		}
 		if res.Note != "" {
-			fmt.Printf("  note           %s\n", sanitize(res.Note))
+			outf("  note           %s\n", sanitize(res.Note))
 		}
 	})
 	continuationUnknown(res, sess.ShortID)

@@ -5,10 +5,14 @@
   Goes up as: the conversation itself
 
 Sessions on this machine  3 found
-  TOOL         SESSION   PROJECT         LAST USED      SIZE
-  claude-code  2d1eb651  ~/work/…e-main  open now     137 MB
-  claude-code  a91f03c2  ~/keepstate     2 hours ago   48 MB
-  codex        77e1b0aa  ~/ks-ops        yesterday    3.1 MB
+  claude-code 2d1eb651 ~/work/projects/BulkPulse-main
+    open now · 137 MB
+
+  claude-code a91f03c2 ~/keepstate
+    2 hours ago · 48 MB
+
+  codex 77e1b0aa ~/ks-ops
+    yesterday · 3.1 MB
 
   The agent's first reply re-reads the whole conversation,
   so it costs more than a short message.

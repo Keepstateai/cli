@@ -583,10 +583,10 @@ func TestManagedKeyListShowsKeepStatesKey(t *testing.T) {
 	}
 	var anth, open string
 	for _, l := range strings.Split(out, "\n") {
-		if strings.HasPrefix(l, "keepstate") && strings.Contains(l, "anthropic") {
+		if strings.HasPrefix(strings.TrimSpace(l), "KeepState's key for anthropic") {
 			anth = l
 		}
-		if strings.HasPrefix(l, "keepstate") && strings.Contains(l, "openai") {
+		if strings.HasPrefix(strings.TrimSpace(l), "KeepState's key for openai") {
 			open = l
 		}
 	}

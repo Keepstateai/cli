@@ -338,17 +338,17 @@ func finishAutoShow(v *autoView, raw json.RawMessage) {
 		printAuto(os.Stdout, v, checks, nc)
 		switch v.State {
 		case "questions":
-			fmt.Printf("next: ks cruise auto answer %s   (no --set accepts every default)\n", v.ID)
+			outf("next: ks cruise auto answer %s   (no --set accepts every default)\n", v.ID)
 		case "answered", "plan_failed":
-			fmt.Printf("next: ks cruise auto plan %s\n", v.ID)
+			outf("next: ks cruise auto plan %s\n", v.ID)
 		case "planning":
-			fmt.Printf("next: ks cruise auto status %s   (the checks take a few minutes)\n", v.ID)
+			outf("next: ks cruise auto status %s   (the checks take a few minutes)\n", v.ID)
 		case "plan_ready":
-			fmt.Printf("next: ks cruise auto approve %s\n", v.ID)
+			outf("next: ks cruise auto approve %s\n", v.ID)
 		case "plan_capped":
-			fmt.Printf("next: ks cruise auto discard %s, then start again with a simpler brief\n", v.ID)
+			outf("next: ks cruise auto discard %s, then start again with a simpler brief\n", v.ID)
 		case "approved":
-			fmt.Printf("next: ks cruise auto receipt %s\n", v.ID)
+			outf("next: ks cruise auto receipt %s\n", v.ID)
 		}
 	})
 }
@@ -434,17 +434,21 @@ func hostedCruiseAutoStatus(cr hostedCreds, inv *Invocation) {
 			die(cruiseCtxErr(cr, err))
 		}
 		emit(map[string]any{"plans": env.Data.Items, "count": len(env.Data.Items), "context": contextWord(cr)}, func() {
-			if len(env.Data.Items) == 0 {
-				fmt.Println(`no plans yet; start one with ks cruise auto brief --text "..." (a new project), or ks cruise auto brief <draft> --text "..." --consent (on your files)`)
-				return
-			}
+			sc := listScreen{Title: "Cruise plans", Detail: listCount(len(env.Data.Items), "plan", "plans"),
+				Cols: []Col{{Title: "Plan"}, {Title: "State"}, {Title: "Brief", Wrap: true, Second: true}}}
 			for _, it := range env.Data.Items {
 				v, err := decodeAuto(it)
 				if err != nil {
 					die(err)
 				}
-				fmt.Println(sanitize(fmt.Sprintf("%-22s %-40s %s", v.ID, clip(v.StateLabel, 40), clip(v.Brief, 50))))
+				sc.Rows = append(sc.Rows, []string{v.ID, sanitize(v.StateLabel), sanitize(v.Brief)})
 			}
+			if len(env.Data.Items) == 0 {
+				sc.Empty = "There are no plans yet. Start one for a new project, or on your files from a draft."
+				sc.Next = []string{`ks cruise auto brief --text "..."`, `ks cruise auto brief <draft> --text "..." --consent`}
+			}
+			o, _ := cmdUI()
+			o.List(sc)
 		})
 		return
 	}
@@ -460,7 +464,7 @@ func hostedCruiseAutoStatus(cr hostedCreds, inv *Invocation) {
 func hostedCruiseAutoApprove(cr hostedCreds, inv *Invocation) {
 	v, _ := fetchAuto(cr, inv.Arg(0))
 	if v.State == "approved" && v.JobID != "" {
-		fmt.Printf("plan %s is approved already: job %s; ks cruise status %s\n", v.ID, v.JobID, v.JobID)
+		outf("plan %s is approved already: job %s; ks cruise status %s\n", v.ID, v.JobID, v.JobID)
 		return
 	}
 	if v.State != "plan_ready" || v.Card == nil {
@@ -518,8 +522,8 @@ func hostedCruiseAutoApprove(cr hostedCreds, inv *Invocation) {
 		die(err)
 	}
 	emit(env.Data, func() {
-		fmt.Printf("approved %s: job %s runs the manifest with digest %s\n", after.ID, after.JobID, short(computed))
-		fmt.Printf("follow it: ks cruise status %s; the receipt: ks cruise auto receipt %s\n", after.JobID, after.ID)
+		outf("approved %s: job %s runs the manifest with digest %s\n", after.ID, after.JobID, short(computed))
+		outf("follow it: ks cruise status %s; the receipt: ks cruise auto receipt %s\n", after.JobID, after.ID)
 	})
 }
 
@@ -553,7 +557,7 @@ func hostedCruiseAutoReceipt(cr hostedCreds, inv *Invocation) {
 		die(fmt.Errorf("the control plane answered with a receipt this client could not read"))
 	}
 	emit(env.Data, func() {
-		fmt.Printf("receipt for job %s (%s)\n", rc.JobID, sanitize(rc.State))
+		outf("receipt for job %s (%s)\n", rc.JobID, sanitize(rc.State))
 		for _, l := range rc.Lines {
 			mark := "  "
 			if !l.Holds {
@@ -575,7 +579,7 @@ func hostedCruiseAutoReceipt(cr hostedCreds, inv *Invocation) {
 		if rc.Planning != "" {
 			autoWords(os.Stdout, "  ", "planning: free. "+rc.Planning)
 		}
-		fmt.Printf("  manifest %s, event chain head %s\n", short(rc.ManifestSHA), short(rc.EventHead))
+		outf("  manifest %s, event chain head %s\n", short(rc.ManifestSHA), short(rc.EventHead))
 	})
 }
 
@@ -589,6 +593,6 @@ func hostedCruiseAutoDiscard(cr hostedCreds, inv *Invocation) {
 		die(err)
 	}
 	emit(env.Data, func() {
-		fmt.Printf("discarded %s; its copy of the files is deleted and nothing runs\n", v.ID)
+		outf("discarded %s; its copy of the files is deleted and nothing runs\n", v.ID)
 	})
 }

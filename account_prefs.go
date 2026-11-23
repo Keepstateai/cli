@@ -107,11 +107,11 @@ func printProfile(p accountProfile) {
 	if title == "" {
 		title = "(none)"
 	}
-	fmt.Printf("Name:     %s\n", p.DisplayName)
-	fmt.Printf("Title:    %s\n", title)
-	fmt.Printf("Email:    %s\n", p.Email)
-	fmt.Printf("Initials: %s\n", p.Initials)
-	fmt.Printf("Picture:  %s\n", pictureWords(p))
+	outf("Name:     %s\n", p.DisplayName)
+	outf("Title:    %s\n", title)
+	outf("Email:    %s\n", p.Email)
+	outf("Initials: %s\n", p.Initials)
+	outf("Picture:  %s\n", pictureWords(p))
 }
 
 func hostedProfileShow(cr hostedCreds, inv *Invocation) {
@@ -159,7 +159,7 @@ func hostedProfileSet(cr hostedCreds, inv *Invocation) {
 	}
 	p := env.Data
 	emit(p, func() {
-		fmt.Println("Your profile is saved.")
+		outln("Your profile is saved.")
 		printProfile(p)
 	})
 }
@@ -176,9 +176,9 @@ func printEmailChoices(c emailChoices) {
 	if n < 1 {
 		n = 3
 	}
-	fmt.Printf("Onboarding emails: %s  (up to %d in the first 14 days after you sign up)\n", onOffWord(c.Onboarding), n)
-	fmt.Printf("Changelog email:   %s  (a note about what is new)\n", onOffWord(c.Changelog))
-	fmt.Println("Mail about your account always arrives and no choice here stops it: sign-in codes, alerts, statements and security notices.")
+	outf("Onboarding emails: %s  (up to %d in the first 14 days after you sign up)\n", onOffWord(c.Onboarding), n)
+	outf("Changelog email:   %s  (a note about what is new)\n", onOffWord(c.Changelog))
+	outln("Mail about your account always arrives and no choice here stops it: sign-in codes, alerts, statements and security notices.")
 }
 
 func hostedEmailShow(cr hostedCreds, inv *Invocation) {
@@ -191,7 +191,7 @@ func hostedEmailShow(cr hostedCreds, inv *Invocation) {
 	c := env.Data
 	emit(c, func() {
 		printEmailChoices(c)
-		fmt.Println("Change them with: ks email set --onboarding on|off --changelog on|off")
+		outln("Change them with: ks email set --onboarding on|off --changelog on|off")
 	})
 }
 
@@ -215,7 +215,7 @@ func hostedEmailSet(cr hostedCreds, inv *Invocation) {
 	}
 	c := env.Data
 	emit(c, func() {
-		fmt.Println("Your email choices are saved.")
+		outln("Your email choices are saved.")
 		printEmailChoices(c)
 	})
 }

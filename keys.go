@@ -114,9 +114,10 @@ func resolveKeyIn(cr hostedCreds, org, arg string) (customerKey, error) {
 	return customerKey{}, &cliError{Code: exitUsage, Kind: "ambiguous", Message: fmt.Sprintf("%d keys carry the alias %q; give the id", len(byAlias), arg), NextAction: "ks key list"}
 }
 
-func keyLine(k customerKey) string {
+// keyCells are a key's cells in a list: id, provider, alias, last four, state.
+func keyCells(k customerKey) []string {
 	if k.Provider == claudePlanProvider {
-		return planKeyLine(k, time.Now())
+		return planKeyCells(k, time.Now())
 	}
 	state := "enabled"
 	if !k.Enabled {
@@ -126,7 +127,58 @@ func keyLine(k customerKey) string {
 	if alias == "" {
 		alias = "-"
 	}
-	return fmt.Sprintf("%-14s %-11s %-18s %-6s %s", k.ID, k.Provider, alias, "…"+k.Last4, state)
+	return []string{k.ID, k.Provider, alias, "…" + k.Last4, state}
+}
+
+func keyLine(k customerKey) string {
+	c := keyCells(k)
+	return fmt.Sprintf("%-14s %-11s %-18s %-6s %s", c[0], c[1], c[2], c[3], c[4])
+}
+
+// keyCols are the columns of a key list.
+var keyCols = []Col{{Title: "Key"}, {Title: "Provider"}, {Title: "Alias"}, {Title: "Last 4"}, {Title: "State"}}
+
+func keyRows(keys []customerKey) [][]string {
+	var rows [][]string
+	for _, k := range keys {
+		rows = append(rows, keyCells(k))
+	}
+	return rows
+}
+
+// keyListScreen is ks key list: the keys, then (beside your own, where the
+// service lists it) KeepState's key, in sentences.
+func keyListScreen(org string, keys []customerKey, managed []string, offerPlan bool, planWords string) listScreen {
+	title := "Your keys"
+	if org != "" {
+		title = "The organization " + org + "'s keys"
+	}
+	s := listScreen{Title: title, Detail: listCount(len(keys), "key", "keys"), Cols: keyCols, Rows: keyRows(keys)}
+	if org != "" {
+		s.Lead = []string{"These are the organization's own keys, the ones your context uses. Yours: ks context use personal."}
+		if len(keys) == 0 {
+			s.Empty = "The organization has no keys yet. An owner or admin adds one."
+			s.Next = []string{"ks key add --provider anthropic < key.txt"}
+		}
+		return s
+	}
+	if len(keys) == 0 {
+		s.Empty = "You have no provider keys yet. Add one, and your agents call with it."
+		s.Next = []string{"ks key add --provider anthropic < key.txt"}
+		if offerPlan {
+			s.Notes = append(s.Notes, "Or sign in to your Claude plan once, and your Claude Code agents use it: ks login claude")
+		}
+	}
+	for _, m := range managed {
+		s.Notes = append(s.Notes, m)
+	}
+	if len(keys) > 0 && offerPlan {
+		s.Notes = append(s.Notes, "Your Claude plan can be a key too: sign in once with ks login claude.")
+	}
+	if planWords != "" {
+		s.Notes = append(s.Notes, planWords)
+	}
+	return s
 }
 
 func hostedKeyList(cr hostedCreds, inv *Invocation) {
@@ -139,15 +191,8 @@ func hostedKeyList(cr hostedCreds, inv *Invocation) {
 	if org != "" {
 		facts["organization"] = org
 		emit(facts, func() {
-			fmt.Printf("The organization %s's own keys (your context; ks context use personal for yours):\n", org)
-			if len(keys) == 0 {
-				fmt.Println("No keys yet. An owner or admin adds one: ks key add --provider anthropic < key.txt")
-				return
-			}
-			fmt.Printf("%-14s %-11s %-18s %-6s %s\n", "KEY", "PROVIDER", "ALIAS", "LAST4", "STATE")
-			for _, k := range keys {
-				fmt.Println(keyLine(k))
-			}
+			o, _ := cmdUI()
+			o.List(keyListScreen(org, keys, nil, false, ""))
 		})
 		return
 	}
@@ -161,30 +206,12 @@ func hostedKeyList(cr hostedCreds, inv *Invocation) {
 	}
 	offerPlan := planKeyOf(keys) == nil && claudePlanListed(cr)
 	emit(facts, func() {
-		if len(keys) == 0 {
-			fmt.Println("No provider keys. Add one: ks key add --provider anthropic < key.txt")
-			if offerPlan {
-				fmt.Println("Or sign in to your Claude plan once, and your Claude Code agents use it: ks login claude")
-			}
-			if len(managed) == 0 {
-				return
-			}
-		}
-		fmt.Printf("%-14s %-11s %-18s %-6s %s\n", "KEY", "PROVIDER", "ALIAS", "LAST4", "STATE")
-		for _, k := range keys {
-			fmt.Println(keyLine(k))
-		}
-		for _, l := range managed {
-			fmt.Println(l)
-		}
-		if len(keys) > 0 && offerPlan {
-			fmt.Println("Your Claude plan can be a key too: sign in once with ks login claude")
-		}
+		words := ""
 		if p := planKeyOf(keys); p != nil {
-			if w := planStateWords(*p, time.Now()); w != "" {
-				fmt.Println(w)
-			}
+			words = planStateWords(*p, time.Now())
 		}
+		o, _ := cmdUI()
+		o.List(keyListScreen("", keys, managed, offerPlan, words))
 	})
 }
 
@@ -194,8 +221,8 @@ func hostedKeyShow(cr hostedCreds, inv *Invocation) {
 		die(err)
 	}
 	emit(k, func() {
-		fmt.Println(keyLine(k))
-		fmt.Printf("  created %s · updated %s · revision %d\n", k.CreatedAt, k.UpdatedAt, k.Revision)
+		outln(keyLine(k))
+		outf("  created %s · updated %s · revision %d\n", k.CreatedAt, k.UpdatedAt, k.Revision)
 	})
 }
 
@@ -305,12 +332,12 @@ func hostedKeyAdd(cr hostedCreds, inv *Invocation) {
 	k := env.Data
 	emit(k, func() {
 		if org != "" {
-			fmt.Printf("stored in the organization %s's own keys (your context), never yours: %s\n", org, keyLine(k))
-			fmt.Println("the organization's sessions bind it: ks run --agent --key " + k.ID)
+			outf("stored in the organization %s's own keys (your context), never yours: %s\n", org, keyLine(k))
+			outln("the organization's sessions bind it: ks run --agent --key " + k.ID)
 			return
 		}
-		fmt.Printf("stored: %s\n", keyLine(k))
-		fmt.Println("bind it to a session: ks session key set <session> --key " + k.ID)
+		outf("stored: %s\n", keyLine(k))
+		outln("bind it to a session: ks session key set <session> --key " + k.ID)
 	})
 }
 
@@ -327,7 +354,7 @@ func hostedKeySetEnabled(enabled bool) func(cr hostedCreds, inv *Invocation) {
 		if err := hostedMutate(cr, "PATCH", keyPath(org, "/api/v2/keys/"+k.ID), map[string]any{"enabled": enabled, "expected_revision": k.Revision}, &env); err != nil {
 			die(keyOrgErr(err, org))
 		}
-		emit(env.Data, func() { fmt.Println(keyLine(env.Data)) })
+		emit(env.Data, func() { outln(keyLine(env.Data)) })
 	}
 }
 
@@ -355,7 +382,7 @@ func hostedKeyDelete(cr hostedCreds, inv *Invocation) {
 	if !out.yes {
 		progress("plan %s: delete %s (%s …%s); %d session binding(s) would be dropped; confirm with --yes", plan.Data.ID, k.ID, k.Provider, k.Last4, bound)
 		emit(map[string]any{"plan_id": plan.Data.ID, "key": k, "bindings_dropped": bound, "confirmed": false}, func() {
-			fmt.Println("nothing deleted; run again with --yes to execute this plan")
+			outln("nothing deleted; run again with --yes to execute this plan")
 		})
 		return
 	}
@@ -364,7 +391,7 @@ func hostedKeyDelete(cr hostedCreds, inv *Invocation) {
 		die(keyOrgErr(err, org))
 	}
 	emit(res, func() {
-		fmt.Printf("deleted %s (%s …%s); %v binding(s) dropped\n", k.ID, k.Provider, k.Last4, figure(res["bindings_dropped"]))
+		outf("deleted %s (%s …%s); %v binding(s) dropped\n", k.ID, k.Provider, k.Last4, figure(res["bindings_dropped"]))
 	})
 }
 
@@ -478,7 +505,7 @@ func hostedPreflight(cr hostedCreds, inv *Invocation) {
 		ready = false
 	}
 	emit(map[string]any{"service": d, "workspace": local, "sent": body, "checks": checks, "not_checked": notChecked, "reservation": reservation, "ready": ready}, func() {
-		fmt.Printf("account %v (%v) · credit %s · registry %v\n", d["account_id"], d["cohort_state"], microdollars(d["credit_microusd"]), d["registry_version"])
+		outf("account %v (%v) · credit %s · registry %v\n", d["account_id"], d["cohort_state"], microdollars(d["credit_microusd"]), d["registry_version"])
 		for _, c := range checks {
 			line := fmt.Sprintf("%-12s %-11s %s", c.Check, strings.ToUpper(c.Status), sanitize(c.Detail))
 			if c.Category != "" && c.Status != "pass" {
@@ -487,23 +514,23 @@ func hostedPreflight(cr hostedCreds, inv *Invocation) {
 			if c.NextAction != "" && c.Status != "pass" {
 				line += " → " + sanitize(c.NextAction)
 			}
-			fmt.Println(line)
+			outln(line)
 			if c.Check == "managed" && c.Status != "pass" {
-				fmt.Printf("%-12s %-11s %s\n", "", "", "(the check of a run on KeepState's key; ks preflight --key own checks a run on your own key)")
+				outln(padTo("", 24) + " (the check of a run on KeepState's key; ks preflight --key own checks a run on your own key)")
 			}
 		}
 		if len(notChecked) > 0 {
-			fmt.Println("not checked: " + strings.Join(notChecked, "; "))
+			outln("not checked: " + strings.Join(notChecked, "; "))
 		}
 		switch {
 		case ready:
-			fmt.Println("ready")
+			outln("ready")
 		case blocked > 0:
-			fmt.Println("not ready; clear the blockers above")
+			outln("not ready; clear the blockers above")
 		default:
-			fmt.Println("not ready; a check could not be made, so readiness is not known")
+			outln("not ready; a check could not be made, so readiness is not known")
 		}
-		fmt.Println(sanitize(reservation) + " (a passing preflight reserves nothing)")
+		outln(sanitize(reservation) + " (a passing preflight reserves nothing)")
 	})
 	switch {
 	case blocked > 0:

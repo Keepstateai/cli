@@ -1,0 +1,62 @@
+=== tasks, list, 120 columns ===
+Instructions in session sess_0123  2 instructions across 3 agents
+
+  Agent main
+  Instruction               Pos  State    Origin   Author          Submitted
+  tsk_0123456789abcdef0123    1  running  console  account acct_1  2026-11-23 10:00
+  tsk_0123456789abcdef0124    2  queued   cli      account acct_1  2026-11-23 10:05
+
+  Agent docs
+  No instructions.
+
+  Agent ghost
+  This queue could not be read, so it is not shown. It is not known to be empty: the service did
+  not answer
+
+Next: ks task show <instruction> --session sess_0123
+=== tasks, list, 80 columns ===
+Instructions in session sess_0123  2 instructions across 3 agents
+
+  Agent main
+  tsk_0123456789abcdef0123 1 running console account acct_1 2026-11-23 10:00
+  tsk_0123456789abcdef0124 2 queued cli account acct_1 2026-11-23 10:05
+
+  Agent docs
+  No instructions.
+
+  Agent ghost
+  This queue could not be read, so it is not shown. It is not known to be empty:
+  the service did not answer
+
+Next: ks task show <instruction> --session sess_0123
+=== tasks, list, 60 columns ===
+Instructions in session sess_0123
+2 instructions across 3 agents
+
+  Agent main
+  tsk_0123456789abcdef0123 1 running console account
+    acct_1 2026-11-23 10:00
+  tsk_0123456789abcdef0124 2 queued cli account acct_1
+    2026-11-23 10:05
+
+  Agent docs
+  No instructions.
+
+  Agent ghost
+  This queue could not be read, so it is not shown. It is
+  not known to be empty: the service did not answer
+
+Next: ks task show <instruction> --session sess_0123
+=== tasks, empty, 120 columns ===
+Instructions in session sess_0123  0 instructions across 0 agents
+
+  There are no agents in this session, so no instructions.
+=== tasks, empty, 80 columns ===
+Instructions in session sess_0123  0 instructions across 0 agents
+
+  There are no agents in this session, so no instructions.
+=== tasks, empty, 60 columns ===
+Instructions in session sess_0123
+0 instructions across 0 agents
+
+  There are no agents in this session, so no instructions.

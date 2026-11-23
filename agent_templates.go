@@ -184,21 +184,25 @@ func runAgentTemplates(inv *Invocation) {
 		fail(&cliError{Code: exitUsage, Kind: "template_unreadable", Message: sanitize(err.Error()), NextAction: "fix or remove the file under " + templatesDir()})
 	}
 	emit(map[string]any{"templates": all, "dir": templatesDir()}, func() {
-		fmt.Printf("%-14s %-10s %s\n", "ROLE", "FROM", "DESCRIPTION")
+		sc := listScreen{Title: "Agent roles", Detail: listCount(len(all), "role", "roles"),
+			Cols: []Col{{Title: "Role"}, {Title: "From"}, {Title: "Description", Wrap: true, Second: true}}}
 		for _, t := range all {
 			from := "built-in"
 			if t.Source != builtinSource {
 				from = "your file"
 			}
-			fmt.Printf("%-14s %-10s %s\n", clip(t.Name, 14), from, sanitize(t.Description))
+			desc := sanitize(t.Description)
 			if t.Replaces {
-				fmt.Printf("%-14s %-10s replaces the built-in of this name: %s\n", "", "", sanitize(t.Source))
+				desc += "\nReplaces the built-in of this name: " + sanitize(t.Source)
 			}
 			if len(t.Ignored) > 0 {
-				fmt.Printf("%-14s %-10s ignored: %s (KeepState never runs a local command from a template)\n", "", "", strings.Join(t.Ignored, ", "))
+				desc += "\nIgnored: " + strings.Join(t.Ignored, ", ") + " (KeepState never runs a local command from a template)"
 			}
+			sc.Rows = append(sc.Rows, []string{t.Name, from, desc})
 		}
-		fmt.Printf("your own roles: %s/<role>.md, front matter description, harness, model and key, then the opening instructions\n", templatesDir())
-		fmt.Println("use one: ks agent run --name <name> --template <role> \"<task>\"")
+		sc.Notes = []string{"Your own roles go in " + templatesDir() + "/<role>.md: front matter with description, harness, model and key, then the opening instructions."}
+		sc.Next = []string{"ks agent run --name <name> --template <role> \"<task>\""}
+		o, _ := cmdUI()
+		o.List(sc)
 	})
 }

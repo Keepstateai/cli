@@ -87,7 +87,7 @@ func TestAgentFoldersFromTheTerminal(t *testing.T) {
 	}
 
 	out, _, code := run("agent", "folder", "list")
-	if code != 0 || !strings.Contains(out, "1. Research team (1)") || !strings.Contains(out, "helper (c)") || !strings.Contains(out, "2. Ops (0)") {
+	if code != 0 || !strings.Contains(out, "1. Research team") || !strings.Contains(out, "1 agent in it") || !strings.Contains(out, "helper (c)") || !strings.Contains(out, "2. Ops") || !strings.Contains(out, "no agents in it") {
 		t.Fatalf("list: %d\n%s", code, out)
 	}
 	if out, _, code := run("agent", "folder", "create", "Notes  for me"); code != 0 || !strings.Contains(out, "created the folder Notes") {

@@ -7,7 +7,6 @@
 package main
 
 import (
-	"fmt"
 	"net/url"
 	"os"
 	"strings"
@@ -59,8 +58,8 @@ func hostedOrgLogoSet(cr hostedCreds, inv *Invocation) {
 	}
 	d := env.Data
 	emit(map[string]any{"organization": org, "logo": d}, func() {
-		fmt.Printf("%s logo set: %d x %d px, on a %s tile (kept as a 256 px PNG, sha256 %s)\n", org, d.Width, d.Height, d.Tile, d.SHA256)
-		fmt.Println("Members see it in the console's header; the original file is not kept.")
+		outf("%s logo set: %d x %d px, on a %s tile (kept as a 256 px PNG, sha256 %s)\n", org, d.Width, d.Height, d.Tile, d.SHA256)
+		outln("Members see it in the console's header; the original file is not kept.")
 	})
 }
 
@@ -78,9 +77,9 @@ func hostedOrgLogoRemove(cr hostedCreds, inv *Invocation) {
 	removed := env.Data.Removed
 	emit(map[string]any{"organization": org, "removed": removed}, func() {
 		if removed {
-			fmt.Printf("%s logo removed; its initials show instead.\n", org)
+			outf("%s logo removed; its initials show instead.\n", org)
 			return
 		}
-		fmt.Printf("%s had no logo; nothing changed.\n", org)
+		outf("%s had no logo; nothing changed.\n", org)
 	})
 }

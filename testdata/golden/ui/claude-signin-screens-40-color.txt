@@ -48,11 +48,13 @@ https://claude.com/cai/oauth/authorize?code=true&client_id=test&state=abc123
   link.
 
 <ESC>[1mClaude plans in org_acme<ESC>[0m  <ESC>[38;2;138;138;138m3<ESC>[0m
-  Ada Lovelace (you)  …9999  working
+  Ada Lovelace (you) …9999 working
     <ESC>[38;2;138;138;138m22 Nov 2027<ESC>[0m
-  Grace Hopper  …1234  ends soon
+
+  Grace Hopper …1234 ends soon
     <ESC>[38;2;138;138;138m3 Dec 2026<ESC>[0m
-  mem_three  …5678  no longer works
+
+  mem_three …5678 no longer works
     <ESC>[38;2;138;138;138m5 Jan 2027<ESC>[0m
 
 <ESC>[1mClaude plans in org_acme<ESC>[0m  <ESC>[38;2;138;138;138m0<ESC>[0m

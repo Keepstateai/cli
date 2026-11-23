@@ -745,7 +745,7 @@ func TestAgentListAndStatusReadTheSessionsAgents(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("list: exit %d\n%s%s", code, out, errs)
 	}
-	for _, want := range []string{"AGENT", "main", "agt_main0001", "working", "primary", "tsk_1", "3 agent(s)"} {
+	for _, want := range []string{"Agent", "main", "agt_main0001", "working", "primary", "tsk_1", "3 agents"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("list output lacks %q:\n%s", want, out)
 		}

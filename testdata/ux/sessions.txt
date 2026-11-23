@@ -1,0 +1,65 @@
+=== sessions, list, 120 columns ===
+Your sessions  3 sessions
+
+  Session       State              Agent    Task      Last activity     Saved
+  session_0123  Running (running)  working  running   2026-11-23 10:15  yes
+  session_abcd  Paused (parked)    unknown  2 queued  2026-11-22 18:00  no
+
+  Ended
+  Session       State         Agent    Task  Last activity     Saved
+  session_dead  Ended (dead)  stopped  none  2026-11-01 08:00  no
+
+  The session column is the start of its full id (ks run prints the full one); either works in
+  every command.
+
+Next: ks session show <session>
+=== sessions, list, 80 columns ===
+Your sessions  3 sessions
+
+  Session       State              Agent    Task      Last activity     Saved
+  session_0123  Running (running)  working  running   2026-11-23 10:15  yes
+  session_abcd  Paused (parked)    unknown  2 queued  2026-11-22 18:00  no
+
+  Ended
+  Session       State         Agent    Task  Last activity     Saved
+  session_dead  Ended (dead)  stopped  none  2026-11-01 08:00  no
+
+  The session column is the start of its full id (ks run prints the full one);
+  either works in every command.
+
+Next: ks session show <session>
+=== sessions, list, 60 columns ===
+Your sessions  3 sessions
+
+  session_0123 Running (running) working running
+    2026-11-23 10:15 · yes
+
+  session_abcd Paused (parked) unknown 2 queued
+    2026-11-22 18:00 · no
+
+  Ended
+  session_dead Ended (dead) stopped none
+    2026-11-01 08:00 · no
+
+  The session column is the start of its full id (ks run
+  prints the full one); either works in every command.
+
+Next: ks session show <session>
+=== sessions, empty, 120 columns ===
+Your sessions  no sessions
+
+  You have no sessions yet.
+
+Next: ks run
+=== sessions, empty, 80 columns ===
+Your sessions  no sessions
+
+  You have no sessions yet.
+
+Next: ks run
+=== sessions, empty, 60 columns ===
+Your sessions  no sessions
+
+  You have no sessions yet.
+
+Next: ks run

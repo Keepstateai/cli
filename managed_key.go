@@ -351,7 +351,7 @@ func managedKeyRows(d *modelKeysDoc) []string {
 		if d.defaultFor(p) == "managed" {
 			state += "; the default for new sessions"
 		}
-		out = append(out, fmt.Sprintf("%-14s %-11s %-18s %-6s %s", keepstateKeyArg, sanitize(p), "KeepState's key", "-", state))
+		out = append(out, fmt.Sprintf("KeepState's key for %s (--key %s): %s.", sanitize(p), keepstateKeyArg, state))
 	}
 	return out
 }
@@ -400,7 +400,7 @@ func hostedKeyDefault(cr hostedCreds, inv *Invocation) {
 		if nd.defaultFor(p) == "managed" {
 			on = "KeepState's key"
 		}
-		fmt.Printf("new sessions start their %s calls on %s; existing sessions are unchanged (ks session key set changes one)\n", providerName(p), on)
+		outf("new sessions start their %s calls on %s; existing sessions are unchanged (ks session key set changes one)\n", providerName(p), on)
 		printKeyDefaults(nd, org)
 	})
 }
@@ -417,7 +417,7 @@ func ownKeyWords(org string) string {
 // these are; nothing in the personal context.
 func keyDefaultsContextLine(org string) {
 	if org != "" {
-		fmt.Printf("Context: organization %s: the default key for the organization's new sessions (its owners and admins change it)\n", org)
+		outf("Context: organization %s: the default key for the organization's new sessions (its owners and admins change it)\n", org)
 	}
 }
 
@@ -446,10 +446,10 @@ func printKeyDefaults(d *modelKeysDoc, org string) {
 		default:
 			line = fmt.Sprintf("%-11s %s", p, own)
 		}
-		fmt.Println(line)
+		outln(line)
 	}
 	if !d.Managed.Available {
-		fmt.Println("KeepState's key is not offered now: " + firstNonEmptyStr(sanitize(d.Managed.Note), "the service does not offer it") + ". " + strings.ToUpper(own[:1]) + own[1:] + " works as before.")
+		outln("KeepState's key is not offered now: " + firstNonEmptyStr(sanitize(d.Managed.Note), "the service does not offer it") + ". " + strings.ToUpper(own[:1]) + own[1:] + " works as before.")
 	}
 }
 
@@ -611,7 +611,7 @@ func hostedSessionKeySet(cr hostedCreds, inv *Invocation) {
 	}
 	emit(out, func() {
 		for _, s := range said {
-			fmt.Println(s)
+			outln(s)
 		}
 	})
 }

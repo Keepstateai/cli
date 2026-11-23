@@ -63,7 +63,7 @@ func TestCruiseDraftsInAnOrganizationsContext(t *testing.T) {
 		t.Fatalf("context use: %d %s%s", code, out, errs)
 	}
 	out, errs, code := ksIn(t, bin, cfg, dir, "cruise", "draft", "list")
-	if code != 0 || !strings.HasPrefix(out, "Context: organization org_a") || !strings.Contains(out, "crd_org1") || strings.Contains(out, "crd_mine1") {
+	if code != 0 || !strings.HasPrefix(out, "Open Cruise drafts of the organization org_a") || !strings.Contains(out, "crd_org1") || strings.Contains(out, "crd_mine1") {
 		t.Errorf("cruise draft list in the organization's context: %d\n%s%s", code, out, errs)
 	}
 	_, _, _ = ksIn(t, bin, cfg, dir, "cruise", "tests", "show", "crd_org1")

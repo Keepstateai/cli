@@ -132,39 +132,43 @@ func ago(ts string) string {
 	return ts
 }
 
-// renderInventory lays the rows out for a width: 80 columns keep identity,
+// inventoryCols and inventoryCells lay the rows out for a width: 120
+// columns and more add name, key and the last save; under that identity,
 // state (the console's word beside the raw state), activity, task and last
-// activity; 120 add name, key and the last save. No column is ever wider
-// than its slot, so fields do not overlap. The header is printed when asked
-// for, so a second group can follow the first under the same one.
-func renderInventory(rows []inventoryRow, width int, header bool) string {
-	var b strings.Builder
-	wide := width >= 120
+// activity. A table that still does not fit is stacked by the kit.
+func inventoryCols(wide bool) []Col {
 	if wide {
-		if header {
-			fmt.Fprintf(&b, "%-14s %-14s %-18s %-10s %-11s %-16s %-16s %-14s\n", "SESSION", "NAME", "STATE", "AGENT", "TASK", "LAST ACTIVITY", "LAST SAVE", "KEY")
-		}
-		for _, r := range rows {
-			fmt.Fprintf(&b, "%-14s %-14s %-18s %-10s %-11s %-16s %-16s %-14s\n", clip(r.ShortID, 14), clip(r.Name, 14), clip(invState(r), 18), clip(invAgent(r), 10), clip(invTask(r), 11), ago(r.LastActivityAt), ago(r.LastCheckpointAt), clip(r.KeyAlias, 14))
-		}
-	} else {
-		if header {
-			fmt.Fprintf(&b, "%-14s %-18s %-11s %-11s %-16s %s\n", "SESSION", "STATE", "AGENT", "TASK", "LAST ACTIVITY", "SAVED")
-		}
-		for _, r := range rows {
-			saved := "no"
-			if r.LastCheckpointID != "" {
-				saved = "yes"
-			}
-			fmt.Fprintf(&b, "%-14s %-18s %-11s %-11s %-16s %s\n", clip(r.ShortID, 14), clip(invState(r), 18), clip(invAgent(r), 11), clip(invTask(r), 11), ago(r.LastActivityAt), saved)
-		}
+		return []Col{{Title: "Session"}, {Title: "Name", Flex: true}, {Title: "State"}, {Title: "Agent"}, {Title: "Task"}, {Title: "Last activity", Second: true}, {Title: "Last save", Second: true}, {Title: "Key", Second: true}}
 	}
+	return []Col{{Title: "Session"}, {Title: "State"}, {Title: "Agent"}, {Title: "Task"}, {Title: "Last activity", Second: true}, {Title: "Saved", Second: true}}
+}
+
+func inventoryCells(rows []inventoryRow, wide bool) [][]string {
+	var out [][]string
+	for _, r := range rows {
+		if wide {
+			out = append(out, []string{r.ShortID, r.Name, invState(r), invAgent(r), invTask(r), ago(r.LastActivityAt), ago(r.LastCheckpointAt), r.KeyAlias})
+			continue
+		}
+		saved := "no"
+		if r.LastCheckpointID != "" {
+			saved = "yes"
+		}
+		out = append(out, []string{r.ShortID, invState(r), invAgent(r), invTask(r), ago(r.LastActivityAt), saved})
+	}
+	return out
+}
+
+// inventoryNotes says, for each session parked for want of credit, what that
+// means.
+func inventoryNotes(rows []inventoryRow) []string {
+	var notes []string
 	for _, r := range rows {
 		if rowFundsParked(r) {
-			fmt.Fprintf(&b, "%s %s; its agent's last word and task are frozen at the saved point; nothing runs or is charged\n", clip(r.ShortID, 14), fundsPausedLine)
+			notes = append(notes, fmt.Sprintf("%s %s; its agent's last word and task are frozen at the saved point; nothing runs or is charged.", r.ShortID, fundsPausedLine))
 		}
 	}
-	return b.String()
+	return notes
 }
 
 // sessionEnded: the session's record or runtime is over (the console's
@@ -223,42 +227,49 @@ func hostedSessionList(cr hostedCreds, inv *Invocation) {
 		doc["context"] = org
 	}
 	emit(doc, func() {
-		if org := currentContext(cr); org != "" {
-			fmt.Printf("Context: organization %s\n", org)
-		}
-		if len(rows) == 0 {
-			if state != "" {
-				fmt.Printf("No %s sessions.\n", state)
-			} else {
-				fmt.Println("No sessions. Start one: ks run")
-			}
-			return
-		}
-		width := termColumns()
-		var live, ended []inventoryRow
-		for _, r := range rows {
-			if state == "" && sessionEnded(r.RuntimeState) {
-				ended = append(ended, r)
-			} else {
-				live = append(live, r)
-			}
-		}
-		if len(live) > 0 {
-			fmt.Print(renderInventory(live, width, true))
-		}
-		if len(ended) > 0 {
-			if len(live) > 0 {
-				fmt.Println()
-			}
-			fmt.Println("Ended")
-			fmt.Print(renderInventory(ended, width, len(live) == 0))
-		}
-		if parkProblem != "" {
-			fmt.Println(parkProblem)
-		}
-		fmt.Printf("%d session(s); details: ks session show <session>\n", len(rows))
-		fmt.Println("SESSION is the start of the full id (ks run prints the full one); either works in every command")
+		o, _ := cmdUI()
+		o.List(sessionListScreen(rows, state, currentContext(cr), parkProblem, o.cols))
 	})
+}
+
+// sessionListScreen is ks session list: the live sessions, then the ended
+// ones under their own heading.
+func sessionListScreen(rows []inventoryRow, state, org, parkProblem string, cols int) listScreen {
+	wide := cols >= 120
+	s := listScreen{Title: "Your sessions", Detail: listCount(len(rows), "session", "sessions"), Cols: inventoryCols(wide)}
+	if org != "" {
+		s.Title = "Sessions of the organization " + org
+	}
+	var live, ended []inventoryRow
+	for _, r := range rows {
+		if state == "" && sessionEnded(r.RuntimeState) {
+			ended = append(ended, r)
+		} else {
+			live = append(live, r)
+		}
+	}
+	if len(live) > 0 {
+		s.Groups = append(s.Groups, listGroup{Rows: inventoryCells(live, wide)})
+	}
+	if len(ended) > 0 {
+		s.Groups = append(s.Groups, listGroup{Heading: "Ended", Rows: inventoryCells(ended, wide)})
+	}
+	if len(rows) == 0 {
+		if state != "" {
+			s.Empty = "No " + state + " sessions."
+		} else {
+			s.Empty = "You have no sessions yet."
+			s.Next = []string{"ks run"}
+		}
+		return s
+	}
+	s.Notes = append(s.Notes, inventoryNotes(rows)...)
+	if parkProblem != "" {
+		s.Notes = append(s.Notes, parkProblem)
+	}
+	s.Notes = append(s.Notes, "The session column is the start of its full id (ks run prints the full one); either works in every command.")
+	s.Next = []string{"ks session show <session>"}
+	return s
 }
 
 // resolveSession answers the one session an argument names: a full id, or
@@ -317,55 +328,55 @@ func hostedSessionShow(cr hostedCreds, inv *Invocation) {
 		doc = map[string]any{"session": r, "park_reasons_unreadable": parkProblem}
 	}
 	emit(doc, func() {
-		fmt.Printf("session %s (%s)\n", r.ID, r.ShortID)
-		fmt.Printf("  name           %s\n", r.Name)
+		outf("session %s (%s)\n", r.ID, r.ShortID)
+		outf("  name           %s\n", r.Name)
 		if rowFundsParked(r) {
-			fmt.Printf("  state          %s\n", fundsPausedLine)
-			fmt.Printf("  why            the account's credits ran out, so the funds interlock saved this session and paused it (it was never killed); nothing runs and nothing is charged while it is parked\n")
-			fmt.Printf("  fleet state    %s\n", stateWords("session_runtime", r.RuntimeState))
-			fmt.Printf("  agent          %s (frozen at the saved point; not current)\n", stateWords("agent_activity", r.AgentActivity))
-			fmt.Printf("  task           %s (frozen; nothing is moving)\n", r.TaskState)
-			fmt.Printf("  then resume    ks wake %s (after adding credit)\n", r.ShortID)
+			outf("  state          %s\n", fundsPausedLine)
+			outf("  why            the account's credits ran out, so the funds interlock saved this session and paused it (it was never killed); nothing runs and nothing is charged while it is parked\n")
+			outf("  fleet state    %s\n", stateWords("session_runtime", r.RuntimeState))
+			outf("  agent          %s (frozen at the saved point; not current)\n", stateWords("agent_activity", r.AgentActivity))
+			outf("  task           %s (frozen; nothing is moving)\n", r.TaskState)
+			outf("  then resume    ks wake %s (after adding credit)\n", r.ShortID)
 		} else if parkProblem != "" {
-			fmt.Printf("  park reason    %s\n", parkProblem)
+			outf("  park reason    %s\n", parkProblem)
 		}
 		if !rowFundsParked(r) {
 			if r.FleetState != "" {
-				fmt.Printf("  state          %s (fleet: %s)\n", stateWords("session_runtime", r.RuntimeState), sanitize(r.FleetState))
+				outf("  state          %s (fleet: %s)\n", stateWords("session_runtime", r.RuntimeState), sanitize(r.FleetState))
 			} else {
-				fmt.Printf("  state          %s\n", stateWords("session_runtime", r.RuntimeState))
+				outf("  state          %s\n", stateWords("session_runtime", r.RuntimeState))
 			}
 			if r.ParkReason != "" {
-				fmt.Printf("  park reason    %s\n", sanitize(r.ParkReason))
+				outf("  park reason    %s\n", sanitize(r.ParkReason))
 			}
-			fmt.Printf("  agent          %s\n", stateWords("agent_activity", r.AgentActivity))
-			fmt.Printf("  task           %s\n", r.TaskState)
+			outf("  agent          %s\n", stateWords("agent_activity", r.AgentActivity))
+			outf("  task           %s\n", r.TaskState)
 		}
-		fmt.Printf("  key            %s\n", r.KeyAlias)
+		outf("  key            %s\n", r.KeyAlias)
 		if r.KeyBindings != nil {
-			fmt.Printf("  model keys     %s\n", r.KeyBindings.words())
+			outf("  model keys     %s\n", r.KeyBindings.words())
 		}
-		fmt.Printf("  image          %s\n", r.Image)
-		fmt.Printf("  budget         %d tokens\n", r.BudgetTokens)
-		fmt.Printf("  epoch          %d\n", r.ExecutionEpoch)
-		fmt.Printf("  created        %s\n", r.CreatedAt)
-		fmt.Printf("  last activity  %s\n", r.LastActivityAt)
+		outf("  image          %s\n", r.Image)
+		outf("  budget         %d tokens\n", r.BudgetTokens)
+		outf("  epoch          %d\n", r.ExecutionEpoch)
+		outf("  created        %s\n", r.CreatedAt)
+		outf("  last activity  %s\n", r.LastActivityAt)
 		if r.LastCheckpointID != "" {
-			fmt.Printf("  last save      %s at %s\n", r.LastCheckpointID, r.LastCheckpointAt)
+			outf("  last save      %s at %s\n", r.LastCheckpointID, r.LastCheckpointAt)
 		} else {
-			fmt.Printf("  last save      none\n")
+			outf("  last save      none\n")
 		}
 		if r.Parent != "" {
-			fmt.Printf("  forked from    %s\n", r.Parent)
+			outf("  forked from    %s\n", r.Parent)
 		}
 		if r.RecordID != "" {
-			fmt.Printf("  record         %s (primary agent %s)\n", r.RecordID, r.PrimaryAgentID)
+			outf("  record         %s (primary agent %s)\n", r.RecordID, r.PrimaryAgentID)
 			if r.RunnerModelUnreadable != "" {
-				fmt.Printf("  runner model   %s\n", r.RunnerModelUnreadable)
+				outf("  runner model   %s\n", r.RunnerModelUnreadable)
 			} else {
-				fmt.Printf("  runner model   %s (change it while paused: ks session model %s <model>)\n", sanitize(notRecorded(r.RunnerModel)), r.ShortID)
+				outf("  runner model   %s (change it while paused: ks session model %s <model>)\n", sanitize(notRecorded(r.RunnerModel)), r.ShortID)
 			}
 		}
-		fmt.Printf("  observed       %s\n", r.ObservedAt)
+		outf("  observed       %s\n", r.ObservedAt)
 	})
 }

@@ -6,10 +6,14 @@
   <ESC>[38;2;138;138;138mGoes up as<ESC>[0m  the conversation itself
 
 <ESC>[1mSessions on this machine<ESC>[0m  <ESC>[38;2;138;138;138m3 found<ESC>[0m
-  <ESC>[38;2;138;138;138mTOOL       <ESC>[0m  <ESC>[38;2;138;138;138mSESSION <ESC>[0m  <ESC>[38;2;138;138;138mPROJECT       <ESC>[0m  <ESC>[38;2;138;138;138mLAST USED  <ESC>[0m  <ESC>[38;2;138;138;138m  SIZE<ESC>[0m
-  claude-code  2d1eb651  ~/work/…e-main  open now     137 MB
-  claude-code  a91f03c2  ~/keepstate     2 hours ago   48 MB
-  codex        77e1b0aa  ~/ks-ops        yesterday    3.1 MB
+  claude-code 2d1eb651 ~/work/projects/BulkPulse-main
+    <ESC>[38;2;138;138;138mopen now · 137 MB<ESC>[0m
+
+  claude-code a91f03c2 ~/keepstate
+    <ESC>[38;2;138;138;138m2 hours ago · 48 MB<ESC>[0m
+
+  codex 77e1b0aa ~/ks-ops
+    <ESC>[38;2;138;138;138myesterday · 3.1 MB<ESC>[0m
 
   <ESC>[38;2;138;138;138mThe agent's first reply re-reads the whole conversation,<ESC>[0m
   <ESC>[38;2;138;138;138mso it costs more than a short message.<ESC>[0m

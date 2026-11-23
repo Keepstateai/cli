@@ -1,0 +1,42 @@
+=== results, list, 120 columns ===
+Results for session sess_0123  1 result
+
+  Result          Name                                         Size  Task   Checked       Fingerprint
+  res_0123456789  quarterly-report-final-version-2.pdf  1,234,567 B  tsk_1  not recorded  sha256 0123456789ab
+
+  Not read: task tsk_gone: not found. That is not an empty list: it could not be read.
+
+Next: ks result download <result>
+=== results, list, 80 columns ===
+Results for session sess_0123  1 result
+
+  res_0123456789 quarterly-report-final-version-2.pdf 1,234,567 B
+    tsk_1 · not recorded · sha256 0123456789ab
+
+  Not read: task tsk_gone: not found. That is not an empty list: it could not be
+  read.
+
+Next: ks result download <result>
+=== results, list, 60 columns ===
+Results for session sess_0123  1 result
+
+  res_0123456789 quarterly-report-final-version-2.pdf
+    1,234,567 B
+    tsk_1 · not recorded · sha256 0123456789ab
+
+  Not read: task tsk_gone: not found. That is not an empty
+  list: it could not be read.
+
+Next: ks result download <result>
+=== results, empty, 120 columns ===
+Results for session sess_0123  no results
+
+  No results are recorded for session sess_0123 yet.
+=== results, empty, 80 columns ===
+Results for session sess_0123  no results
+
+  No results are recorded for session sess_0123 yet.
+=== results, empty, 60 columns ===
+Results for session sess_0123  no results
+
+  No results are recorded for session sess_0123 yet.

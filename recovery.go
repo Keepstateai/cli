@@ -428,17 +428,17 @@ func (a nextAction) lines() []string {
 // reason about.
 func printQueue(tasks []taskRow, blocking string) {
 	if len(tasks) == 0 {
-		fmt.Println("the queue is empty")
+		outln("the queue is empty")
 		return
 	}
-	fmt.Printf("the queue in full (%d instruction(s); nothing here is hidden by a decision)\n", len(tasks))
-	fmt.Printf("  %-2s %-4s %-28s %s\n", "", "POS", "INSTRUCTION", "STATE")
+	outf("the queue in full (%d instruction(s); nothing here is hidden by a decision)\n", len(tasks))
+	outf("  %-2s %-4s %-28s %s\n", "", "POS", "INSTRUCTION", "STATE")
 	for _, t := range tasks {
 		marker := "  "
 		if t.ID == blocking {
 			marker = "->"
 		}
-		fmt.Println(sanitize(fmt.Sprintf("  %-2s %-4d %-28s %s", marker, t.QueueSeq, clip(t.ID, 28), figure(t.State))))
+		outln(sanitize(fmt.Sprintf("  %-2s %-4d %-28s %s", marker, t.QueueSeq, clip(t.ID, 28), figure(t.State))))
 	}
 }
 
@@ -486,45 +486,45 @@ func hostedAgentQueueShow(cr hostedCreds, inv *Invocation) {
 	}
 	emit(facts, func() {
 		if h == nil {
-			fmt.Printf("the queue of agent %s (%s) in session %s is not held; nothing is waiting on a decision\n", a.Name, a.ID, sess.ShortID)
+			outf("the queue of agent %s (%s) in session %s is not held; nothing is waiting on a decision\n", a.Name, a.ID, sess.ShortID)
 			printQueue(tasks, "")
 			return
 		}
-		fmt.Printf("the queue of agent %s (%s) in session %s is HELD\n", a.Name, a.ID, sess.ShortID)
+		outf("the queue of agent %s (%s) in session %s is HELD\n", a.Name, a.ID, sess.ShortID)
 		if screen != nil {
 			for _, l := range crashScreenLines(*screen, a.Name, sess.ShortID, true) {
 				if strings.HasPrefix(l, "   decide ") {
 					continue // the choices follow on this screen
 				}
-				fmt.Println(l)
+				outln(l)
 			}
 		}
-		fmt.Printf("  %-15s %s (%s)\n", blockedWord(*h), h.BlockingTask, figure(h.BlockingState))
+		outf("  %-15s %s (%s)\n", blockedWord(*h), h.BlockingTask, figure(h.BlockingState))
 		if strings.TrimSpace(h.BlockingSummary) == "" {
-			fmt.Printf("  %-15s nothing was recorded\n", "it reported")
+			outf("  %-15s nothing was recorded\n", "it reported")
 		} else {
-			fmt.Printf("  %-15s %s\n", "it reported", sanitize(h.BlockingSummary))
+			outf("  %-15s %s\n", "it reported", sanitize(h.BlockingSummary))
 		}
-		fmt.Printf("  %-15s %s\n", "held because", sanitize(figure(h.Reason)))
+		outf("  %-15s %s\n", "held because", sanitize(figure(h.Reason)))
 		if h.Fix != nil && strings.TrimSpace(h.Fix.Words) != "" {
-			fmt.Printf("  %-15s %s\n", "what to do", sanitize(h.Fix.Words))
+			outf("  %-15s %s\n", "what to do", sanitize(h.Fix.Words))
 			if h.Fix.Kind == "choose_key" {
-				fmt.Printf("  %-15s ks session key set %s --key <key-id|keepstate>, then ks agent queue retry %s --session %s\n", "", sess.ShortID, a.Name, sess.ShortID)
+				outf("  %-15s ks session key set %s --key <key-id|keepstate>, then ks agent queue retry %s --session %s\n", "", sess.ShortID, a.Name, sess.ShortID)
 			}
 		}
-		fmt.Printf("  %-15s %s\n", "waiting", sanitize(figure(h.Consequence)))
+		outf("  %-15s %s\n", "waiting", sanitize(figure(h.Consequence)))
 		switch {
 		case h.SessionEpoch == 0:
-			fmt.Printf("  %-15s unavailable; nothing can be decided until it can be read\n", "generation")
+			outf("  %-15s unavailable; nothing can be decided until it can be read\n", "generation")
 		case h.Epoch != 0 && h.SessionEpoch != h.Epoch:
-			fmt.Printf("  %-15s recorded under %d, and the session now runs %d: it was restored since\n", "generation", h.Epoch, h.SessionEpoch)
+			outf("  %-15s recorded under %d, and the session now runs %d: it was restored since\n", "generation", h.Epoch, h.SessionEpoch)
 		default:
-			fmt.Printf("  %-15s %d\n", "generation", h.SessionEpoch)
+			outf("  %-15s %d\n", "generation", h.SessionEpoch)
 		}
-		fmt.Println("your choices")
+		outln("your choices")
 		for _, c := range h.Choices {
 			for _, line := range actionFrom(c, verbFor(c, h.BlockingTask, a.Name, sess)).lines() {
-				fmt.Println(line)
+				outln(line)
 			}
 		}
 		printQueue(tasks, h.BlockingTask)
@@ -745,17 +745,17 @@ func decisionReport(sess inventoryRow, agentName string, before, after queueHold
 	emit(map[string]any{"session": sess.ID, "agent": after.AgentID, "hold": after,
 		"decision": after.Decision, "decided_at": after.DecidedAt}, func() {
 		if decision == decisionRetryBlocking {
-			fmt.Printf("queued the failed instruction %s again as %s; it runs first\n", after.BlockingTask, sanitize(figure(after.RetryTask)))
+			outf("queued the failed instruction %s again as %s; it runs first\n", after.BlockingTask, sanitize(figure(after.RetryTask)))
 			if n := len(after.ReleasedTasks); n > 0 {
-				fmt.Printf("  then %d instruction(s) that waited behind it, in the order they were committed\n", n)
+				outf("  then %d instruction(s) that waited behind it, in the order they were committed\n", n)
 			}
-			fmt.Printf("the failed attempt keeps its outcome (%s)\n", figure(after.BlockingState))
+			outf("the failed attempt keeps its outcome (%s)\n", figure(after.BlockingState))
 			return
 		}
 		if decision == decisionKeep {
-			fmt.Printf("the queue of agent %s stays held behind %s %s (%s): %s\n",
+			outf("the queue of agent %s stays held behind %s %s (%s): %s\n",
 				agentName, blockedWord(after), after.BlockingTask, figure(after.BlockingState), sanitize(figure(after.Finding)))
-			fmt.Printf("%s, and the decision to leave it held is recorded\n", sanitize(figure(after.Consequence)))
+			outf("%s, and the decision to leave it held is recorded\n", sanitize(figure(after.Consequence)))
 			return
 		}
 		// what the service says it released, never what this client assumed
@@ -763,15 +763,15 @@ func decisionReport(sess inventoryRow, agentName string, before, after queueHold
 		// released by a decision to continue, and a client that counted the
 		// instructions it last saw held would report it as running again.
 		if len(after.ReleasedTasks) == 0 {
-			fmt.Printf("resumed the queue of agent %s: the service listed nothing that it released, so what is running again is not reported here rather than assumed\n", agentName)
-			fmt.Printf("  %s was held behind it when this decision was prepared\n", figure(heldCount(before)))
+			outf("resumed the queue of agent %s: the service listed nothing that it released, so what is running again is not reported here rather than assumed\n", agentName)
+			outf("  %s was held behind it when this decision was prepared\n", figure(heldCount(before)))
 		} else {
-			fmt.Printf("resumed the queue of agent %s: %d instruction(s) may run again, in the order they were committed\n", agentName, len(after.ReleasedTasks))
+			outf("resumed the queue of agent %s: %d instruction(s) may run again, in the order they were committed\n", agentName, len(after.ReleasedTasks))
 			for _, id := range after.ReleasedTasks {
-				fmt.Printf("  %s\n", sanitize(id))
+				outf("  %s\n", sanitize(id))
 			}
 		}
-		fmt.Printf("the %s %s still reads %s and was NOT run again\n",
+		outf("the %s %s still reads %s and was NOT run again\n",
 			blockedWord(after), after.BlockingTask, figure(after.BlockingState))
 	})
 }

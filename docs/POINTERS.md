@@ -43,7 +43,7 @@ its file.
 ## Run and session
 
 - `ks run`, checkpoint, wake, meter: `hosted.go` `hostedRun`, `hostedCheckpoint`, `hostedWake`, `hostedMeter`. The agent start path and its phases: `run_agent.go` `hostedRunAgent`, `phaseDone`.
-- Session list and show, the inventory table: `session.go` `renderInventory`; fork and restore: `fork_restore.go`.
+- Session list and show, the inventory table: `session.go` `sessionListScreen`, `inventoryCols`, `inventoryCells`; fork and restore: `fork_restore.go`.
 - Upload of a folder or file with progress: `file_upload.go` `progressBytes`, `stderrIsTerminal`.
 
 ## Agent
@@ -64,6 +64,11 @@ its file.
 ## Cruise and cruise auto
 
 - Verbs: `cruise.go` `cruiseInit`, `cruiseApprove`, `cruiseRun`, `cruiseStatus`, `cruiseUsage`. Drafts: `cruise_drafts.go`; automatic cruise: `cruise_auto.go` `hostedCruiseAutoBrief`; watching a job: `cruise_watch.go`; receipts: `cruise_receipt.go`, `cruise_verify.go`; the runner list vendored from the service: `runners_list.go`.
+
+## Lists and text screens
+
+- One shape for every list: `listui.go` `listScreen`, `List` (a title with a dim count, a lead, a table, notes, one Next; an empty list is one plain sentence and, where there is something to do, a Next), on the kit in `ui.go`. The kit's `Table` takes the terminal's whole width, cuts only a Flex column (to 24 columns), wraps a Wrap column on word boundaries, and stacks each row (`stackedTable`) when it still does not fit, so no id is cut to a stub; into a pipe (no terminal, no COLUMNS) nothing is cut or wrapped, so a program reads whole cells. Each list verb builds its screen in a small function: `session.go` `sessionListScreen`, `agent.go` `agentListScreen`, `agent_list_all.go` `allAgentsScreen`, `tasks.go` `taskListScreen`, `results.go` `resultListScreen`, `inspect.go` `fileListScreen`, `queue_edit.go` `pendingScreen`, `keys.go` `keyListScreen`, `apps.go` `appsListScreen`, `import.go` `importListScreen`; the organization, budget, team, invitation, statement, draft, proposal, check and adviser lists build theirs inline.
+- Text a verb prints as lines: `listui.go` `outf` and `outln` stand in for fmt.Printf and fmt.Println in a verb's human output, and wrap a whole line wider than the terminal on word boundaries, hanging under its value (`fitLine`); a command, an address, a long token or a cursor move is left alone (`unwrappable`). `printLines` and `cardf` do the same for lines a helper built. Tests: `listui_test.go` (every list screen at 120, 80 and 60 columns, with colour and without, and into a pipe).
 
 ## Import
 

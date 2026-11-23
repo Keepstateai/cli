@@ -80,31 +80,31 @@ func hostedSessionBrief(cr hostedCreds, inv *Invocation) {
 	}
 	v := env.Data
 	emit(v, func() {
-		fmt.Printf("handoff brief of session %s: %s to %s (%s)\n", sess.ShortID, sanitize(firstNonEmptyStr(v.FromLabel, v.From)), sanitize(firstNonEmptyStr(v.ToLabel, v.To)), sanitize(v.HandoffID))
+		outf("handoff brief of session %s: %s to %s (%s)\n", sess.ShortID, sanitize(firstNonEmptyStr(v.FromLabel, v.From)), sanitize(firstNonEmptyStr(v.ToLabel, v.To)), sanitize(v.HandoffID))
 		switch v.State {
 		case "delivered":
-			fmt.Printf("  state      delivered with instruction %s at %s\n", sanitize(v.DeliveredTaskID), sanitize(v.DeliveredAt))
+			outf("  state      delivered with instruction %s at %s\n", sanitize(v.DeliveredTaskID), sanitize(v.DeliveredAt))
 		case "written":
-			fmt.Printf("  state      written at %s; it goes to the agent with the next instruction\n", sanitize(v.WrittenAt))
+			outf("  state      written at %s; it goes to the agent with the next instruction\n", sanitize(v.WrittenAt))
 		default:
-			fmt.Printf("  state      not written yet: it is written when the session first runs after the switch\n")
+			outf("  state      not written yet: it is written when the session first runs after the switch\n")
 		}
 		if v.State == "pending" || v.State == "" {
 			return
 		}
 		if v.Fallback {
-			fmt.Printf("  written    by KeepState from its records alone, a facts card: %s\n", sanitize(v.FallbackReason))
+			outf("  written    by KeepState from its records alone, a facts card: %s\n", sanitize(v.FallbackReason))
 		} else {
-			fmt.Printf("  written    by KeepState from its records; its narrative by %s on the session's own key\n", sanitize(v.NarrativeModel))
+			outf("  written    by KeepState from its records; its narrative by %s on the session's own key\n", sanitize(v.NarrativeModel))
 		}
-		fmt.Printf("  size       %d tokens\n", v.Tokens)
-		fmt.Printf("  cost       %s\n", sanitize(v.Cost))
+		outf("  size       %d tokens\n", v.Tokens)
+		outf("  cost       %s\n", sanitize(v.Cost))
 		if !v.Fallback {
-			fmt.Printf("  checks     %s\n", briefChecksText(v.Checks))
+			outf("  checks     %s\n", briefChecksText(v.Checks))
 		}
-		fmt.Printf("  sha256     %s\n\n", sanitize(v.SHA256))
+		outf("  sha256     %s\n\n", sanitize(v.SHA256))
 		for _, line := range strings.Split(v.Brief, "\n") {
-			fmt.Println(sanitize(line))
+			outln(sanitize(line))
 		}
 	})
 }

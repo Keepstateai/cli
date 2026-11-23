@@ -240,7 +240,7 @@ func hostedRun(cr hostedCreds, inv *Invocation) {
 			progress("ks session list shows it as %s: a short id is the start of the full id, and either works in every command", id[:6])
 		}
 		progress("this is a plain session, without an agent; for an agent session: ks run --agent")
-		fmt.Println(sess["id"])
+		outln(sess["id"])
 	})
 }
 
@@ -262,7 +262,7 @@ func hostedKill(cr hostedCreds, inv *Invocation) {
 		}
 		return
 	}
-	emit(map[string]any{"session_id": id, "killed": true}, func() { fmt.Println("killed", id) })
+	emit(map[string]any{"session_id": id, "killed": true}, func() { outln("killed", id) })
 }
 
 func hostedWake(cr hostedCreds, inv *Invocation) {
@@ -276,7 +276,7 @@ func hostedWake(cr hostedCreds, inv *Invocation) {
 	}
 	emit(map[string]any{"session_id": id, "state": sess["state"]}, func() {
 		progress("hosted session %v resumed", id)
-		fmt.Println(id)
+		outln(id)
 	})
 }
 
@@ -285,7 +285,7 @@ func hostedCheckpoint(cr hostedCreds, inv *Invocation) {
 	if err := hostedMutate(cr, "POST", "/api/sessions/"+id+"/checkpoint", map[string]bool{"Stop": inv.Bool("stop")}, nil); err != nil {
 		die(legacyRefusal(err, id, "checkpoint"))
 	}
-	emit(map[string]any{"session_id": id, "checkpointed": true, "stopped": inv.Bool("stop")}, func() { fmt.Println("checkpointed", id) })
+	emit(map[string]any{"session_id": id, "checkpointed": true, "stopped": inv.Bool("stop")}, func() { outln("checkpointed", id) })
 }
 
 func hostedMeter(cr hostedCreds, inv *Invocation) {
@@ -301,7 +301,7 @@ func hostedMeter(cr hostedCreds, inv *Invocation) {
 		if v, ok := mtr["key_sources"]; ok && v != nil {
 			src = fmt.Sprint(v)
 		}
-		fmt.Printf("session %v · spent %s / budget %s tokens · billed calls %s · key source(s): %s\n",
+		outf("session %v · spent %s / budget %s tokens · billed calls %s · key source(s): %s\n",
 			figure(mtr["session"]), figure(mtr["spent"]), figure(mtr["budget"]), figure(mtr["billed_calls"]), src)
 		// calls on KeepState's key are charged: say so, with the amount when
 		// the meter carries it
@@ -310,7 +310,7 @@ func hostedMeter(cr hostedCreds, inv *Invocation) {
 			if n, ok := mtr["managed_charged_microusd"].(float64); ok {
 				amount = receiptMoney(int64(n)) + " charged"
 			}
-			fmt.Printf("  model calls on KeepState's key: %s, the provider's list price plus the spread, paid from your purchased credit (ks session usage %s has the detail)\n", amount, sanitize(id))
+			outf("  model calls on KeepState's key: %s, the provider's list price plus the spread, paid from your purchased credit (ks session usage %s has the detail)\n", amount, sanitize(id))
 		}
 	})
 }
@@ -423,7 +423,7 @@ func hostedFork(cr hostedCreds, inv *Invocation) {
 	emit(map[string]any{"session_id": id, "children": children}, func() {
 		for _, c := range children {
 			progress("child %v: parent=%v (on the fleet)", c["id"], c["parent"])
-			fmt.Println(c["id"])
+			outln(c["id"])
 		}
 	})
 }

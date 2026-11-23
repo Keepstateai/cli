@@ -161,6 +161,27 @@ func resultLine(r resultRow) string {
 	return fmt.Sprintf("%-20s %-28s %12s  sha256 %s  task %s  verification %s", r.ID, clip(sanitize(r.Name), 28), commas(r.Bytes)+" B", short(r.SHA256), r.TaskID, verificationWord(r))
 }
 
+var resultCols = []Col{{Title: "Result"}, {Title: "Name", Flex: true}, {Title: "Size", Right: true}, {Title: "Task", Second: true}, {Title: "Checked", Second: true}, {Title: "Fingerprint", Second: true}}
+
+// resultListScreen is ks result list.
+func resultListScreen(scope string, rows []resultRow, unreadable []string) listScreen {
+	s := listScreen{Title: "Results for " + scope, Detail: listCount(len(rows), "result", "results"), Cols: resultCols}
+	for _, r := range rows {
+		s.Rows = append(s.Rows, []string{r.ID, sanitize(r.Name), commas(r.Bytes) + " B", r.TaskID, verificationWord(r), "sha256 " + short(r.SHA256)})
+	}
+	if len(rows) == 0 && len(unreadable) == 0 {
+		s.Empty = "No results are recorded for " + scope + " yet."
+		return s
+	}
+	for _, u := range unreadable {
+		s.Notes = append(s.Notes, "Not read: "+u+". That is not an empty list: it could not be read.")
+	}
+	if len(rows) > 0 {
+		s.Next = []string{"ks result download <result>"}
+	}
+	return s
+}
+
 func hostedResultList(cr hostedCreds, inv *Invocation) {
 	var rows []resultRow
 	var unreadable []string
@@ -205,17 +226,8 @@ func hostedResultList(cr hostedCreds, inv *Invocation) {
 		}
 	}
 	emit(map[string]any{"scope": scope, "results": rows, "count": len(rows), "unreadable": unreadable}, func() {
-		if len(rows) == 0 && len(unreadable) == 0 {
-			fmt.Printf("no results recorded for %s\n", scope)
-			return
-		}
-		for _, r := range rows {
-			fmt.Println(resultLine(r))
-		}
-		for _, u := range unreadable {
-			fmt.Printf("UNREAD  %s (not an empty list: it could not be read)\n", u)
-		}
-		fmt.Printf("%d result(s) for %s; download one: ks result download <result>\n", len(rows), scope)
+		o, _ := cmdUI()
+		o.List(resultListScreen(scope, rows, unreadable))
 	})
 	if len(unreadable) > 0 {
 		os.Exit(exitFailed)
@@ -228,15 +240,15 @@ func hostedResultShow(cr hostedCreds, inv *Invocation) {
 		die(err)
 	}
 	emit(r, func() {
-		fmt.Printf("result %s\n", r.ID)
-		fmt.Printf("  name          %s (%s)\n", sanitize(r.Name), sanitize(r.MediaType))
-		fmt.Printf("  size          %s bytes\n", commas(r.Bytes))
-		fmt.Printf("  sha256        %s\n", r.SHA256)
-		fmt.Printf("  task          %s, attempt %s (agent %s, session %s)\n", r.TaskID, r.AttemptID, r.AgentID, r.SessionID)
-		fmt.Printf("  checks        %s\n", checksLine(r))
-		fmt.Printf("  verification  %s (the task's independent verification; a result is never verified by being downloaded)\n", verificationWord(r))
-		fmt.Printf("  provenance    attempt %d, epoch %d, runner %s, recorded %s\n", r.Provenance.AttemptIndex, r.Provenance.ExecutionEpoch, notRecorded(r.Provenance.RunnerVersion), r.Provenance.RecordedAt)
-		fmt.Printf("  download      ks result download %s\n", r.ID)
+		outf("result %s\n", r.ID)
+		outf("  name          %s (%s)\n", sanitize(r.Name), sanitize(r.MediaType))
+		outf("  size          %s bytes\n", commas(r.Bytes))
+		outf("  sha256        %s\n", r.SHA256)
+		outf("  task          %s, attempt %s (agent %s, session %s)\n", r.TaskID, r.AttemptID, r.AgentID, r.SessionID)
+		outf("  checks        %s\n", checksLine(r))
+		outf("  verification  %s (the task's independent verification; a result is never verified by being downloaded)\n", verificationWord(r))
+		outf("  provenance    attempt %d, epoch %d, runner %s, recorded %s\n", r.Provenance.AttemptIndex, r.Provenance.ExecutionEpoch, notRecorded(r.Provenance.RunnerVersion), r.Provenance.RecordedAt)
+		outf("  download      ks result download %s\n", r.ID)
 	})
 }
 
@@ -581,12 +593,12 @@ func hostedResultDownload(cr hostedCreds, inv *Invocation) {
 	}
 	emit(data, func() {
 		if keep {
-			fmt.Printf("downloaded %s: %s bytes, sha256 %s verified (result %s of task %s, attempt %s)\n", dest, commas(o.Bytes), r.SHA256, r.ID, r.TaskID, r.AttemptID)
+			outf("downloaded %s: %s bytes, sha256 %s verified (result %s of task %s, attempt %s)\n", dest, commas(o.Bytes), r.SHA256, r.ID, r.TaskID, r.AttemptID)
 		}
 		if extract != "" {
-			fmt.Printf("extracted %d file(s) into %s after every entry passed the safety checks\n", files, extract)
+			outf("extracted %d file(s) into %s after every entry passed the safety checks\n", files, extract)
 		}
-		fmt.Printf("verification of the task: %s. Nothing was run.\n", verificationWord(r))
+		outf("verification of the task: %s. Nothing was run.\n", verificationWord(r))
 	})
 }
 

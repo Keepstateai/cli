@@ -142,7 +142,7 @@ func followUseV2(cr hostedCreds, err error, verb string, inv *Invocation) bool {
 		}
 		emit(map[string]any{"session_id": ws, "state": r["runtime_state"], "refused": "ks_agent_session_use_v2", "via": next}, func() {
 			progress("session %s resuming through the workspace route (state %s)", ws, figure(r["runtime_state"]))
-			fmt.Println(ws)
+			outln(ws)
 		})
 	case "kill":
 		progress("an agent session is deleted through a plan you confirm; planning it instead (this changes nothing)")

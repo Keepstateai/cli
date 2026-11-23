@@ -10,7 +10,6 @@
 package main
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -54,7 +53,7 @@ func hostedAgentRead(cr hostedCreds, inv *Invocation) {
 			return
 		}
 		for _, l := range lines {
-			fmt.Println(l)
+			outln(l)
 		}
 	})
 }

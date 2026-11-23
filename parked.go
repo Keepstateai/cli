@@ -66,27 +66,37 @@ func frozenTask(state string) bool {
 // the service states it, with the pause put plainly first for a funds park.
 // resumeHint is this client's command that resumes the session.
 func runtimeLines(rt *sessionRuntimeDoc, resumeHint string) []string {
+	var out []string
+	for _, f := range runtimeFacts(rt, resumeHint) {
+		out = append(out, fmt.Sprintf("  %-14s %s", f[0], f[1]))
+	}
+	return out
+}
+
+// runtimeFacts is runtimeLines as label and value rows, for a screen that
+// aligns and wraps them itself.
+func runtimeFacts(rt *sessionRuntimeDoc, resumeHint string) [][2]string {
 	if rt == nil {
 		return nil
 	}
-	var out []string
+	var out [][2]string
 	if rt.funds() {
 		out = append(out,
-			"  session        "+fundsPausedLine,
-			"  why            "+sanitize(notRecorded(rt.Note)),
-			"  add credit     in the console (the service's action: "+sanitize(figure(rt.NextAction))+"); adding credit does not resume the session by itself",
+			[2]string{"session", fundsPausedLine},
+			[2]string{"why", sanitize(notRecorded(rt.Note))},
+			[2]string{"add credit", "in the console (the service's action: " + sanitize(figure(rt.NextAction)) + "); adding credit does not resume the session by itself"},
 		)
 		if resumeHint != "" {
-			out = append(out, "  then resume    "+resumeHint)
+			out = append(out, [2]string{"then resume", resumeHint})
 		}
 		return out
 	}
-	out = append(out, fmt.Sprintf("  session        %s: %s", stateWords("session_runtime", rt.State), sanitize(notRecorded(rt.Note))))
+	out = append(out, [2]string{"session", fmt.Sprintf("%s: %s", stateWords("session_runtime", rt.State), sanitize(notRecorded(rt.Note)))})
 	if rt.Reason != "" {
-		out = append(out, "  park reason    "+sanitize(rt.Reason))
+		out = append(out, [2]string{"park reason", sanitize(rt.Reason)})
 	}
 	if rt.NextAction != "" {
-		out = append(out, "  next           "+sanitize(rt.NextAction))
+		out = append(out, [2]string{"next", sanitize(rt.NextAction)})
 	}
 	return out
 }

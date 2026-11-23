@@ -1,0 +1,49 @@
+=== apps, list, 120 columns ===
+Apps connected to your account  1 app
+
+  App     Acts in   Last used   Verified  Id
+  Claude  Personal  2026-11-20  verified  gr_0001
+
+  Claude (gr_0001)
+  Sends its sign-in codes to claude.ai and may:
+  - read your sessions and agents
+  - start and stop sessions after you confirm each one on a console page
+
+Next: ks apps disconnect <id>
+=== apps, list, 80 columns ===
+Apps connected to your account  1 app
+
+  App     Acts in   Last used   Verified  Id
+  Claude  Personal  2026-11-20  verified  gr_0001
+
+  Claude (gr_0001)
+  Sends its sign-in codes to claude.ai and may:
+  - read your sessions and agents
+  - start and stop sessions after you confirm each one on a console page
+
+Next: ks apps disconnect <id>
+=== apps, list, 60 columns ===
+Apps connected to your account  1 app
+
+  App     Acts in   Last used   Verified  Id
+  Claude  Personal  2026-11-20  verified  gr_0001
+
+  Claude (gr_0001)
+  Sends its sign-in codes to claude.ai and may:
+  - read your sessions and agents
+  - start and stop sessions after you confirm each one on a
+    console page
+
+Next: ks apps disconnect <id>
+=== apps, empty, 120 columns ===
+Apps connected to your account  no apps
+
+  No app is connected to your account.
+=== apps, empty, 80 columns ===
+Apps connected to your account  no apps
+
+  No app is connected to your account.
+=== apps, empty, 60 columns ===
+Apps connected to your account  no apps
+
+  No app is connected to your account.

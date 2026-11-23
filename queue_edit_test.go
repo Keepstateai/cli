@@ -136,7 +136,7 @@ func TestThePendingViewShowsFirstLinesOnlyWhenReturned(t *testing.T) {
 	bin, cfg := buildAndAuth(t, srv)
 	dir := t.TempDir()
 	out, errs, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "agent", "queue", "list", "main", "--session", "fleetque")
-	if code != 0 || !strings.Contains(out, "executing now") || !strings.Contains(out, "tsk_run") || !strings.Contains(out, "write the tests") ||
+	if code != 0 || !strings.Contains(strings.ToLower(out), "executing now") || !strings.Contains(out, "tsk_run") || !strings.Contains(out, "write the tests") ||
 		strings.Contains(out, "\x1b") || !strings.Contains(out, "held") || !strings.Contains(out, "--queue-revision qrev_1") {
 		t.Fatalf("operator view: %d\n%s%s", code, out, errs)
 	}
@@ -144,7 +144,7 @@ func TestThePendingViewShowsFirstLinesOnlyWhenReturned(t *testing.T) {
 	c.operator = false
 	c.mu.Unlock()
 	out, _, code = auditExec(t, bin, cfg, dir, fastEnv(cfg), "agent", "queue", "list", "main", "--session", "fleetque")
-	if code != 0 || strings.Contains(out, "write the tests") || !strings.Contains(out, "first line not shown") {
+	if code != 0 || strings.Contains(out, "write the tests") || !strings.Contains(out, "not shown") {
 		t.Fatalf("reader view: %d\n%s", code, out)
 	}
 }
@@ -190,7 +190,7 @@ func TestAMoveIsBoundToTheQueueRevisionAndNeverRetried(t *testing.T) {
 	}
 	// without --queue-revision: the view is read now and shown before the move
 	_, errs, code = auditExec(t, bin, cfg, dir, env, "task", "move", "tsk_b", "--after", "tsk_a", "--session", "fleetque")
-	if code != 0 || !strings.Contains(errs, "pending, in dispatch order") || !strings.Contains(errs, "the queue as read just now (qrev_1)") {
+	if code != 0 || !strings.Contains(strings.ToLower(errs), "pending, in dispatch order") || !strings.Contains(errs, "the queue as read just now (qrev_1)") {
 		t.Fatalf("read-now move: %d\n%s", code, errs)
 	}
 	// an instruction that has started is never moved

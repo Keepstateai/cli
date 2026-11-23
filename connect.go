@@ -112,36 +112,36 @@ func connCard(c repoConnection, full bool) {
 	if c.Name != "" {
 		title += " (" + sanitize(c.Name) + ")"
 	}
-	fmt.Printf("%s  %s\n", sanitize(c.ID), title)
-	fmt.Printf("    acts as   %s, through %s\n", sanitize(c.ExternalName), connKindWord(c.Kind))
-	fmt.Printf("    owner     %s\n", connOwnerWord(c))
+	cardf("%s  %s\n", sanitize(c.ID), title)
+	cardf("    acts as   %s, through %s\n", sanitize(c.ExternalName), connKindWord(c.Kind))
+	cardf("    owner     %s\n", connOwnerWord(c))
 	status := sanitize(c.Status)
 	if c.StatusWords != "" {
 		status += ": " + sanitize(c.StatusWords)
 	}
-	fmt.Printf("    status    %s\n", status)
+	cardf("    status    %s\n", status)
 	if c.Last4 != "" {
 		line := "ending " + sanitize(c.Last4)
 		if c.ExpiresAt != "" {
 			line += ", expires " + sanitize(c.ExpiresAt)
 		}
-		fmt.Printf("    token     %s\n", line)
+		cardf("    token     %s\n", line)
 	} else if c.ExpiresAt != "" {
-		fmt.Printf("    expires   %s\n", sanitize(c.ExpiresAt))
+		cardf("    expires   %s\n", sanitize(c.ExpiresAt))
 	}
 	if c.Warning != "" {
-		fmt.Printf("    warning   %s\n", sanitize(c.Warning))
+		cardf("    warning   %s\n", sanitize(c.Warning))
 	}
 	if !full {
 		return
 	}
 	if c.BaseURL != "" {
-		fmt.Printf("    address   %s\n", sanitize(c.BaseURL))
+		cardf("    address   %s\n", sanitize(c.BaseURL))
 	}
 	if len(c.Scopes) > 0 {
-		fmt.Printf("    scopes    %s\n", sanitize(strings.Join(c.Scopes, ", ")))
+		cardf("    scopes    %s\n", sanitize(strings.Join(c.Scopes, ", ")))
 	}
-	fmt.Printf("    made      %s by %s (revision %d)\n", sanitize(c.CreatedAt), sanitize(c.CreatedBy), c.Revision)
+	cardf("    made      %s by %s (revision %d)\n", sanitize(c.CreatedAt), sanitize(c.CreatedBy), c.Revision)
 }
 
 // ---- refusals in words ---------------------------------------------------------------------
@@ -258,15 +258,17 @@ func hostedConnectList(cr hostedCreds, inv *Invocation) {
 		if org != "" {
 			where = "the organization " + org
 		}
+		o, _ := cmdUI()
+		o.Heading("Connections of "+where, listCount(len(conns), "connection", "connections"))
 		if len(conns) == 0 {
-			fmt.Printf("No connections in %s. Connect one: ks connect github, or ks connect gitlab\n", where)
+			o.Blank()
+			o.Para("There are no connections in " + where + " yet.")
+			o.Blank()
+			o.Next("ks connect github", "ks connect gitlab")
 			return
 		}
-		fmt.Printf("Connections of %s:\n", where)
-		for i, c := range conns {
-			if i > 0 {
-				fmt.Println()
-			}
+		for _, c := range conns {
+			o.Blank()
 			connCard(c, false)
 		}
 	})
@@ -373,9 +375,9 @@ func connectWithToken(cr hostedCreds, inv *Invocation, org, provider, base strin
 	}
 	c := env.Data
 	emit(c, func() {
-		fmt.Printf("connected %s; KeepState keeps the token sealed and never gives it to a session's machine\n", providerWord(provider))
+		outf("connected %s; KeepState keeps the token sealed and never gives it to a session's machine\n", providerWord(provider))
 		connCard(c, false)
-		fmt.Println("its repositories: ks connect repos " + sanitize(c.ID))
+		outln("its repositories: ks connect repos " + sanitize(c.ID))
 	})
 }
 
@@ -427,13 +429,13 @@ func connectThroughBrowser(cr hostedCreds, inv *Invocation, org, provider string
 			switch r := p.Data; r.State {
 			case "connected":
 				emit(r, func() {
-					fmt.Printf("connected %s\n", providerWord(provider))
+					outf("connected %s\n", providerWord(provider))
 					if r.Message != "" {
-						fmt.Println(sanitize(r.Message))
+						outln(sanitize(r.Message))
 					}
 					if r.Connection != nil {
 						connCard(*r.Connection, false)
-						fmt.Println("its repositories: ks connect repos " + sanitize(r.Connection.ID))
+						outln("its repositories: ks connect repos " + sanitize(r.Connection.ID))
 					}
 				})
 				return
@@ -487,9 +489,9 @@ func hostedConnectRemove(cr hostedCreds, inv *Invocation) {
 	}
 	d := res.Data
 	emit(d, func() {
-		fmt.Printf("removed %s\n", sanitize(d.ID))
+		outf("removed %s\n", sanitize(d.ID))
 		if d.Note != "" {
-			fmt.Println(sanitize(d.Note))
+			outln(sanitize(d.Note))
 		}
 	})
 }
@@ -541,7 +543,7 @@ func hostedConnectRepos(cr hostedCreds, inv *Invocation) {
 	rows := env.Data.Items
 	emit(map[string]any{"connection_id": id, "repositories": rows, "count": len(rows)}, func() {
 		if len(rows) == 0 {
-			fmt.Printf("The connection %s reaches no repository that matches.\n", id)
+			outf("The connection %s reaches no repository that matches.\n", id)
 			return
 		}
 		for _, r := range rows {
@@ -549,9 +551,9 @@ func hostedConnectRepos(cr hostedCreds, inv *Invocation) {
 			if r.Private {
 				vis = "private"
 			}
-			fmt.Printf("%s  default branch %s, %s\n", sanitize(r.FullName), sanitize(r.DefaultBranch), vis)
+			outf("%s  default branch %s, %s\n", sanitize(r.FullName), sanitize(r.DefaultBranch), vis)
 		}
-		fmt.Printf("%d repositories; its branches: ks connect branches %s REPOSITORY\n", len(rows), id)
+		outf("%d repositories; its branches: ks connect branches %s REPOSITORY\n", len(rows), id)
 	})
 }
 
@@ -575,12 +577,12 @@ func hostedConnectBranches(cr hostedCreds, inv *Invocation) {
 	rows := env.Data.Items
 	emit(map[string]any{"connection_id": id, "repository": repo, "branches": rows, "count": len(rows)}, func() {
 		if len(rows) == 0 {
-			fmt.Printf("%s has no branch that matches.\n", sanitize(repo))
+			outf("%s has no branch that matches.\n", sanitize(repo))
 			return
 		}
-		fmt.Printf("branches of %s (the default branch first):\n", sanitize(repo))
+		outf("branches of %s (the default branch first):\n", sanitize(repo))
 		for _, b := range rows {
-			fmt.Printf("  %s  %s\n", sanitize(b.Name), firstN(sanitize(b.Commit), 12))
+			outf("  %s  %s\n", sanitize(b.Name), firstN(sanitize(b.Commit), 12))
 		}
 	})
 }
@@ -630,7 +632,7 @@ func hostedOrgConnections(cr hostedCreds, inv *Invocation) {
 	}
 	p := env.Data
 	emit(p, func() {
-		fmt.Printf("repository connections of the organization %s:\n", sanitize(firstNonEmptyStr(p.OrgID, org)))
+		outf("repository connections of the organization %s:\n", sanitize(firstNonEmptyStr(p.OrgID, org)))
 		for _, it := range p.Providers {
 			words := "its work may also use a member's own connection, where the member allows it"
 			if it.OrganizationOnly {
@@ -640,7 +642,7 @@ func hostedOrgConnections(cr hostedCreds, inv *Invocation) {
 			if it.UpdatedAt != "" {
 				line += fmt.Sprintf(" (set %s by %s)", sanitize(it.UpdatedAt), sanitize(it.UpdatedBy))
 			}
-			fmt.Println(line)
+			outln(line)
 		}
 	})
 }
@@ -736,7 +738,7 @@ func hostedSessionRepo(cr hostedCreds, inv *Invocation) {
 		}
 		if !out.json {
 			if p.Message != "" {
-				fmt.Println(sanitize(p.Message))
+				outln(sanitize(p.Message))
 			}
 			placementNotes(p)
 		}
@@ -749,23 +751,23 @@ func hostedSessionRepo(cr hostedCreds, inv *Invocation) {
 	emit(p, func() {
 		switch p.State {
 		case "placed":
-			fmt.Printf("placed %s at %s (%s) into %s: %d files, %s bytes\n", sanitize(p.Repository), sanitize(p.Branch), firstN(sanitize(p.Commit), 12), sanitize(notRecorded(p.To)), p.Files, commas(p.Bytes))
+			outf("placed %s at %s (%s) into %s: %d files, %s bytes\n", sanitize(p.Repository), sanitize(p.Branch), firstN(sanitize(p.Commit), 12), sanitize(notRecorded(p.To)), p.Files, commas(p.Bytes))
 		default:
-			fmt.Printf("placement %s is %s: %s into session %s\n", sanitize(p.ID), sanitize(p.State), sanitize(repo), sess.ShortID)
+			outf("placement %s is %s: %s into session %s\n", sanitize(p.ID), sanitize(p.State), sanitize(repo), sess.ShortID)
 		}
 		if p.Message != "" {
-			fmt.Println(sanitize(p.Message))
+			outln(sanitize(p.Message))
 		}
 		placementNotes(p)
 		if p.ConnectionID != "" {
-			fmt.Printf("through the connection %s\n", sanitize(p.ConnectionID))
+			outf("through the connection %s\n", sanitize(p.ConnectionID))
 		}
 	})
 }
 
 func placementNotes(p repoPlacement) {
 	for _, n := range p.Notes {
-		fmt.Printf("  note: %s\n", sanitize(n))
+		outf("  note: %s\n", sanitize(n))
 	}
 }
 

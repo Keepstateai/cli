@@ -101,18 +101,20 @@ func hostedApprovalList(cr hostedCreds, inv *Invocation) {
 		}
 	}
 	emit(map[string]any{"session": agentSessionID(sess), "approvals": aps, "count": len(aps)}, func() {
+		o, _ := cmdUI()
+		o.Heading("Permission requests in session "+sess.ShortID, listCount(len(aps), "request", "requests"))
 		if len(aps) == 0 {
+			o.Blank()
 			if inv.Bool("all") {
-				fmt.Printf("session %s has no permission requests\n", sess.ShortID)
+				o.Para("This session has no permission requests.")
 			} else {
-				fmt.Printf("session %s has no pending permission requests (--all lists decided ones too)\n", sess.ShortID)
+				o.Para("This session has no pending permission requests. ks approval list --all lists the decided ones too.")
 			}
 			return
 		}
 		for _, ap := range aps {
-			for _, l := range approvalLines(ap, sess) {
-				fmt.Println(l)
-			}
+			o.Blank()
+			o.Lines(approvalLines(ap, sess)...)
 		}
 	})
 }

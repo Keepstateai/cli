@@ -22,7 +22,7 @@ func runDoctor() int {
 	note := func(status, name, detail string) {
 		checks = append(checks, map[string]any{"check": name, "status": status, "detail": detail})
 		if !out.json {
-			fmt.Printf("%-5s %s\n", status, detail)
+			outln(padTo(status, 5) + " " + detail)
 		}
 	}
 	defer func() {
@@ -211,15 +211,15 @@ func runLogout() error {
 			NextAction: "remove it by hand, then ks doctor", OperationID: ""})
 	}
 	emit(result, func() {
-		fmt.Printf("server-side revocation: %s (%s)\n", revocation, detail)
-		fmt.Printf("Signed out locally (%d file(s) removed). The operations ledger stays; it holds no secrets.\n", len(removed))
+		outf("server-side revocation: %s (%s)\n", revocation, detail)
+		outf("Signed out locally (%d file(s) removed). The operations ledger stays; it holds no secrets.\n", len(removed))
 	})
 	return nil
 }
 
 func runUninstall() {
 	exe, _ := os.Executable()
-	fmt.Printf(`To remove ks completely (one line):
+	outf(`To remove ks completely (one line):
 
     rm -f %s && rm -rf %s
 
