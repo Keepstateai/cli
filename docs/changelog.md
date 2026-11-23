@@ -1,6 +1,20 @@
 # Changelog
 
-## Unreleased
+## v0.1.48 (2026-11-24)
+
+- Signing in with a Claude plan (`ks login claude`) is fixed. The service's
+  sign-in link could arrive cut short, so Claude's page said "Missing state
+  parameter". The client now shows or opens a link only when it is whole (it
+  carries its state, code challenge, client and callback, and points at one of
+  the three expected hosts), and otherwise cancels the sign-in in plain words.
+  While it waits for the code it also looks at the sign-in every 45 seconds,
+  uses the same words as the console, and says what happened when you press
+  Ctrl-C.
+- New `ks apps list` and `ks apps disconnect`: the apps connected to your
+  account, and a way to disconnect one.
+- The tools `ks mcp` serves are now published as a machine-readable manifest
+  (`mcp-tools.json`), and the server is tested against the shared wire
+  behaviour of the KeepState MCP servers.
 
 - Every list and text screen reads the same way, and fits the terminal. A list
   is a title with its count, a table, notes and one Next command; an empty list
