@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- `ks import` no longer fails before it asks when a repository's history is
+  big. The project's files and their history (`.git`) are measured apart: at a
+  terminal you choose between the conversation only, the files with their
+  history, and the files only, each with its size and whether it fits in 1 GB
+  (a choice that is over the limit is shown and cannot be taken, and when only
+  one fits it is marked and the reason said). New flags `--with-git` (files and
+  history) and `--without-git` (files only); `--with-files` carries the history
+  when the whole fits and the files only when it does not, and the plan says
+  so. A refusal names the flag that works. The old advice, "run the same
+  command without --with-git", named a flag `ks import` did not have.
+- The cleaning and trimming lines say what they did, such as "537 MB down to
+  2.4 MB", where they showed the size they had read. A refusal says "Nothing
+  was sent" once and wraps its title on word boundaries.
 - The Claude Code plugin now runs `@keepstateai/cli@0.1.47`.
 
 ## v0.1.47 (2026-11-22)

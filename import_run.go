@@ -102,14 +102,14 @@ func (p *importPrep) localLines(set importSettings) []string {
 		add("Paths: %d mentions of the old project folder are said as %s.", p.Rewritten, p.Dest)
 	}
 	if p.Files != nil {
-		add("Files: the git repository %s goes to %s in the workspace: %s in %s under the upload policy. Left out: .env files and other credential-named files, node_modules and other dependency folders, what .gitignore lists, and links. The repository's own history (.git) is carried.", filepath.Base(p.Root), p.Dest, bytesText(p.Files.Content), nounCount(len(p.Files.Entries), "file", "files"))
+		add("Files: the git repository %s goes to %s in the workspace: %s in %s under the upload policy. Left out: .env files and other credential-named files, node_modules and other dependency folders, what .gitignore lists, and links. %s", filepath.Base(p.Root), p.Dest, bytesText(p.Files.Content), nounCount(len(p.Files.Entries), "file", "files"), p.historyWords())
 		dirty := "none"
 		if p.Dirty {
 			dirty = "yes"
 		}
 		add("The files are uploaded as they are now, not as they were at the conversation's last turn (git HEAD %s, uncommitted changes: %s).", short64(p.Head), dirty)
 	} else if p.Tool != "cursor" || p.Info.Cwd != "" {
-		add("No files go along: the agent will find the project missing unless you add --with-files (the git repository at %s) or upload it with ks file upload.", firstNonEmptyStr(p.Info.Cwd, "the project folder"))
+		add("No files go along: the agent will find the project missing unless you add --with-files (the git repository at %s; --without-git leaves its history out) or upload it with ks file upload.", firstNonEmptyStr(p.Info.Cwd, "the project folder"))
 	}
 	key := firstNonEmptyStr(set.key, "your account's default key for the provider")
 	model := firstNonEmptyStr(set.model, "the service's default")
@@ -295,7 +295,10 @@ func importReplayArgs(inv *Invocation, extra string) string {
 // importFlagParts is the command line's flags again, leaving out the named ones.
 func importFlagParts(inv *Invocation, skip map[string]bool) []string {
 	var parts []string
-	for _, f := range []string{"latest", "with-files", "brief"} {
+	for _, f := range []string{"latest", "with-files", "with-git", "without-git", "brief"} {
+		if f == "with-files" && (inv.Bool("with-git") || inv.Bool("without-git")) {
+			continue // a git flag already says it
+		}
 		if inv.Bool(f) && !skip[f] {
 			parts = append(parts, "--"+f)
 		}

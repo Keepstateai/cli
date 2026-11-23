@@ -111,7 +111,14 @@ say after it stays behind. A
 conversation goes into its own tool only; into the other one (`--harness`) it
 goes across as a summary. `--with-files` brings the git repository at the
 session's folder under the upload policy: `.env` files, credential-named
-files, `node_modules` and what `.gitignore` lists stay home, and `.git` goes.
+files, `node_modules` and what `.gitignore` lists stay home. The repository's
+history (`.git`) counts toward the same 1 GB limit as any file: `--with-git`
+brings files and history, `--without-git` the files only, and `--with-files`
+the history too when the whole fits. At a terminal a repository is asked about
+with the size of each choice (with the history, files only, the conversation
+only, cancel), and a choice that is over the limit is shown and cannot be
+taken; without a terminal the part that fits goes, or the refusal names the
+flag that works.
 The first reply re-reads the whole conversation, so it costs more than a short
 message. Cursor's chat store is not documented: reading it is best effort, from
 a copy, and nothing in it is changed. The same import is the MCP tool

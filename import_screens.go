@@ -78,9 +78,9 @@ func importPlanFacts(p *importPrep, set importSettings, svc importServicePlan) [
 		if p.Dirty {
 			dirty = "yes"
 		}
-		rows = append(rows, [2]string{"Files", fmt.Sprintf("the git repository %s: %s in %s, uploaded as it is now (git HEAD %s, uncommitted changes: %s). Left out: .env and credential files, dependency folders such as node_modules, what .gitignore lists, links. The repository's own history (.git) is carried", sanitize(visible(p.Root)), kitBytes(p.Files.Content), nounCount(len(p.Files.Entries), "file", "files"), short64(p.Head), dirty)})
+		rows = append(rows, [2]string{"Files", fmt.Sprintf("the git repository %s: %s in %s, uploaded as it is now (git HEAD %s, uncommitted changes: %s). Left out: .env and credential files, dependency folders such as node_modules, what .gitignore lists, links. %s", sanitize(visible(p.Root)), kitBytes(p.Files.Content), nounCount(len(p.Files.Entries), "file", "files"), short64(p.Head), dirty, p.historyWords())})
 	} else if p.Tool != "cursor" || p.Info.Cwd != "" {
-		rows = append(rows, [2]string{"Files", "none (add --with-files to bring the git repository)"})
+		rows = append(rows, [2]string{"Files", "none (add --with-files to bring the git repository, --without-git for its files only)"})
 	}
 	if w := estimateWords(svc.Plan.Estimate); w != "" && p.Mode == "conversation" {
 		rows = append(rows, [2]string{"Estimate", w})

@@ -55,6 +55,14 @@ func (ib *importBar) Done(label string) {
 	}
 }
 
+// DoneWith is Done with the result in the right-hand column, such as "537 MB
+// down to 2.4 MB", in place of the size that was read.
+func (ib *importBar) DoneWith(label, detail string) {
+	if ib != nil && ib.b != nil {
+		ib.b.DoneWith(label, detail)
+	}
+}
+
 // importSteps is the kit's step list on stderr, or nil for --json and --quiet.
 func importSteps() *stepList {
 	if out.json || out.quiet {
