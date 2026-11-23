@@ -4694,6 +4694,22 @@
      "summary": "the organization (an id or a name); default your context's"
     }
    ]
+  },
+  {
+   "verb": "apps list",
+   "aliases": [],
+   "usage": "ks apps list",
+   "summary": "the apps connected to your account: name, how KeepState verified it, where it sends its sign-in codes, where it acts, what it may do and when it was last used",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "apps disconnect",
+   "aliases": [],
+   "usage": "ks apps disconnect <app>",
+   "summary": "disconnect one app: its sign-in, every token it holds and every request it had asked you to confirm end at once",
+   "status": "available",
+   "surface": "hosted"
   }
  ]
 }

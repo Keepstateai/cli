@@ -24,7 +24,7 @@ var helpSections = []struct {
 	{"Cruise", []string{"cruise"}},
 	{"Keys and setup", []string{"key", "preflight", "project"}},
 	{"Other tools", []string{"herdr"}},
-	{"Account and this client", []string{"login", "logout", "doctor", "update", "version", "operation", "completion", "reference", "uninstall"}},
+	{"Account and this client", []string{"login", "logout", "apps", "doctor", "update", "version", "operation", "completion", "reference", "uninstall"}},
 }
 
 // helpStartHere is the shortest path to a working agent.

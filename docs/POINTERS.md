@@ -38,6 +38,7 @@ its file.
 
 - Device-flow sign-in, token file: `login.go` `runLogin`, `storeToken`, `whoamiAccount`. Credentials for a verb: `hosted.go` `hostedCreds`, `hostedToken`, `hostedTokenQuiet`.
 - Sign-out, doctor, uninstall: `doctor.go` `runDoctor`.
+- Apps connected to the account (claude.ai and others): `apps.go` `hostedAppsList`, `hostedAppsDisconnect` (`ks apps list`, `ks apps disconnect`; the word "apps" is used because "connections" are the adviser connections between agents).
 
 ## Run and session
 
