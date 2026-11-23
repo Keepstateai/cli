@@ -145,6 +145,12 @@ func retryWithoutNewFields(decl map[string]any, err error) bool {
 		return false
 	}
 	had := false
+	if ws := asMap(decl["workspace"]); ws != nil {
+		if _, ok := ws["history"]; ok { // the files' history flag is newer than some services
+			had = true
+			delete(ws, "history")
+		}
+	}
 	for _, f := range importNewFields {
 		if _, ok := src[f]; ok {
 			had = true
@@ -325,7 +331,7 @@ func importSessionCommand(inv *Invocation, tool, id, extra string) string {
 }
 
 func importPlanDoc(p *importPrep, set importSettings, svc importServicePlan) map[string]any {
-	lines := append(p.localLines(set), svc.Plan.Lines...)
+	lines := append(p.localLines(set), p.serviceLines(svc.Plan.Lines)...)
 	files := map[string]any{"included": false}
 	if p.Files != nil {
 		files = map[string]any{"included": true, "folder": p.Files.To, "files": len(p.Files.Entries), "bytes": p.Files.Content, "head": p.Head, "dirty": p.Dirty, "left_out": len(p.Files.Skipped)}

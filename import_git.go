@@ -25,19 +25,34 @@ import (
 // importFilesProbe is what the repository holds, measured both ways.
 type importFilesProbe struct {
 	Top     string
-	HasGit  bool
+	HasGit  bool        // .git is a folder: a history that can be brought
+	GitWhy  string      // when .git is there but cannot be brought, why, in words
 	Without *uploadPlan // the files only
-	With    *uploadPlan // the files and the history; nil when there is no .git
+	With    *uploadPlan // the files and the history; nil when there is none to bring, or it was not measured
 }
 
 // probeImportFiles measures the repository at top. Nothing is refused here
-// for its size.
-func probeImportFiles(top string) *importFilesProbe {
+// for its size. The history is walked only when it may be asked for
+// (needHistory): --without-git never touches it.
+//
+// A history is brought only when .git is a folder. A .git that is a file (a
+// worktree's pointer to a gitdir elsewhere) or a link would upload a pointer
+// to nothing, so it is not brought, and the probe says why.
+func probeImportFiles(top string, needHistory bool) *importFilesProbe {
 	pr := &importFilesProbe{Top: top}
 	pr.Without = planUploadSoft(top, "", false)
-	if _, err := os.Lstat(filepath.Join(top, ".git")); err == nil {
+	fi, err := os.Lstat(filepath.Join(top, ".git"))
+	switch {
+	case err != nil:
+	case fi.IsDir():
 		pr.HasGit = true
-		pr.With = planUploadSoft(top, "", true)
+		if needHistory {
+			pr.With = planUploadSoft(top, "", true)
+		}
+	case fi.Mode()&os.ModeSymlink != 0:
+		pr.GitWhy = ".git here is a link, and a link is never uploaded, so its history cannot be brought"
+	default:
+		pr.GitWhy = ".git here is a file that points to a history kept elsewhere (a worktree), so the history cannot be brought"
 	}
 	return pr
 }
@@ -65,8 +80,22 @@ func planFits(p *uploadPlan) (bool, string) {
 }
 
 func (pr *importFilesProbe) withFits() bool {
+	if pr.With == nil {
+		return false
+	}
 	ok, _ := planFits(pr.With)
-	return pr.With != nil && ok
+	return ok
+}
+
+// limitWords says, from planFits's why, which limit it is.
+func limitWords(why string) string {
+	switch {
+	case strings.Contains(why, "file limit"):
+		return "one upload carries up to " + commas(uploadMaxFiles) + " files"
+	case why == "no file to bring":
+		return "no file is left to bring once what the upload policy leaves out is taken away"
+	}
+	return "one upload carries up to 1 GB (1,000,000,000 bytes)"
 }
 
 func (pr *importFilesProbe) withoutFits() bool {
@@ -131,19 +160,26 @@ func decideImportFiles(inv *Invocation, tool, id string, pr *importFilesProbe, m
 		return fmt.Sprintf("%s is %s with its history and %s without it (.git is %s)", name, bytesText(pr.With.Content), bytesText(pr.Without.Content), bytesText(pr.gitBytes()))
 	}
 	switch {
+	case mode == "with" && pr.GitWhy != "":
+		fail(&cliError{Code: exitConflict, Kind: "import_history_not_bringable",
+			Message:    fmt.Sprintf("the history of %s cannot be brought: %s. Nothing was sent", name, pr.GitWhy),
+			Title:      "Can't bring the history of " + name,
+			Why:        []string{capFirst(pr.GitWhy) + ".", "Nothing was sent."},
+			NextAction: importFilesNext(inv, tool, id, "--without-git")})
 	case mode == "with" && pr.HasGit && !pr.withFits():
+		_, hwhy := planFits(pr.With)
 		if pr.withoutFits() {
 			fail(&cliError{Code: exitConflict, Kind: "import_history_too_large",
-				Message: fmt.Sprintf("the history of %s does not fit: %s, and one upload carries up to 1 GB (1,000,000,000 bytes). Nothing was sent. The files without the history are %s and fit", name, sizes(), bytesText(pr.Without.Content)),
+				Message: fmt.Sprintf("the history of %s does not fit: %s, and %s. Nothing was sent. The files without the history are %s and fit", name, sizes(), limitWords(hwhy), bytesText(pr.Without.Content)),
 				Title:   "Can't bring the history of " + name,
-				Why: []string{capFirst(sizes()) + ". One upload carries up to 1 GB (1,000,000,000 bytes).",
+				Why: []string{capFirst(sizes()) + "; " + limitWords(hwhy) + ".",
 					fmt.Sprintf("The files without the history are %s and fit.", bytesText(pr.Without.Content)), "Nothing was sent."},
 				NextAction: importFilesNext(inv, tool, id, "--without-git")})
 		}
-		fail(noFilesFit(inv, tool, id, name, sizes()))
+		fail(noFilesFit(inv, tool, id, name, sizes(), pr))
 	case mode == "without" || (mode == "with" && !pr.HasGit):
 		if !pr.withoutFits() {
-			fail(noFilesFit(inv, tool, id, name, sizes()))
+			fail(noFilesFit(inv, tool, id, name, sizes(), pr))
 		}
 		return importFilesChosen{Plan: pr.Without}
 	}
@@ -152,9 +188,9 @@ func decideImportFiles(inv *Invocation, tool, id string, pr *importFilesProbe, m
 		return importFilesChosen{Plan: pr.With, History: true}
 	}
 	if !pr.withoutFits() {
-		fail(noFilesFit(inv, tool, id, name, sizes()))
+		fail(noFilesFit(inv, tool, id, name, sizes(), pr))
 	}
-	note := ""
+	note := pr.GitWhy
 	if pr.HasGit {
 		_, why := planFits(pr.With)
 		note = fmt.Sprintf("it is %s, and with it %s is %s, %s", bytesText(pr.gitBytes()), name, bytesText(pr.With.Content), why)
@@ -162,11 +198,12 @@ func decideImportFiles(inv *Invocation, tool, id string, pr *importFilesProbe, m
 	return importFilesChosen{Plan: pr.Without, Note: note}
 }
 
-func noFilesFit(inv *Invocation, tool, id, name, sizes string) *cliError {
+func noFilesFit(inv *Invocation, tool, id, name, sizes string, pr *importFilesProbe) *cliError {
+	_, why := planFits(pr.Without)
 	return &cliError{Code: exitConflict, Kind: "import_files_too_large",
-		Message:    fmt.Sprintf("the project files of %s do not fit: %s, and one upload carries up to 1 GB (1,000,000,000 bytes). Nothing was sent", name, sizes),
+		Message:    fmt.Sprintf("the project files of %s do not fit: %s, and %s. Nothing was sent", name, sizes, limitWords(why)),
 		Title:      "Can't bring the project files of " + name,
-		Why:        []string{capFirst(sizes) + ". One upload carries up to 1 GB (1,000,000,000 bytes).", "Nothing was sent."},
+		Why:        []string{capFirst(sizes) + "; " + limitWords(why) + ".", "Nothing was sent."},
 		NextAction: importFilesNext(inv, tool, id, "--no-files")}
 }
 
@@ -179,4 +216,21 @@ func (p *importPrep) historyWords() string {
 		return "The repository's own history (.git) is not carried: " + p.GitNote + "."
 	}
 	return "The repository's own history (.git) is not carried: files only."
+}
+
+// serviceLines are the service's plan lines as they are true: an older
+// service says the .git folder is carried whatever was declared, and this
+// run leaves it out, so that sentence is not shown.
+func (p *importPrep) serviceLines(lines []string) []string {
+	if p.Files == nil || p.History {
+		return lines
+	}
+	var out []string
+	for _, l := range lines {
+		if strings.Contains(l, "Also uploads the project folder") && strings.Contains(l, "the .git folder is carried") {
+			l = strings.Replace(l, "; the .git folder is carried", "; the .git folder (the history) is not carried", 1)
+		}
+		out = append(out, l)
+	}
+	return out
 }

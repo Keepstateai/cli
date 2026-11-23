@@ -480,6 +480,9 @@ func importToolLabel(tool string) string {
 	return "Cursor"
 }
 
+// importHashed keeps the upload plans already read, by folder, history and size.
+var importHashed = map[string]*uploadPlan{}
+
 // importFilesRoot plans the upload of the project's git repository and
 // answers its root and the workspace path it will have.
 func importFilesRoot(inv *Invocation, p *importPrep, cwd string) (string, string) {
@@ -489,11 +492,11 @@ func importFilesRoot(inv *Invocation, p *importPrep, cwd string) (string, string
 		}
 	}
 	if cwd == "" {
-		fail(&cliError{Code: exitFailed, Kind: "no_project", Message: "this conversation names no project folder, so there are no files to bring. Nothing was sent", NextAction: "run it again with --no-files (the conversation only), or name the folder with --project"})
+		fail(&cliError{Code: exitFailed, Kind: "no_project", Message: "this conversation names no project folder, so there are no files to bring. Nothing was sent", NextAction: importFilesNext(inv, p.Tool, p.Info.ID, "--no-files")})
 	}
 	if fi, err := os.Stat(cwd); err != nil || !fi.IsDir() {
 		fail(&cliError{Code: exitFailed, Kind: "no_project", Message: fmt.Sprintf("the project folder %s is not on this machine, so its files cannot be brought. Nothing was sent", visible(sanitize(cwd))),
-			NextAction: "run it again with --no-files (the conversation only), or name where the folder is now with --project"})
+			NextAction: importFilesNext(inv, p.Tool, p.Info.ID, "--no-files")})
 	}
 	top, ok := gitOut(cwd, "rev-parse", "--show-toplevel")
 	if !ok {
@@ -504,8 +507,17 @@ func importFilesRoot(inv *Invocation, p *importPrep, cwd string) (string, string
 	p.Head, _ = gitOut(top, "rev-parse", "HEAD")
 	st, _ := gitOut(top, "status", "--porcelain")
 	p.Dirty = st != ""
-	chosen := decideImportFiles(inv, p.Tool, p.Info.ID, probeImportFiles(top), importGitMode(inv))
-	hashUpload(chosen.Plan)
+	mode := importGitMode(inv)
+	chosen := decideImportFiles(inv, p.Tool, p.Info.ID, probeImportFiles(top, mode != "without"), mode)
+	// the plan is read once per run: a second preparation (the guided flow
+	// prepares again after the files answer) keeps what was already hashed
+	key := fmt.Sprintf("%s|%v|%d", top, chosen.History, chosen.Plan.Content)
+	if h, ok := importHashed[key]; ok {
+		chosen.Plan = h
+	} else {
+		hashUpload(chosen.Plan)
+		importHashed[key] = chosen.Plan
+	}
 	p.Files, p.History, p.GitNote = chosen.Plan, chosen.History, chosen.Note
 	return top, importGuestWorkspace + "/" + chosen.Plan.To
 }
@@ -533,7 +545,7 @@ func importDeclaration(p *importPrep, set importSettings) map[string]any {
 	}
 	d := map[string]any{"mode": p.Mode, "source": src, "target": target}
 	if p.Files != nil {
-		d["workspace"] = map[string]any{"included": true, "folder": p.Files.To, "head": p.Head, "dirty": p.Dirty, "bytes": p.Files.Content}
+		d["workspace"] = map[string]any{"included": true, "folder": p.Files.To, "head": p.Head, "dirty": p.Dirty, "bytes": p.Files.Content, "history": p.History}
 	} else {
 		d["workspace"] = map[string]any{"included": false}
 	}

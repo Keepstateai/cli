@@ -759,7 +759,7 @@ func guidedFilesProbe(inv *Invocation, p *importPrep) (*importFilesProbe, bool) 
 		return nil, false
 	}
 	top, _ = filepath.EvalSymlinks(top)
-	return probeImportFiles(top), true
+	return probeImportFiles(top, true), true
 }
 
 // jsonUnmarshalLoose reads a line, answering whether it was JSON.

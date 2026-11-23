@@ -50,10 +50,10 @@ func igAskFiles(inv *Invocation, p *importPrep, pr *importFilesProbe, full bool)
 			def = 0
 		}
 	case withoutOK:
-		note = fmt.Sprintf("The history (.git) is %s, so with it the repository is over the 1 GB limit (1,000,000,000 bytes) and that choice cannot be taken. The files only fit, so they are marked.", kitBytes(pr.gitBytes()))
+		note = fmt.Sprintf("The history (.git) is %s, so with it the repository is %s and that choice cannot be taken. The files only fit, so they are marked.", kitBytes(pr.gitBytes()), withy)
 		def = indexOfID(ids, "without")
 	default:
-		note = fmt.Sprintf("The repository is over the 1 GB limit (1,000,000,000 bytes) even without its history (%s), so neither choice with files can be taken.", kitBytes(pr.Without.Content))
+		note = fmt.Sprintf("The repository is %s even without its history (%s), so neither choice with files can be taken.", withouty, kitBytes(pr.Without.Content))
 		if full {
 			def = indexOfID(ids, "conv")
 		} else {
@@ -92,7 +92,11 @@ func igAskFilesNoHistory(inv *Invocation, p *importPrep, pr *importFilesProbe, f
 		text = fmt.Sprintf("with the files (%s, %s)", kitBytes(pr.Without.Content), why)
 	}
 	items := []igItem{{Text: fmt.Sprintf("conversation only %s", kitBytes(p.Bytes))}, {Text: text, Off: !ok}, {Text: "cancel"}}
-	i := igChooseItems(fmt.Sprintf("Bring the project files too? The git repository at %s.", igShortHome(pr.Top)), "", items, 0)
+	note := ""
+	if pr.GitWhy != "" {
+		note = "Its history is not brought: " + pr.GitWhy + "."
+	}
+	i := igChooseItems(fmt.Sprintf("Bring the project files too? The git repository at %s.", igShortHome(pr.Top)), note, items, 0)
 	if i < 0 || i == 2 {
 		igDeclined()
 	}
