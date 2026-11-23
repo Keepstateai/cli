@@ -133,7 +133,7 @@ func hostedApprovalShow(cr hostedCreds, inv *Invocation) {
 	}
 	emit(ap, func() {
 		for _, l := range approvalLines(ap, sess) {
-			fmt.Println(l)
+			outln(l)
 		}
 	})
 }

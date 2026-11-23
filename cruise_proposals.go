@@ -100,7 +100,7 @@ func hostedCruiseProposalList(cr hostedCreds, inv *Invocation) {
 	ps := env.Data.Items
 	emit(map[string]any{"session": agentSessionID(sess), "proposals": ps, "count": len(ps)}, func() {
 		sc := listScreen{Title: "Cruise proposals in session " + sess.ShortID, Detail: listCount(len(ps), "proposal", "proposals"),
-			Cols: []Col{{Title: "Proposal"}, {Title: "State"}, {Title: "Goal", Flex: true}, {Title: "Manifest", Second: true}, {Title: "Agent", Second: true}, {Title: "Job", Second: true}}}
+			Cols: []Col{{Title: "Proposal"}, {Title: "State"}, {Title: "Goal"}, {Title: "Manifest", Second: true}, {Title: "Agent", Second: true}, {Title: "Job", Second: true}}}
 		for _, p := range ps {
 			job := ""
 			if p.Job != nil {

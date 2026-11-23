@@ -147,7 +147,7 @@ func renderOrgPlanKeys(uo *ui, org string, rows []orgPlanRow, now time.Time) {
 		}
 		table = append(table, []string{who, "…" + sanitize(r.Last4), orgPlanStanding(r, now), ends})
 	}
-	uo.Table([]Col{{Title: "MEMBER", Flex: true}, {Title: "LAST4"}, {Title: "STANDING"}, {Title: "ENDS", Second: true}}, table)
+	uo.Table([]Col{{Title: "Member"}, {Title: "Last 4"}, {Title: "Standing"}, {Title: "Ends", Second: true}}, table)
 	for _, r := range rows {
 		if r.You {
 			if w := planStateWords(customerKey{State: r.State, StateWords: r.StateWords, ExpiresAt: r.ExpiresAt}, now); w != "" {

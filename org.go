@@ -144,7 +144,7 @@ func hostedOrgList(cr hostedCreds, inv *Invocation) {
 	}
 	emit(map[string]any{"organizations": orgs, "count": len(orgs), "complete": complete}, func() {
 		sc := listScreen{Title: "Your organizations", Detail: listCount(len(orgs), "organization", "organizations"),
-			Cols: []Col{{Title: "Name", Flex: true}, {Title: "Your role"}, {Title: "Your seat"}, {Title: "Seats"}, {Title: "Id", Second: true}}}
+			Cols: []Col{{Title: "Name"}, {Title: "Your role"}, {Title: "Your seat"}, {Title: "Seats"}, {Title: "Id", Second: true}}}
 		for _, o := range orgs {
 			sc.Rows = append(sc.Rows, []string{o.Name, o.YourRole, o.YourSeat, orgSeatsText(o.Seats), o.ID})
 		}

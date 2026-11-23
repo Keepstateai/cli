@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,7 +29,7 @@ type ui struct {
 	t       appTheme
 	width   int  // columns to draw in, at most cardMax
 	cols    int  // the terminal's own columns: a table may use them all
-	pipe    bool // not a terminal and no COLUMNS: a table is not cut to any width
+	pipe    bool // not a terminal (and not the app, not forced): a table is not cut to any width
 	tty     bool // the stream is a terminal
 	animate bool // spinner and bars redraw in place
 	in      *bufio.Reader
@@ -44,12 +45,19 @@ var uiOut, uiErr *ui
 func cmdUI() (stdout, stderr *ui) {
 	if uiOut == nil || uiErr == nil {
 		cols := termColumns()
+		if v, err := strconv.Atoi(os.Getenv("KS_FORCE_COLUMNS")); err == nil && v >= 20 {
+			cols = v // draw as to a terminal of this width even into a pipe (a test, a recording)
+		}
 		uiOut = newUI(os.Stdout, detectTheme(os.Getenv, stdoutIsTerminal(), true), cols, stdoutIsTerminal())
 		uiErr = newUI(os.Stderr, detectTheme(os.Getenv, stderrIsTerminal(), true), cols, stderrIsTerminal())
-		// into a pipe, with no COLUMNS to say otherwise, a table is whole: a
+		// into a pipe a table is whole: a
 		// program reading it is never handed a cut cell
-		uiOut.pipe = !stdoutIsTerminal() && os.Getenv("COLUMNS") == ""
-		uiErr.pipe = !stderrIsTerminal() && os.Getenv("COLUMNS") == ""
+		// (COLUMNS says how wide a terminal is, not that a program is not
+		// reading: only a terminal, or the app that runs a verb for its own
+		// screen, or KS_FORCE_COLUMNS, draws to a width)
+		forced := os.Getenv("KS_FORCE_COLUMNS") != ""
+		uiOut.pipe = !stdoutIsTerminal() && !appChild() && !forced
+		uiErr.pipe = !stderrIsTerminal() && !appChild() && !forced
 		uiErr.in = bufio.NewReader(os.Stdin)
 		uiErr.inTTY = stdinIsTerminal()
 	}
@@ -317,7 +325,7 @@ func (u *ui) stackedTable(cols []Col, rows [][]string) {
 		if multi && n > 0 {
 			out = append(out, "")
 		}
-		for i, l := range wrapText(strings.Join(first, "  "), u.width-4) {
+		for i, l := range wrapProse(strings.Join(first, " \u00b7 "), u.width-4) {
 			if i == 0 {
 				out = append(out, "  "+l)
 			} else {
@@ -325,7 +333,7 @@ func (u *ui) stackedTable(cols []Col, rows [][]string) {
 			}
 		}
 		if len(second) > 0 {
-			for _, l := range wrapText(strings.Join(second, " \u00b7 "), u.width-4) {
+			for _, l := range wrapProse(strings.Join(second, " \u00b7 "), u.width-4) {
 				out = append(out, "    "+u.t.dim(l))
 			}
 		}

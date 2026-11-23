@@ -138,7 +138,7 @@ func ago(ts string) string {
 // activity. A table that still does not fit is stacked by the kit.
 func inventoryCols(wide bool) []Col {
 	if wide {
-		return []Col{{Title: "Session"}, {Title: "Name", Flex: true}, {Title: "State"}, {Title: "Agent"}, {Title: "Task"}, {Title: "Last activity", Second: true}, {Title: "Last save", Second: true}, {Title: "Key", Second: true}}
+		return []Col{{Title: "Session"}, {Title: "Name"}, {Title: "State"}, {Title: "Agent"}, {Title: "Task"}, {Title: "Last activity", Second: true}, {Title: "Last save", Second: true}, {Title: "Key", Second: true}}
 	}
 	return []Col{{Title: "Session"}, {Title: "State"}, {Title: "Agent"}, {Title: "Task"}, {Title: "Last activity", Second: true}, {Title: "Saved", Second: true}}
 }

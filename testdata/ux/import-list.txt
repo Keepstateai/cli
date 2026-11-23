@@ -1,13 +1,13 @@
 === import-list, list, 120 columns ===
 Sessions on this machine  3 sessions
 
-  claude-code 2d1eb651-e108-498a-88b4-dc7659a1a38a /home/you/work/projects/BulkPulse-main
+  claude-code · 2d1eb651-e108-498a-88b4-dc7659a1a38a · /home/you/work/projects/BulkPulse-main
     2026-11-23 20:17 · 537 MB · 12,041 messages
 
-  codex 01a1c2d3-e4f5-7a6b-8c9d-0e1f2a3b4c5d /home/you/keepstate
+  codex · 01a1c2d3-e4f5-7a6b-8c9d-0e1f2a3b4c5d · /home/you/keepstate
     2026-11-22 09:00 · 3.1 MB · 88 messages
 
-  cursor (best effort) 3f2a1c unknown folder
+  cursor (best effort) · 3f2a1c · unknown folder
     2026-11-20 09:00 · 14 messages
 
   Any unique start of a session's id works with --session.
@@ -16,14 +16,14 @@ Next: ks import claude-code --latest
 === import-list, list, 80 columns ===
 Sessions on this machine  3 sessions
 
-  claude-code 2d1eb651-e108-498a-88b4-dc7659a1a38a
+  claude-code · 2d1eb651-e108-498a-88b4-dc7659a1a38a ·
     /home/you/work/projects/BulkPulse-main
     2026-11-23 20:17 · 537 MB · 12,041 messages
 
-  codex 01a1c2d3-e4f5-7a6b-8c9d-0e1f2a3b4c5d /home/you/keepstate
+  codex · 01a1c2d3-e4f5-7a6b-8c9d-0e1f2a3b4c5d · /home/you/keepstate
     2026-11-22 09:00 · 3.1 MB · 88 messages
 
-  cursor (best effort) 3f2a1c unknown folder
+  cursor (best effort) · 3f2a1c · unknown folder
     2026-11-20 09:00 · 14 messages
 
   Any unique start of a session's id works with --session.
@@ -32,15 +32,15 @@ Next: ks import claude-code --latest
 === import-list, list, 60 columns ===
 Sessions on this machine  3 sessions
 
-  claude-code 2d1eb651-e108-498a-88b4-dc7659a1a38a
+  claude-code · 2d1eb651-e108-498a-88b4-dc7659a1a38a ·
     /home/you/work/projects/BulkPulse-main
     2026-11-23 20:17 · 537 MB · 12,041 messages
 
-  codex 01a1c2d3-e4f5-7a6b-8c9d-0e1f2a3b4c5d
+  codex · 01a1c2d3-e4f5-7a6b-8c9d-0e1f2a3b4c5d ·
     /home/you/keepstate
     2026-11-22 09:00 · 3.1 MB · 88 messages
 
-  cursor (best effort) 3f2a1c unknown folder
+  cursor (best effort) · 3f2a1c · unknown folder
     2026-11-20 09:00 · 14 messages
 
   Any unique start of a session's id works with --session.

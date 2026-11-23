@@ -253,15 +253,57 @@ func TestListScreenGoldens(t *testing.T) {
 // table fits the width): no new fmt.Printf or fmt.Println on standard output
 // in a verb, and no new fixed-width table row. The files that write raw
 // bytes on purpose (the protocol server, shell completion, the terminal
-// screens, the live window) are the ones named here.
+// screens, the live window) are named here, each by its exact name; verbatim
+// content goes through outRaw.
 func TestVerbsPrintThroughTheKit(t *testing.T) {
-	raw := map[string]string{
-		"app": "the terminal app", "attach_client": "the attached terminal", "osc7501": "terminal status records", "herdr": "the herdr panes",
-		"mcp": "the MCP protocol server speaks JSON on standard output", "claude_plan": "the plan sign-in terminal", "claude_signin": "the sign-in screens",
-		"completion": "shell completion scripts", "skill": "the skill text", "help": "help text", "command": "usage text", "update": "the updater",
-		"main": "the entry point", "output": "the output contract", "ui.go": "the kit", "listui": "the kit", "import_guided": "the guided prompts",
-		"login": "the device sign-in", "cruise_watch": "a live watch", "agent_view": "the live window", "recovery_screen": "a recovery screen",
-		"viewsize": "terminal sizing", "stream_restart": "a stream", "termwidth": "terminal width", "import_progress": "progress bars", "import_screens": "the kit's screens",
+	raw := map[string]bool{
+		"agent_view.go":             true,
+		"app.go":                    true,
+		"appaway.go":                true,
+		"appconfirm.go":             true,
+		"appnew.go":                 true,
+		"appslash.go":               true,
+		"appstates.go":              true,
+		"appterm.go":                true,
+		"apptheme.go":               true,
+		"appui.go":                  true,
+		"appwindow.go":              true,
+		"attach_client.go":          true,
+		"claude_plan.go":            true,
+		"claude_plan_capture.go":    true,
+		"claude_plan_mask.go":       true,
+		"claude_plan_org.go":        true,
+		"claude_plan_pty_darwin.go": true,
+		"claude_plan_pty_linux.go":  true,
+		"claude_plan_pty_other.go":  true,
+		"claude_plan_pty_unix.go":   true,
+		"claude_signin.go":          true,
+		"command.go":                true,
+		"completion.go":             true,
+		"cruise_watch.go":           true,
+		"help.go":                   true,
+		"herdr.go":                  true,
+		"herdr_pane.go":             true,
+		"herdr_report.go":           true,
+		"import_guided.go":          true,
+		"import_progress.go":        true,
+		"import_screens.go":         true,
+		"listui.go":                 true,
+		"login.go":                  true,
+		"main.go":                   true,
+		"mcp.go":                    true,
+		"mcp_nosabotage.go":         true,
+		"mcp_sabotage.go":           true,
+		"mcp_tools.go":              true,
+		"osc7501.go":                true,
+		"output.go":                 true,
+		"recovery_screen.go":        true,
+		"skill.go":                  true,
+		"stream_restart.go":         true,
+		"termwidth.go":              true,
+		"ui.go":                     true,
+		"update.go":                 true,
+		"viewsize.go":               true,
 	}
 	files, _ := filepath.Glob("*.go")
 	printf := regexp.MustCompile(`\bfmt\.(Printf|Println)\(`)
@@ -270,13 +312,7 @@ func TestVerbsPrintThroughTheKit(t *testing.T) {
 		if strings.HasSuffix(f, "_test.go") {
 			continue
 		}
-		skip := false
-		for p := range raw {
-			if strings.HasPrefix(f, p) {
-				skip = true
-			}
-		}
-		if skip {
+		if raw[f] {
 			continue
 		}
 		b, _ := os.ReadFile(f)
@@ -337,5 +373,61 @@ func TestProseNeverBreaksAWord(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("the path was broken: %q", lines)
+	}
+}
+
+// Shell lines, blocks and words that cannot fit are left whole, never
+// reflowed or broken in the middle of a word.
+func TestShellLinesAndWideWordsAreLeftWhole(t *testing.T) {
+	var buf bytes.Buffer
+	u := testUI(&buf, 40, false, newFakeClock())
+	for _, l := range []string{
+		"    rm -f /usr/local/bin/ks && rm -rf /home/you/.config/keepstate",
+		"  run: cd /somewhere && make && make install and then restart the shell",
+		"  label        " + strings.Repeat("x", 60),
+		"  a sentence with an unbroken " + strings.Repeat("y", 45) + " in it",
+	} {
+		if g := u.fitLine(l); len(g) != 1 || g[0] != l {
+			t.Errorf("reflowed or broken: %q -> %q", l, g)
+		}
+	}
+}
+
+// A stacked row keeps its cells apart.
+func TestStackedRowsKeepTheirCellBoundaries(t *testing.T) {
+	var buf bytes.Buffer
+	u := testUI(&buf, 50, false, newFakeClock())
+	u.Table([]Col{{Title: "A"}, {Title: "B"}, {Title: "C"}, {Title: "D", Second: true}},
+		[][]string{{"alpha value", "beta value", strings.Repeat("c", 30), "dd"}})
+	if !strings.Contains(buf.String(), "alpha value · beta value") {
+		t.Errorf("cells ran together:\n%s", buf.String())
+	}
+}
+
+// A table is cut for no one: a long copyable value stacks instead.
+func TestCopyableValuesAreNeverCutInATable(t *testing.T) {
+	var buf bytes.Buffer
+	u := testUI(&buf, 40, false, newFakeClock())
+	email := "a.person.with.a.long.name@a-long-company-domain.example"
+	u.Table([]Col{{Title: "Request"}, {Title: "Email"}, {Title: "State"}}, [][]string{{"req_1", email, "waiting"}})
+	if !strings.Contains(buf.String(), email) || strings.Contains(buf.String(), "…") {
+		t.Errorf("the address was cut:\n%s", buf.String())
+	}
+}
+
+// COLUMNS says how wide a terminal is, not that nobody is reading the
+// output: into a pipe a list is whole whatever COLUMNS says.
+func TestAPipeIsWholeWhateverColumnsSays(t *testing.T) {
+	e := newImportEnv(t)
+	e.session("claude-code", "claude-code-2.1.312.jsonl", "")
+	e.env = append(e.env, "COLUMNS=40")
+	out, _, code := e.run("import", "list")
+	if code != 0 {
+		t.Fatalf("%d", code)
+	}
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, claudeSID) && !strings.Contains(l, oldRoot) {
+			t.Errorf("the row was cut or stacked for a pipe: %q", l)
+		}
 	}
 }

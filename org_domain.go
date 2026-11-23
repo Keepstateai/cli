@@ -168,7 +168,7 @@ func hostedOrgDomainRequests(cr hostedCreds, inv *Invocation) {
 	}
 	emit(map[string]any{"organization": org, "requests": all, "count": len(all), "complete": complete}, func() {
 		sc := listScreen{Title: "Join requests for " + org, Detail: listCount(len(all), "request", "requests"),
-			Cols: []Col{{Title: "Request"}, {Title: "Email", Flex: true}, {Title: "State"}, {Title: "Asked"}}}
+			Cols: []Col{{Title: "Request"}, {Title: "Email"}, {Title: "State"}, {Title: "Asked"}}}
 		for _, r := range all {
 			sc.Rows = append(sc.Rows, []string{r.ID, r.Email, r.State, r.CreatedAt})
 		}

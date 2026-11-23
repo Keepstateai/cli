@@ -217,6 +217,9 @@ func (u *ui) fitLine(l string) []string {
 		if j < len(trimmed) {
 			first := l[:lead+j]
 			rest := strings.Repeat(" ", displayWidth(first))
+			if widestWord(trimmed[j:]) > u.width-displayWidth(first) {
+				return []string{l} // a word that cannot fit beside its label is never broken
+			}
 			return wrapHang(first, rest, trimmed[j:], u.width)
 		}
 	}
@@ -227,7 +230,19 @@ func (u *ui) fitLine(l string) []string {
 	case len(trimmed) > 6 && strings.EqualFold(trimmed[:6], "Next: "):
 		rest += strings.Repeat(" ", 6)
 	}
+	if widestWord(trimmed) > u.width-displayWidth(rest) {
+		return []string{l}
+	}
 	return wrapHang(l[:lead], rest, trimmed, u.width)
+}
+
+// widestWord is the widest word of s in columns.
+func widestWord(s string) int {
+	w := 0
+	for _, f := range strings.Fields(s) {
+		w = max(w, displayWidth(f))
+	}
+	return w
 }
 
 // printLines is Lines on standard output, for the verbs that build their
@@ -273,7 +288,11 @@ func unwrappable(l string) bool {
 			}
 		}
 	}
-	if strings.Contains(l, "://") || strings.HasPrefix(strings.TrimLeft(l, " "), "ks ") {
+	if strings.Contains(l, "://") || strings.HasPrefix(strings.TrimLeft(l, " "), "ks ") || strings.Contains(l, "&&") {
+		return true
+	}
+	// a line indented four or more is a shell line or a block, never prose
+	if len(l)-len(strings.TrimLeft(l, " ")) >= 4 {
 		return true
 	}
 	for _, w := range strings.Fields(l) {
@@ -329,3 +348,9 @@ func padTo(s string, n int) string {
 	}
 	return s
 }
+
+// outRaw and outRawln print verbatim content (what an agent said, a log, a
+// consultation's words, a brief, a file): nothing in it is reflowed, because
+// spaces in it can be code.
+func outRaw(s string)   { fmt.Print(s) }
+func outRawln(s string) { fmt.Println(s) }

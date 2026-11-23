@@ -182,7 +182,7 @@ func hostedResultDiff(cr hostedCreds, inv *Invocation) {
 					continue
 				}
 				b, _ := base64.StdEncoding.DecodeString(c.ContentB64)
-				outf("---- %s (new content)\n%s\n", visible(c.Path), visible(string(b)))
+				outRaw(fmt.Sprintf("---- %s (new content)\n%s\n", visible(c.Path), visible(string(b))))
 			}
 		}
 		outf("apply it here, onto the recorded base only: ks result apply %s\n", r.ID)

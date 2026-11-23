@@ -364,7 +364,7 @@ func hostedAdviserList(cr hostedCreds, inv *Invocation) {
 	gs := env.Data.Items
 	emit(map[string]any{"agent": a.ID, "grants": gs, "count": len(gs)}, func() {
 		sc := listScreen{Title: "Adviser connections of agent " + sanitize(a.Name), Detail: listCount(len(gs), "connection", "connections"),
-			Cols: []Col{{Title: "Grant"}, {Title: "State"}, {Title: "Direction"}, {Title: "Other end", Flex: true}, {Title: "Revision", Right: true}, {Title: "Ended", Wrap: true, Second: true}}}
+			Cols: []Col{{Title: "Grant"}, {Title: "State"}, {Title: "Direction"}, {Title: "Other end"}, {Title: "Revision", Right: true}, {Title: "Ended", Wrap: true, Second: true}}}
 		for _, g := range gs {
 			dir, other := "consults", g.TargetSessionName+"/"+g.TargetAgentName
 			if g.TargetAgentID == a.ID {
@@ -465,7 +465,7 @@ func hostedAdviserDiscover(cr hostedCreds, inv *Invocation) {
 	items := env.Data.Items
 	emit(map[string]any{"agents": items, "count": len(items)}, func() {
 		sc := listScreen{Title: "Agents you may consult", Detail: listCount(len(items), "agent", "agents"),
-			Cols: []Col{{Title: "Selector", Flex: true}, {Title: "Availability"}, {Title: "Runner"}, {Title: "Last seen"}}}
+			Cols: []Col{{Title: "Selector"}, {Title: "Availability"}, {Title: "Runner"}, {Title: "Last seen"}}}
 		amb := false
 		for _, e := range items {
 			runner := strings.TrimSpace(strings.Join([]string{e.RunnerMode, e.RunnerVersion, e.RunnerModel}, " "))

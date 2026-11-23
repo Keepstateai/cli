@@ -104,7 +104,7 @@ func hostedSessionBrief(cr hostedCreds, inv *Invocation) {
 		}
 		outf("  sha256     %s\n\n", sanitize(v.SHA256))
 		for _, line := range strings.Split(v.Brief, "\n") {
-			outln(sanitize(line))
+			outRawln(sanitize(line))
 		}
 	})
 }

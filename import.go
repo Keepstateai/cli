@@ -136,7 +136,7 @@ func importList(inv *Invocation) {
 // importListScreen is ks import list as a list screen.
 func importListScreen(rows []importListEntry, cursorNote string) listScreen {
 	s := listScreen{Title: "Sessions on this machine", Detail: listCount(len(rows), "session", "sessions"),
-		Cols: []Col{{Title: "Tool"}, {Title: "Session"}, {Title: "Project", Flex: true}, {Title: "Last used", Second: true}, {Title: "Size", Right: true, Second: true}, {Title: "Messages", Right: true, Second: true}}}
+		Cols: []Col{{Title: "Tool"}, {Title: "Session"}, {Title: "Project"}, {Title: "Last used", Second: true}, {Title: "Size", Right: true, Second: true}, {Title: "Messages", Right: true, Second: true}}}
 	for _, r := range rows {
 		tool := r.Tool
 		if r.Note != "" {

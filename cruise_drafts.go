@@ -748,7 +748,7 @@ func hostedCruiseDraftList(cr hostedCreds, inv *Invocation) {
 	}
 	emit(map[string]any{"drafts": env.Data.Items, "count": len(env.Data.Items), "context": contextWord(cr)}, func() {
 		sc := listScreen{Title: "Open Cruise drafts", Detail: listCount(len(vs), "draft", "drafts"),
-			Cols: []Col{{Title: "Draft"}, {Title: "State"}, {Title: "Goal", Flex: true}, {Title: "Files", Right: true}, {Title: "Size", Right: true}, {Title: "Manifest", Second: true}, {Title: "Kept until", Second: true}}}
+			Cols: []Col{{Title: "Draft"}, {Title: "State"}, {Title: "Goal"}, {Title: "Files", Right: true}, {Title: "Size", Right: true}, {Title: "Manifest", Second: true}, {Title: "Kept until", Second: true}}}
 		if org := currentContext(cr); org != "" {
 			sc.Title = "Open Cruise drafts of the organization " + org
 		}

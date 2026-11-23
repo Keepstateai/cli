@@ -53,7 +53,7 @@ func hostedAgentRead(cr hostedCreds, inv *Invocation) {
 			return
 		}
 		for _, l := range lines {
-			outln(l)
+			outRawln(l)
 		}
 	})
 }

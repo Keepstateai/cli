@@ -137,7 +137,7 @@ func hostedOrgSessions(cr hostedCreds, inv *Invocation) {
 	}
 	emit(map[string]any{"organization": org, "sessions": all, "count": len(all), "complete": complete}, func() {
 		sc := listScreen{Title: "Sessions of the organization " + org, Detail: listCount(len(all), "session", "sessions"),
-			Cols: []Col{{Title: "Session"}, {Title: "Name", Flex: true}, {Title: "State"}, {Title: "Made by", Wrap: true, Second: true}}}
+			Cols: []Col{{Title: "Session"}, {Title: "Name"}, {Title: "State"}, {Title: "Made by", Wrap: true, Second: true}}}
 		for _, s := range all {
 			by := s.CreatedBy
 			if s.Transferred != "" {

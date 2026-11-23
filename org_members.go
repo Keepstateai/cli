@@ -287,7 +287,7 @@ func hostedInviteList(cr hostedCreds, inv *Invocation) {
 	}
 	emit(map[string]any{"organization": org, "invitations": all, "count": len(all), "complete": complete}, func() {
 		sc := listScreen{Title: "Invitations to " + org, Detail: listCount(len(all), "invitation", "invitations"),
-			Cols: []Col{{Title: "Invitation"}, {Title: "Address", Flex: true}, {Title: "Role"}, {Title: "State"}, {Title: "Expires"}}}
+			Cols: []Col{{Title: "Invitation"}, {Title: "Address"}, {Title: "Role"}, {Title: "State"}, {Title: "Expires"}}}
 		for _, v := range all {
 			sc.Rows = append(sc.Rows, []string{v.ID, v.Email, v.Role, v.State, v.ExpiresAt})
 			if v.State == "awaiting_confirmation" {

@@ -10,7 +10,7 @@ Next: ks result download <result>
 === results, list, 80 columns ===
 Results for session sess_0123  1 result
 
-  res_0123456789 quarterly-report-final-version-2.pdf 1,234,567 B
+  res_0123456789 · quarterly-report-final-version-2.pdf · 1,234,567 B
     tsk_1 · not recorded · sha256 0123456789ab
 
   Not read: task tsk_gone: not found. That is not an empty list: it could not be
@@ -20,7 +20,7 @@ Next: ks result download <result>
 === results, list, 60 columns ===
 Results for session sess_0123  1 result
 
-  res_0123456789 quarterly-report-final-version-2.pdf
+  res_0123456789 · quarterly-report-final-version-2.pdf ·
     1,234,567 B
     tsk_1 · not recorded · sha256 0123456789ab
 

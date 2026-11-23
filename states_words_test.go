@@ -78,7 +78,7 @@ func TestSessionListGroupsEndedSessionsLast(t *testing.T) {
 	defer srv.Close()
 	bin, cfg := buildAndAuth(t, srv)
 	dir := t.TempDir()
-	out, errs, code := auditExec(t, bin, cfg, dir, append(fastEnv(cfg), "COLUMNS=80"), "session", "list")
+	out, errs, code := auditExec(t, bin, cfg, dir, append(fastEnv(cfg), "KS_FORCE_COLUMNS=80"), "session", "list")
 	if code != 0 {
 		t.Fatalf("exit %d\n%s%s", code, out, errs)
 	}
@@ -98,11 +98,11 @@ func TestSessionListGroupsEndedSessionsLast(t *testing.T) {
 		t.Errorf("the Ended group is not last:\n%s", out)
 	}
 	// a state filter is one table, no group
-	out, _, _ = auditExec(t, bin, cfg, dir, append(fastEnv(cfg), "COLUMNS=80"), "session", "list", "--state", "running")
+	out, _, _ = auditExec(t, bin, cfg, dir, append(fastEnv(cfg), "KS_FORCE_COLUMNS=80"), "session", "list", "--state", "running")
 	if strings.Contains(out, "\n  Ended") || strings.Contains(out, "(dead)") {
 		t.Errorf("a filtered list carries the Ended group:\n%s", out)
 	}
-	out, _, _ = auditExec(t, bin, cfg, dir, append(fastEnv(cfg), "COLUMNS=80"), "session", "list", "--state", "dead")
+	out, _, _ = auditExec(t, bin, cfg, dir, append(fastEnv(cfg), "KS_FORCE_COLUMNS=80"), "session", "list", "--state", "dead")
 	if !strings.Contains(out, "Ended (dead)") || strings.Contains(out, "\nEnded\n") {
 		t.Errorf("--state dead: %s", out)
 	}

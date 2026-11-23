@@ -439,7 +439,7 @@ func hostedAgentLogs(cr hostedCreds, inv *Invocation) {
 		emit(p, func() {
 			outf("logs of session %s (%s)\n", sess.ShortID, p.RuntimeState)
 			for _, e := range p.Entries {
-				outln(logLine(e))
+				outRawln(logLine(e))
 			}
 			for _, l := range logStatusLines(p) {
 				outln(l)

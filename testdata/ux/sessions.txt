@@ -31,14 +31,14 @@ Next: ks session show <session>
 === sessions, list, 60 columns ===
 Your sessions  3 sessions
 
-  session_0123 Running (running) working running
+  session_0123 · Running (running) · working · running
     2026-11-23 10:15 · yes
 
-  session_abcd Paused (parked) unknown 2 queued
+  session_abcd · Paused (parked) · unknown · 2 queued
     2026-11-22 18:00 · no
 
   Ended
-  session_dead Ended (dead) stopped none
+  session_dead · Ended (dead) · stopped · none
     2026-11-01 08:00 · no
 
   The session column is the start of its full id (ks run

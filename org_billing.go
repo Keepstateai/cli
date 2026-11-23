@@ -447,7 +447,7 @@ func hostedOrgStatements(cr hostedCreds, inv *Invocation) {
 	st := env.Data.Items
 	emit(map[string]any{"organization": org, "statements": st, "count": len(st)}, func() {
 		sc := listScreen{Title: "Statements of " + org, Detail: listCount(len(st), "statement", "statements"),
-			Cols: []Col{{Title: "Statement"}, {Title: "No", Right: true}, {Title: "Total", Right: true}, {Title: "Billed to", Flex: true}, {Title: "Period", Wrap: true, Second: true}}}
+			Cols: []Col{{Title: "Statement"}, {Title: "No", Right: true}, {Title: "Total", Right: true}, {Title: "Billed to"}, {Title: "Period", Wrap: true, Second: true}}}
 		for _, s := range st {
 			extra := ""
 			if s.Corrects != "" {

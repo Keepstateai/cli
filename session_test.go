@@ -92,7 +92,7 @@ func TestSessionListReadsEveryPageAndKeepsColumns(t *testing.T) {
 	bin, cfg := buildAndAuth(t, srv)
 	dir := t.TempDir()
 	// QA-021-1: the complete result, across five pages
-	out, errs, code := auditExec(t, bin, cfg, dir, append(fastEnv(cfg), "COLUMNS=80"), "session", "list", "--json")
+	out, errs, code := auditExec(t, bin, cfg, dir, append(fastEnv(cfg), "KS_FORCE_COLUMNS=80"), "session", "list", "--json")
 	if code != 0 {
 		t.Fatalf("exit %d\n%s%s", code, out, errs)
 	}
@@ -110,7 +110,7 @@ func TestSessionListReadsEveryPageAndKeepsColumns(t *testing.T) {
 	}
 	// VER-021-1: at 80 and 120 columns no line exceeds the width, and identity and state survive
 	for _, width := range []int{80, 120} {
-		out, _, code := auditExec(t, bin, cfg, dir, append(fastEnv(cfg), "COLUMNS="+strconv.Itoa(width)), "ls", "--state", "parked")
+		out, _, code := auditExec(t, bin, cfg, dir, append(fastEnv(cfg), "KS_FORCE_COLUMNS="+strconv.Itoa(width)), "ls", "--state", "parked")
 		if code != 0 {
 			t.Fatalf("width %d: exit %d", width, code)
 		}
@@ -132,7 +132,7 @@ func TestSessionListReadsEveryPageAndKeepsColumns(t *testing.T) {
 		}
 	}
 	// the alias and the filter agree with the verb
-	if out, _, _ := auditExec(t, bin, cfg, dir, append(fastEnv(cfg), "COLUMNS=80"), "session", "list", "--state", "running"); strings.Contains(out, "parked") {
+	if out, _, _ := auditExec(t, bin, cfg, dir, append(fastEnv(cfg), "KS_FORCE_COLUMNS=80"), "session", "list", "--state", "running"); strings.Contains(out, "parked") {
 		t.Error("filter leaked another state")
 	}
 	if _, errs, code := auditExec(t, bin, cfg, dir, fastEnv(cfg), "session", "list", "--state", "busy"); code != 2 || !strings.Contains(errs, "running, parked or dead") {

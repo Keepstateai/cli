@@ -7,7 +7,6 @@ package main
 // the adviser connections between your agents.
 
 import (
-	"fmt"
 	"net/url"
 	"strings"
 )
@@ -82,7 +81,7 @@ func hostedAppsDisconnect(cr hostedCreds, inv *Invocation) {
 	}
 	emit(map[string]any{"disconnected": id, "app": env.Data.Client,
 		"stops": "the app's sign-in, every token it holds and every request it had asked you to confirm, at once"}, func() {
-		fmt.Printf("disconnected %s (%s)\n", id, sanitize(env.Data.Client))
-		fmt.Println("stops: the app's sign-in, every token it holds and every request it had asked you to confirm, at once")
+		outf("disconnected %s (%s)\n", id, sanitize(env.Data.Client))
+		outln("stops: the app's sign-in, every token it holds and every request it had asked you to confirm, at once")
 	})
 }

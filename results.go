@@ -161,7 +161,7 @@ func resultLine(r resultRow) string {
 	return fmt.Sprintf("%-20s %-28s %12s  sha256 %s  task %s  verification %s", r.ID, clip(sanitize(r.Name), 28), commas(r.Bytes)+" B", short(r.SHA256), r.TaskID, verificationWord(r))
 }
 
-var resultCols = []Col{{Title: "Result"}, {Title: "Name", Flex: true}, {Title: "Size", Right: true}, {Title: "Task", Second: true}, {Title: "Checked", Second: true}, {Title: "Fingerprint", Second: true}}
+var resultCols = []Col{{Title: "Result"}, {Title: "Name"}, {Title: "Size", Right: true}, {Title: "Task", Second: true}, {Title: "Checked", Second: true}, {Title: "Fingerprint", Second: true}}
 
 // resultListScreen is ks result list.
 func resultListScreen(scope string, rows []resultRow, unreadable []string) listScreen {
