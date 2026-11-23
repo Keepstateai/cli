@@ -109,7 +109,7 @@ func hostedAgentStop(cr hostedCreds, inv *Invocation) {
 		outf("  %s: %d instruction(s) wait and nothing further starts\n", hold, len(d.HeldTasks))
 		outf("  session %s is %s: %s\n", sess.ShortID, stateLabel("session_runtime", d.SessionState), sanitize(d.Charges))
 		if d.Park.Label != "" {
-			outf("  %s (separate, not done): %s — ks agent pause %s --session %s\n", d.Park.Label, sanitize(d.Park.Request), a.Name, sess.ShortID)
+			outf("  %s (separate, not done): %s; ks agent pause %s --session %s\n", d.Park.Label, sanitize(d.Park.Request), a.Name, sess.ShortID)
 		}
 		if d.Resume != "" {
 			outf("  to continue: %s\n", sanitize(d.Resume))

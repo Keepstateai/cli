@@ -453,7 +453,7 @@ func hostedTaskShow(cr hostedCreds, inv *Invocation) {
 				}
 			}
 			outf("                 If nobody closes it honestly, an authorized person may record that the\n")
-			outf("                 outcome could NOT be established — never that it succeeded or failed:\n")
+			outf("                 outcome could NOT be established; never that it succeeded or failed:\n")
 			outf("                 ks task reconcile %s --session %s --finding \"what you checked\"\n",
 				t.ID, sessionShort)
 		}
@@ -1082,7 +1082,7 @@ func hostedTaskResume(cr hostedCreds, inv *Invocation) {
 			outf("  %-14s %s %s\n", p.Phase, mark, p.Detail)
 		}
 		if res.StoppedAt != "" {
-			outf("  the restore STOPPED at %s; the guest may or may not have been replaced — the phases above say which\n", res.StoppedAt)
+			outf("  the restore STOPPED at %s; the guest may or may not have been replaced; the phases above say which\n", res.StoppedAt)
 		}
 		if res.NewEpoch != 0 {
 			outf("  generation     %d (every earlier worker is now refused)\n", res.NewEpoch)
@@ -1101,7 +1101,7 @@ func hostedTaskResume(cr hostedCreds, inv *Invocation) {
 		}
 		if res.HoldID != "" {
 			outf("  queue          HELD (%s). Nothing was released and nothing was started: continuing the\n", res.HoldID)
-			outf("                 queue is a separate decision — ks agent queue resume %s --session %s --finding \"...\"\n",
+			outf("                 queue is a separate decision; ks agent queue resume %s --session %s --finding \"...\"\n",
 				a.Name, sess.ShortID)
 		}
 		continuationLines(res)
