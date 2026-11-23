@@ -176,7 +176,7 @@ submission.go: a capital word (NOT): "whether instruction %s arrived could not b
 tasks.go: a capital word (HELD): "  queue          HELD (%s). Nothing was released and nothing was start"
 tasks.go: a capital word (INCOMPATIBLE): "  stack          INCOMPATIBLE: the saved point was taken on a differen"
 tasks.go: a capital word (NEVER): "instruction %s was NOT run again, and nothing was released. Running it"
-tasks.go: a capital word (NOT): "                 outcome could NOT be established; never that it su"
+tasks.go: a capital word (NOT): "                 outcome could NOT be established; never that it suc"
 tasks.go: a capital word (NOT): "  NOT STOPPED: the stop was not confirmed within the %d s interrupt wa"
 tasks.go: a capital word (NOT): "  queue hold     could not be read, so whether this instruction holds "
 tasks.go: a capital word (NOT): "  stack          NOT established: the engine did not verify the saved "
