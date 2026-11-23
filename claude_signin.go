@@ -61,6 +61,10 @@ var (
 	signinOpenURL   = openLink
 	signinNoEcho    = sttyNoEcho
 	signinSlow      = 60 * time.Second
+	// signinKeepaliveEvery: while the person signs in at Claude and pastes the code the
+	// terminal reads one line and polls nothing; the service ends a sign-in nobody
+	// looks at, so it is looked at now and then
+	signinKeepaliveEvery = 45 * time.Second
 )
 
 // errMachineUnavailable says the service could not start a sign-in machine
@@ -527,6 +531,24 @@ func (r *signinRun) takeCode(v signinView, setRestore func(func()), showLink boo
 		defer func() { restore(); setRestore(nil) }()
 		fmt.Fprint(os.Stderr, "Code (nothing is shown as you paste): ")
 	}
+	if v.ID != "" && r.cr.CTL != "" {
+		// look at the sign-in now and then while the person is at Claude
+		quit := make(chan struct{})
+		defer close(quit)
+		every := signinKeepaliveEvery
+		go func() {
+			t := time.NewTicker(every)
+			defer t.Stop()
+			for {
+				select {
+				case <-quit:
+					return
+				case <-t.C:
+					_, _ = getSignin(r.cr, v.ID)
+				}
+			}
+		}()
+	}
 	r2 := ue.in
 	if r2 == nil {
 		r2 = bufio.NewReader(os.Stdin)
@@ -573,8 +595,9 @@ func signinLink(raw string) (string, bool) {
 	if err != nil || u.Scheme != "https" || u.User != nil {
 		return "", false
 	}
-	h := strings.ToLower(u.Hostname())
-	if h != "claude.com" && h != "claude.ai" && !strings.HasSuffix(h, ".claude.com") && !strings.HasSuffix(h, ".claude.ai") {
+	switch strings.ToLower(u.Hostname()) {
+	case "claude.ai", "claude.com", "platform.claude.com": // the service's own three
+	default:
 		return "", false
 	}
 	return raw, true
@@ -727,9 +750,9 @@ func signinLinkWhole(link string) bool {
 		return false
 	}
 	q := u.Query()
-	tok := func(k string, min int) bool {
+	tok := func(k string, min, max int) bool {
 		v := q.Get(k)
-		if len(v) < min {
+		if len(v) < min || max > 0 && len(v) > max {
 			return false
 		}
 		for _, c := range v {
@@ -739,8 +762,24 @@ func signinLinkWhole(link string) bool {
 		}
 		return true
 	}
+	ru, err := url.Parse(q.Get("redirect_uri"))
+	if err != nil || ru.Scheme != "https" || ru.User != nil || !signinCallbackHost(ru.Hostname()) {
+		return false
+	}
 	if !strings.Contains(u.Path, "authorize") && !strings.Contains(u.Path, "oauth") {
 		return false
 	}
-	return tok("state", 20) && tok("code_challenge", 40) && q.Get("client_id") != "" && q.Get("redirect_uri") != ""
+	// Claude's state is 43 characters or more; a PKCE S256 challenge is exactly 43
+	return tok("state", 43, 0) && tok("code_challenge", 43, 43) && q.Get("code_challenge_method") == "S256" && q.Get("client_id") != ""
+}
+
+// signinCallbackHost: where Claude's own page sends the code back.
+func signinCallbackHost(h string) bool {
+	h = strings.ToLower(h)
+	for _, d := range []string{"claude.ai", "claude.com", "anthropic.com"} {
+		if h == d || strings.HasSuffix(h, "."+d) {
+			return true
+		}
+	}
+	return false
 }
