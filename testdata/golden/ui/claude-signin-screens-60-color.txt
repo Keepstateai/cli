@@ -1,24 +1,15 @@
 <ESC>[1mSign in to your Claude plan<ESC>[0m
-  <ESC>[38;2;138;138;138mKeepState starts a private machine that runs Claude Code's<ESC>[0m
-  <ESC>[38;2;138;138;138mown sign-in for you. You open a link, sign in to Claude,<ESC>[0m
-  <ESC>[38;2;138;138;138mand paste the code it shows. The machine is destroyed<ESC>[0m
-  <ESC>[38;2;138;138;138mafterwards, and the token is never shown to you or kept<ESC>[0m
-  <ESC>[38;2;138;138;138mhere.<ESC>[0m
 
-  <ESC>[38;2;138;138;138mStarting a private sign-in machine and asking Claude for a<ESC>[0m
-  <ESC>[38;2;138;138;138msign-in link. This takes about a minute.<ESC>[0m
-  <ESC>[38;2;138;138;138m•<ESC>[0m Start a private sign-in machine...
+  <ESC>[38;2;138;138;138m•<ESC>[0m Starting sign-in process, generating sign in URL...
   <ESC>[38;2;138;138;138mThis is taking longer than usual. It is still working, and<ESC>[0m
   <ESC>[38;2;138;138;138mCtrl-C cancels it and cleans up.<ESC>[0m
-  <ESC>[38;2;78;186;101m✓<ESC>[0m Start a private sign-in machine                    <ESC>[38;2;138;138;138m1m15s<ESC>[0m
 <ESC>[1mSign in at Claude<ESC>[0m
-  <ESC>[38;2;138;138;138mOpen this link and sign in to the Claude account whose<ESC>[0m
-  <ESC>[38;2;138;138;138mplan you want to use. Claude then shows a code to paste<ESC>[0m
-  <ESC>[38;2;138;138;138mhere.<ESC>[0m
+  <ESC>[38;2;138;138;138mSign in to Claude, then copy the code it shows and paste<ESC>[0m
+  <ESC>[38;2;138;138;138mit here.<ESC>[0m
 
-https://claude.com/cai/oauth/authorize?code=true&client_id=test&state=abc123
+https://claude.ai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256&state=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gbdMbOQSY
 
-  <ESC>[38;2;78;186;101m✓<ESC>[0m Sign in at Claude
+  <ESC>[38;2;78;186;101m✓<ESC>[0m Sign in at Claude                                  <ESC>[38;2;138;138;138m1m15s<ESC>[0m
   <ESC>[38;2;78;186;101m✓<ESC>[0m Paste the code it shows
   <ESC>[38;2;138;138;138mChecking your code with Claude.<ESC>[0m
   <ESC>[38;2;138;138;138m•<ESC>[0m Save your sign-in...

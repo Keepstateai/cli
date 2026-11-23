@@ -1,22 +1,14 @@
 Sign in to your Claude plan
-  KeepState starts a private machine that runs Claude Code's own sign-in for
-  you. You open a link, sign in to Claude, and paste the code it shows. The
-  machine is destroyed afterwards, and the token is never shown to you or kept
-  here.
 
-  Starting a private sign-in machine and asking Claude for a sign-in link. This
-  takes about a minute.
-  • Start a private sign-in machine...
+  • Starting sign-in process, generating sign in URL...
   This is taking longer than usual. It is still working, and Ctrl-C cancels it
   and cleans up.
-  ✓ Start a private sign-in machine (1m15s)
 Sign in at Claude
-  Open this link and sign in to the Claude account whose plan you want to use.
-  Claude then shows a code to paste here.
+  Sign in to Claude, then copy the code it shows and paste it here.
 
-https://claude.com/cai/oauth/authorize?code=true&client_id=test&state=abc123
+https://claude.ai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256&state=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gbdMbOQSY
 
-  ✓ Sign in at Claude
+  ✓ Sign in at Claude (1m15s)
   ✓ Paste the code it shows
   Checking your code with Claude.
   • Save your sign-in...

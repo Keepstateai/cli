@@ -95,17 +95,16 @@ func claudeSigninScreens(u *ui, clk *fakeClock) {
 	r := &signinRun{ue: u}
 	p := &signinProgress{r: r, st: u.Steps(), printed: map[int]bool{}, active: -1}
 	u.Title("", toneNeutral, "Sign in to your Claude plan")
-	u.Note("KeepState starts a private machine that runs Claude Code's own sign-in for you. You open a link, sign in to Claude, and paste the code it shows. The machine is destroyed afterwards, and the token is never shown to you or kept here.")
 	u.Blank()
-	m := sview("starting", 1, nil)
+	m := sview("starting", 0, nil)
 	p.show(asView(m))
 	clk.add(75 * time.Second)
 	m["elapsed_seconds"] = 75
 	p.show(asView(m))
-	p.show(asView(sview("link_ready", 2, map[string]any{"url": signinTestLink})))
+	p.show(asView(sview("link_ready", 1, map[string]any{"url": signinTestLink})))
 	p.close()
 	renderSigninLink(u, signinTestLink)
-	p.show(asView(sview("checking", 4, nil)))
+	p.show(asView(sview("checking", 3, nil)))
 	clk.add(4 * time.Second)
 	p.show(asView(sview("done", 4, map[string]any{"key": map[string]any{"id": "vlt_plan0001", "last4": "9999", "expires_at": "2027-11-22T10:00:00Z"}})))
 	p.close()

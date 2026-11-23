@@ -374,7 +374,6 @@ func (r *signinRun) attempt(setRestore func(func())) (customerKey, bool, error) 
 	ue := r.ue
 	if !r.quiet {
 		ue.Title("", toneNeutral, "Sign in to your Claude plan")
-		ue.Note("KeepState starts a private machine that runs Claude Code's own sign-in for you. You open a link, sign in to Claude, and paste the code it shows. The machine is destroyed afterwards, and the token is never shown to you or kept here.")
 		ue.Blank()
 	}
 	r.beginStart()
@@ -503,6 +502,10 @@ func (r *signinRun) giveCode(id string, code []byte) error {
 func (r *signinRun) takeCode(v signinView, setRestore func(func()), showLink bool) ([]byte, error) {
 	ue := r.ue
 	link, ok := signinLink(v.URL)
+	if ok && !signinLinkWhole(link) {
+		return nil, signinErr("claude_signin_link", "The sign-in link was cut short", exitFailed,
+			[]string{"Claude's sign-in page would refuse it, so it was not shown or opened.", "The sign-in was cancelled and nothing was saved."}, "the sign-in link was cut short, so it was not shown or opened. The sign-in was cancelled and nothing was saved", "ks login claude")
+	}
 	if !ok {
 		return nil, signinErr("claude_signin_link", "The sign-in link could not be trusted", exitFailed,
 			[]string{"The link KeepState sent is not an https link to Claude."}, "the sign-in link is not an https link to Claude, so it was not shown or opened. The sign-in was cancelled", "ks login claude")
@@ -650,6 +653,9 @@ func (p *signinProgress) show(v signinView) {
 		p.noted = map[int]bool{}
 	}
 	for i, s := range v.Steps {
+		if len(v.Steps) == 4 && i == 0 {
+			continue // an older service's first step, the machine's start, is not shown
+		}
 		if s.State == "done" && !p.printed[i] {
 			p.st.Done(s.Name, "")
 			p.printed[i] = true
@@ -658,8 +664,16 @@ func (p *signinProgress) show(v signinView) {
 			}
 		}
 	}
-	waiting := v.State == "starting" || v.State == "checking"
-	if !waiting {
+	if v.State == "starting" {
+		// the machine's start is not a step: its words stand in its place
+		if p.active != -2 {
+			p.st.Start(signinStartingWords)
+			p.active = -2
+		}
+		p.slow(v, 100, signinStartingWords)
+		return
+	}
+	if v.State != "checking" {
 		return
 	}
 	idx := v.Step - 1
@@ -675,8 +689,13 @@ func (p *signinProgress) show(v signinView) {
 		p.st.Start(name)
 		p.active = idx
 	}
-	if time.Duration(v.Seconds)*time.Second >= signinSlow && p.slowFor != idx+1 {
-		p.slowFor = idx + 1
+	p.slow(v, idx+1, name)
+}
+
+// slow says once, for a step, that a wait is long.
+func (p *signinProgress) slow(v signinView, key int, name string) {
+	if time.Duration(v.Seconds)*time.Second >= signinSlow && p.slowFor != key {
+		p.slowFor = key
 		p.st.Close()
 		p.r.ue.Note("This is taking longer than usual. It is still working, and Ctrl-C cancels it and cleans up.")
 		if p.r.ue.animate {
@@ -685,11 +704,43 @@ func (p *signinProgress) show(v signinView) {
 	}
 }
 
+// signinStartingWords is what a person reads while the machine starts and
+// Claude makes the link; the console says the same.
+const signinStartingWords = "Starting sign-in process, generating sign in URL"
+
 // renderSigninLink is the link on a line of its own, never wrapped or cut.
 func renderSigninLink(u *ui, link string) {
 	u.Title("", toneNeutral, "Sign in at Claude")
-	u.Note("Open this link and sign in to the Claude account whose plan you want to use. Claude then shows a code to paste here.")
+	u.Note("Sign in to Claude, then copy the code it shows and paste it here.")
 	u.Blank()
 	u.lines(link)
 	u.Blank()
+}
+
+// signinLinkWhole: the link carries what Claude's sign-in page needs (its
+// state, the challenge, the client and the callback), each as long as Claude
+// makes it. A link cut anywhere before its end fails, and is never shown or
+// opened: Claude's page answers it with "Missing state parameter".
+func signinLinkWhole(link string) bool {
+	u, err := url.Parse(link)
+	if err != nil {
+		return false
+	}
+	q := u.Query()
+	tok := func(k string, min int) bool {
+		v := q.Get(k)
+		if len(v) < min {
+			return false
+		}
+		for _, c := range v {
+			if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_' || c == '.' || c == '~') {
+				return false
+			}
+		}
+		return true
+	}
+	if !strings.Contains(u.Path, "authorize") && !strings.Contains(u.Path, "oauth") {
+		return false
+	}
+	return tok("state", 20) && tok("code_challenge", 40) && q.Get("client_id") != "" && q.Get("redirect_uri") != ""
 }
