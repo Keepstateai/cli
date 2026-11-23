@@ -121,7 +121,7 @@ func printImportPlan(p *importPrep, set importSettings, svc importServicePlan) {
 		o.Warn("This is a big conversation: "+e.NoticeReason, "Its first reply re-reads all of it (about "+commas(e.Tokens)+" tokens, an estimate), so it is dear. Compacting it in "+label+" first, or importing a written summary with --brief, costs far less.")
 	}
 	var from []string
-	for _, l := range svc.Plan.Lines {
+	for _, l := range p.serviceLines(svc.Plan.Lines) {
 		if !strings.HasPrefix(l, "Estimate (not a quote)") {
 			from = append(from, l)
 		}

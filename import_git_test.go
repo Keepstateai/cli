@@ -196,3 +196,85 @@ func TestTrimLineSaysFromAndTo(t *testing.T) {
 		t.Fatalf("the trim line does not say from and to:\n%s", errs)
 	}
 }
+
+// A worktree's .git is a file that points to a history kept elsewhere:
+// uploading it would send a pointer to nothing. It is not a history that can
+// be brought, and the words say why.
+func TestImportWorktreePointerIsNeverUploadedAsAHistory(t *testing.T) {
+	e := newImportEnv(t)
+	repo := gitRepo(t)
+	elsewhere := filepath.Join(t.TempDir(), "gitdir")
+	if err := os.Rename(filepath.Join(repo, ".git"), elsewhere); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".git"), []byte("gitdir: "+elsewhere+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.session("claude-code", "claude-code-2.1.312.jsonl", repo)
+	files, lines, errs, code := planWorkspaceBytes(t, e, "import", "claude-code", "--latest", "--with-files", "--project", repo)
+	without, _, _, _ := planWorkspaceBytes(t, e, "import", "claude-code", "--latest", "--without-git", "--project", repo)
+	if code != 0 || files != without || !strings.Contains(lines, "not carried") || !strings.Contains(lines, "worktree") {
+		t.Fatalf("--with-files: %d, %d vs %d bytes\n%s\n%s", code, files, without, lines, errs)
+	}
+	_, errs, code = e.run("import", "claude-code", "--session", claudeSID, "--with-git", "--project", repo, "--plan")
+	nx := nextLines(errs)
+	if code == 0 || !strings.Contains(flat(errs), "worktree") || len(nx) != 1 || !strings.Contains(nx[0], "--without-git") {
+		t.Fatalf("--with-git on a worktree: %d\n%s", code, errs)
+	}
+	if _, errs2, code := e.runNext(nx[0] + " --plan"); code != 0 {
+		t.Fatalf("the advice does not work: %d\n%s", code, errs2)
+	}
+}
+
+// The advice for a missing project folder drops the git flags, so it runs.
+func TestImportNoProjectAdviceRunsWithGitFlags(t *testing.T) {
+	e := newImportEnv(t)
+	e.session("claude-code", "claude-code-2.1.312.jsonl", "")
+	gone := filepath.Join(t.TempDir(), "gone")
+	_, errs, code := e.run("import", "claude-code", "--session", claudeSID, "--with-git", "--project", gone, "--plan")
+	nx := nextLines(errs)
+	if code == 0 || len(nx) != 1 || !strings.Contains(nx[0], "--no-files") || strings.Contains(nx[0], "with-git") {
+		t.Fatalf("%d\n%s", code, errs)
+	}
+	if _, errs2, code := e.runNext(nx[0] + " --plan"); code != 0 {
+		t.Fatalf("the advice does not work: %s\n%d\n%s", nx[0], code, errs2)
+	}
+}
+
+// The declaration says whether the history goes, and an older service that
+// refuses the field is asked again without it.
+func TestImportDeclaresTheHistoryAndOlderServicesAreAskedAgain(t *testing.T) {
+	e := newImportEnv(t)
+	repo := bigHistoryRepo(t)
+	e.session("claude-code", "claude-code-2.1.312.jsonl", repo)
+	planWorkspaceBytes(t, e, "import", "claude-code", "--latest", "--with-files", "--project", repo)
+	if ws := asMap(e.c.plans[len(e.c.plans)-1]["workspace"]); ws["history"] != false {
+		t.Fatalf("history over the limit declared as %v", ws["history"])
+	}
+	decl := map[string]any{"source": map[string]any{}, "workspace": map[string]any{"included": true, "history": false}}
+	err := &hostedErr{Type: "ks_body_unknown_field", Message: `unknown field "history"`}
+	if !retryWithoutNewFields(decl, err) {
+		t.Fatal("the refusal of the history field was not retried")
+	}
+	if _, ok := asMap(decl["workspace"])["history"]; ok {
+		t.Fatal("the field was not taken out")
+	}
+}
+
+func TestProbeWalksTheHistoryOnlyWhenAsked(t *testing.T) {
+	repo := gitRepo(t)
+	if pr := probeImportFiles(repo, false); pr.With != nil || !pr.HasGit || pr.withFits() {
+		t.Fatalf("--without-git walked the history: %+v", pr)
+	}
+	if pr := probeImportFiles(repo, true); pr.With == nil || !pr.withFits() {
+		t.Fatal("the history was not measured")
+	}
+	if w := limitWords("over the 100,000 file limit"); !strings.Contains(w, "100,000 files") || strings.Contains(w, "1 GB") {
+		t.Fatalf("limit words: %q", w)
+	}
+	p := &importPrep{Files: &uploadPlan{}}
+	got := p.serviceLines([]string{"Also uploads the project folder shop (1 B) to x. Left out: y; the .git folder is carried. It counts toward storage."})
+	if strings.Contains(got[0], "folder is carried") {
+		t.Fatalf("an older service's line says the history is carried: %q", got)
+	}
+}
