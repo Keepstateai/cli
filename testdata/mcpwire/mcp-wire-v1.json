@@ -1,0 +1,762 @@
+{
+ "$comment": "The wire behaviour of KeepState's MCP servers, written once as vectors: the local ks mcp (the client repository's test runs them against its stdio server) and the hosted /mcp (ctl's test runs them as HTTP posts). A case sends JSON-RPC messages in order; expect lists the answers by id (a message with no id gets none). A pattern is a literal (an object matches when every key it names matches; extra keys are allowed) or one of: {$type}, {$includes: [..]} (an array holds these), {$matches: regex}, {$some: pattern} and {$every: pattern} (over an array's elements), {$all_of: [pattern..]}, {$absent: true}, {$empty: true} (an object with no keys), {$no_key_matching: regex} (no key of this object matches). The vectors say what both servers do; what only one does (the local server's confirm digest, the hosted server's console confirmation) is not here.",
+ "vectors_version": 1,
+ "cases": [
+  {
+   "name": "server/discover",
+   "send": [
+    {
+     "jsonrpc": "2.0",
+     "id": 1,
+     "method": "server/discover",
+     "params": {
+      "_meta": {
+       "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+       "io.modelcontextprotocol/clientCapabilities": {}
+      }
+     }
+    }
+   ],
+   "expect": [
+    {
+     "id": 1,
+     "result": {
+      "resultType": "complete",
+      "supportedVersions": {
+       "$includes": [
+        "2026-07-28",
+        "2025-11-25",
+        "2025-06-18"
+       ]
+      },
+      "capabilities": {
+       "tools": {
+        "$type": "object"
+       }
+      },
+      "instructions": {
+       "$type": "string"
+      },
+      "_meta": {
+       "io.modelcontextprotocol/serverInfo": {
+        "name": "keepstate",
+        "version": {
+         "$type": "string"
+        }
+       }
+      },
+      "ttlMs": {
+       "$type": "number"
+      },
+      "cacheScope": {
+       "$type": "string"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "initialize echoes a version it knows",
+   "send": [
+    {
+     "jsonrpc": "2.0",
+     "id": 1,
+     "method": "initialize",
+     "params": {
+      "protocolVersion": "2025-11-25",
+      "capabilities": {},
+      "clientInfo": {
+       "name": "vector",
+       "version": "1"
+      }
+     }
+    }
+   ],
+   "expect": [
+    {
+     "id": 1,
+     "result": {
+      "protocolVersion": "2025-11-25",
+      "capabilities": {
+       "tools": {
+        "$type": "object"
+       }
+      },
+      "serverInfo": {
+       "name": "keepstate",
+       "version": {
+        "$type": "string"
+       }
+      },
+      "instructions": {
+       "$type": "string"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "initialize echoes 2025-03-26",
+   "send": [
+    {
+     "jsonrpc": "2.0",
+     "id": 1,
+     "method": "initialize",
+     "params": {
+      "protocolVersion": "2025-03-26",
+      "capabilities": {},
+      "clientInfo": {
+       "name": "vector",
+       "version": "1"
+      }
+     }
+    }
+   ],
+   "expect": [
+    {
+     "id": 1,
+     "result": {
+      "protocolVersion": "2025-03-26"
+     }
+    }
+   ]
+  },
+  {
+   "name": "initialize with a version it does not know answers 2025-06-18",
+   "send": [
+    {
+     "jsonrpc": "2.0",
+     "id": 1,
+     "method": "initialize",
+     "params": {
+      "protocolVersion": "1999-01-01",
+      "capabilities": {},
+      "clientInfo": {
+       "name": "vector",
+       "version": "1"
+      }
+     }
+    }
+   ],
+   "expect": [
+    {
+     "id": 1,
+     "result": {
+      "protocolVersion": "2025-06-18"
+     }
+    }
+   ]
+  },
+  {
+   "name": "ping answers an empty result",
+   "send": [
+    {
+     "jsonrpc": "2.0",
+     "id": 1,
+     "method": "ping"
+    }
+   ],
+   "expect": [
+    {
+     "id": 1,
+     "result": {
+      "$empty": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "a notification gets no answer",
+   "send": [
+    {
+     "jsonrpc": "2.0",
+     "method": "notifications/initialized"
+    }
+   ],
+   "expect": []
+  },
+  {
+   "name": "legacy tools/list after initialize",
+   "send": [
+    {
+     "jsonrpc": "2.0",
+     "id": 1,
+     "method": "initialize",
+     "params": {
+      "protocolVersion": "2025-11-25",
+      "capabilities": {},
+      "clientInfo": {
+       "name": "vector",
+       "version": "1"
+      }
+     }
+    },
+    {
+     "jsonrpc": "2.0",
+     "method": "notifications/initialized"
+    },
+    {
+     "jsonrpc": "2.0",
+     "id": 3,
+     "method": "tools/list",
+     "params": {}
+    }
+   ],
+   "expect": [
+    {
+     "id": 1,
+     "result": {
+      "protocolVersion": "2025-11-25"
+     }
+    },
+    {
+     "id": 3,
+     "result": {
+      "tools": {
+       "$every": {
+        "name": {
+         "$matches": "^ks_[a-z0-9_]+$"
+        },
+        "title": {
+         "$type": "string"
+        },
+        "description": {
+         "$type": "string"
+        },
+        "inputSchema": {
+         "type": "object",
+         "additionalProperties": false,
+         "properties": {
+          "$type": "object",
+          "$no_key_matching": "(?i)key|token|secret|password"
+         }
+        },
+        "annotations": {
+         "readOnlyHint": {
+          "$type": "boolean"
+         },
+         "destructiveHint": {
+          "$type": "boolean"
+         },
+         "title": {
+          "$type": "string"
+         }
+        }
+       },
+       "$all_of": [
+        {
+         "$some": {
+          "name": "ks_skill",
+          "annotations": {
+           "readOnlyHint": true
+          }
+         }
+        },
+        {
+         "$some": {
+          "name": "ks_session_list",
+          "annotations": {
+           "readOnlyHint": true
+          }
+         }
+        },
+        {
+         "$some": {
+          "name": "ks_agent_send",
+          "annotations": {
+           "readOnlyHint": false
+          }
+         }
+        },
+        {
+         "$some": {
+          "name": "ks_agent_run",
+          "annotations": {
+           "readOnlyHint": false
+          }
+         }
+        },
+        {
+         "$some": {
+          "name": "ks_agent_stop",
+          "annotations": {
+           "readOnlyHint": false,
+           "destructiveHint": true
+          }
+         }
+        },
+        {
+         "$some": {
+          "name": "ks_agent_approve",
+          "inputSchema": {
+           "properties": {
+            "confirm": {
+             "$absent": true
+            }
+           }
+          }
+         }
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "modern tools/list",
+   "send": [
+    {
+     "jsonrpc": "2.0",
+     "id": 1,
+     "method": "tools/list",
+     "params": {
+      "_meta": {
+       "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+       "io.modelcontextprotocol/clientCapabilities": {}
+      }
+     }
+    }
+   ],
+   "expect": [
+    {
+     "id": 1,
+     "result": {
+      "tools": {
+       "$every": {
+        "name": {
+         "$matches": "^ks_[a-z0-9_]+$"
+        },
+        "title": {
+         "$type": "string"
+        },
+        "description": {
+         "$type": "string"
+        },
+        "inputSchema": {
+         "type": "object",
+         "additionalProperties": false,
+         "properties": {
+          "$type": "object",
+          "$no_key_matching": "(?i)key|token|secret|password"
+         }
+        },
+        "annotations": {
+         "readOnlyHint": {
+          "$type": "boolean"
+         },
+         "destructiveHint": {
+          "$type": "boolean"
+         },
+         "title": {
+          "$type": "string"
+         }
+        }
+       },
+       "$all_of": [
+        {
+         "$some": {
+          "name": "ks_skill",
+          "annotations": {
+           "readOnlyHint": true
+          }
+         }
+        },
+        {
+         "$some": {
+          "name": "ks_session_list",
+          "annotations": {
+           "readOnlyHint": true
+          }
+         }
+        },
+        {
+         "$some": {
+          "name": "ks_agent_send",
+          "annotations": {
+           "readOnlyHint": false
+          }
+         }
+        },
+        {
+         "$some": {
+          "name": "ks_agent_run",
+          "annotations": {
+           "readOnlyHint": false
+          }
+         }
+        },
+        {
+         "$some": {
+          "name": "ks_agent_stop",
+          "annotations": {
+           "readOnlyHint": false,
+           "destructiveHint": true
+          }
+         }
+        },
+        {
+         "$some": {
+          "name": "ks_agent_approve",
+          "inputSchema": {
+           "properties": {
+            "confirm": {
+             "$absent": true
+            }
+           }
+          }
+         }
+        }
+       ]
+      },
+      "resultType": "complete",
+      "ttlMs": {
+       "$type": "number"
+      },
+      "cacheScope": {
+       "$type": "string"
+      },
+      "_meta": {
+       "io.modelcontextprotocol/serverInfo": {
+        "name": "keepstate"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "a modern request without client capabilities is refused",
+   "send": [
+    {
+     "jsonrpc": "2.0",
+     "id": 1,
+     "method": "tools/list",
+     "params": {
+      "_meta": {
+       "io.modelcontextprotocol/protocolVersion": "2026-07-28"
+      }
+     }
+    }
+   ],
+   "expect": [
+    {
+     "id": 1,
+     "error": {
+      "code": -32602,
+      "message": {
+       "$type": "string"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "a version it does not speak is refused with the ones it does",
+   "send": [
+    {
+     "jsonrpc": "2.0",
+     "id": 1,
+     "method": "tools/list",
+     "params": {
+      "_meta": {
+       "io.modelcontextprotocol/protocolVersion": "2099-01-01",
+       "io.modelcontextprotocol/clientCapabilities": {}
+      }
+     }
+    }
+   ],
+   "expect": [
+    {
+     "id": 1,
+     "error": {
+      "code": -32022,
+      "data": {
+       "supported": {
+        "$includes": [
+         "2026-07-28",
+         "2025-11-25",
+         "2025-06-18"
+        ]
+       },
+       "requested": "2099-01-01"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "an unknown method",
+   "send": [
+    {
+     "jsonrpc": "2.0",
+     "id": 1,
+     "method": "initialize",
+     "params": {
+      "protocolVersion": "2025-11-25",
+      "capabilities": {},
+      "clientInfo": {
+       "name": "vector",
+       "version": "1"
+      }
+     }
+    },
+    {
+     "jsonrpc": "2.0",
+     "id": 2,
+     "method": "foo/bar",
+     "params": {}
+    }
+   ],
+   "expect": [
+    {
+     "id": 1,
+     "result": {}
+    },
+    {
+     "id": 2,
+     "error": {
+      "code": -32601
+     }
+    }
+   ]
+  },
+  {
+   "name": "an unknown tool is refused as invalid params",
+   "send": [
+    {
+     "jsonrpc": "2.0",
+     "id": 1,
+     "method": "initialize",
+     "params": {
+      "protocolVersion": "2025-11-25",
+      "capabilities": {},
+      "clientInfo": {
+       "name": "vector",
+       "version": "1"
+      }
+     }
+    },
+    {
+     "jsonrpc": "2.0",
+     "id": 2,
+     "method": "tools/call",
+     "params": {
+      "name": "ks_delete_everything",
+      "arguments": {}
+     }
+    }
+   ],
+   "expect": [
+    {
+     "id": 1,
+     "result": {}
+    },
+    {
+     "id": 2,
+     "error": {
+      "code": -32602,
+      "message": {
+       "$matches": "(?i)unknown tool"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "a confirm value cannot approve",
+   "send": [
+    {
+     "jsonrpc": "2.0",
+     "id": 1,
+     "method": "initialize",
+     "params": {
+      "protocolVersion": "2025-11-25",
+      "capabilities": {},
+      "clientInfo": {
+       "name": "vector",
+       "version": "1"
+      }
+     }
+    },
+    {
+     "jsonrpc": "2.0",
+     "id": 2,
+     "method": "tools/call",
+     "params": {
+      "name": "ks_agent_approve",
+      "arguments": {
+       "request": "req_1",
+       "session": "ses_1",
+       "confirm": "0123456789abcdef"
+      }
+     }
+    }
+   ],
+   "expect": [
+    {
+     "id": 1,
+     "result": {}
+    },
+    {
+     "id": 2,
+     "result": {
+      "isError": true,
+      "content": {
+       "$some": {
+        "type": "text",
+        "text": {
+         "$matches": "(?i)confirm value cannot approve"
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "an argument a tool does not take is refused and nothing is done",
+   "send": [
+    {
+     "jsonrpc": "2.0",
+     "id": 1,
+     "method": "initialize",
+     "params": {
+      "protocolVersion": "2025-11-25",
+      "capabilities": {},
+      "clientInfo": {
+       "name": "vector",
+       "version": "1"
+      }
+     }
+    },
+    {
+     "jsonrpc": "2.0",
+     "id": 2,
+     "method": "tools/call",
+     "params": {
+      "name": "ks_session_show",
+      "arguments": {
+       "session": "ses_1",
+       "bogus": 1
+      }
+     }
+    }
+   ],
+   "expect": [
+    {
+     "id": 1,
+     "result": {}
+    },
+    {
+     "id": 2,
+     "result": {
+      "isError": true,
+      "content": {
+       "$some": {
+        "text": {
+         "$matches": "nothing was done"
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "a missing required argument is refused and nothing is done",
+   "send": [
+    {
+     "jsonrpc": "2.0",
+     "id": 1,
+     "method": "initialize",
+     "params": {
+      "protocolVersion": "2025-11-25",
+      "capabilities": {},
+      "clientInfo": {
+       "name": "vector",
+       "version": "1"
+      }
+     }
+    },
+    {
+     "jsonrpc": "2.0",
+     "id": 2,
+     "method": "tools/call",
+     "params": {
+      "name": "ks_session_show",
+      "arguments": {}
+     }
+    }
+   ],
+   "expect": [
+    {
+     "id": 1,
+     "result": {}
+    },
+    {
+     "id": 2,
+     "result": {
+      "isError": true,
+      "content": {
+       "$some": {
+        "text": {
+         "$matches": "nothing was done"
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "an argument of the wrong type is refused and nothing is done",
+   "send": [
+    {
+     "jsonrpc": "2.0",
+     "id": 1,
+     "method": "initialize",
+     "params": {
+      "protocolVersion": "2025-11-25",
+      "capabilities": {},
+      "clientInfo": {
+       "name": "vector",
+       "version": "1"
+      }
+     }
+    },
+    {
+     "jsonrpc": "2.0",
+     "id": 2,
+     "method": "tools/call",
+     "params": {
+      "name": "ks_agent_read",
+      "arguments": {
+       "name": "a",
+       "lines": "ten"
+      }
+     }
+    }
+   ],
+   "expect": [
+    {
+     "id": 1,
+     "result": {}
+    },
+    {
+     "id": 2,
+     "result": {
+      "isError": true,
+      "content": {
+       "$some": {
+        "text": {
+         "$matches": "nothing was done"
+        }
+       }
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,5 @@
+{
+ "server_commit": "60f0d068f2bcb63dc0491fbc5cdc7037b25809b5",
+ "from": "docs/upgrade/vectors/mcp-wire-v1.json",
+ "vendored_sha256": "3f8cb04068af3b5428beafdd4651ada310685f484452e5e1f128848a6daf963d"
+}

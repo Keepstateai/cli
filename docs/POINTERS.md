@@ -81,6 +81,8 @@ its file.
 ## MCP
 
 - The stdio server: `mcp.go` `runMCP`. Tool definitions and handlers: `mcp_tools.go`.
+- The tool manifest the hosted KeepState MCP is held to is `mcp-tools.json` (the stale-file test and the writer are in `mcp_tools_manifest_test.go` `mcpToolsManifestBytes`, `TestMCPToolsManifestIsCurrent`; `go test -run TestMCPToolsManifestIsCurrent -update` rewrites the file from the table in `mcp_tools.go` `mcpTools`). A tool's name, title, description, properties, kind and destructive and human flags are decided there and nowhere else.
+- The wire vectors both MCP servers pass are `testdata/mcpwire/mcp-wire-v1.json`, vendored from the service (see `testdata/mcpwire/SOURCE.json`). `mcp_wire_test.go` `TestMCPWireVectors` runs them against the stdio server, `wireMatch` reads a pattern, and `TestMCPWireVectorsVendoredMatchTheServer` holds the copy to the service's own in CI.
 
 ## Update and release
 
