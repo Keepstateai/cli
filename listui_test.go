@@ -431,3 +431,50 @@ func TestAPipeIsWholeWhateverColumnsSays(t *testing.T) {
 		}
 	}
 }
+
+// A prose column never breaks an address: when the widest word cannot fit
+// beside the other columns, the rows stack and the address stays whole.
+func TestWrapColumnNeverBreaksAnAddress(t *testing.T) {
+	var buf bytes.Buffer
+	u := testUI(&buf, 60, false, newFakeClock())
+	email := "a.person.with.a.long.name@a-long-company-domain.example"
+	u.Table([]Col{{Title: "Session"}, {Title: "State"}, {Title: "Made by", Wrap: true, Second: true}}, [][]string{{"session_1", "running", email}})
+	if !strings.Contains(buf.String(), email) {
+		t.Errorf("the address was broken:\n%s", buf.String())
+	}
+}
+
+// KS_FORCE_COLUMNS that is not a width of 20 or more is ignored: a pipe
+// stays whole.
+func TestAnInvalidForcedWidthIsIgnored(t *testing.T) {
+	e := newImportEnv(t)
+	e.session("claude-code", "claude-code-2.1.312.jsonl", "")
+	for _, v := range []string{"abc", "5", "-3"} {
+		out, _, code := e.run2(v)
+		if code != 0 {
+			t.Fatalf("%s: %d", v, code)
+		}
+		for _, l := range strings.Split(out, "\n") {
+			if strings.Contains(l, claudeSID) && !strings.Contains(l, oldRoot) {
+				t.Errorf("KS_FORCE_COLUMNS=%s drew to a width: %q", v, l)
+			}
+		}
+	}
+}
+
+func (e *importEnv) run2(force string) (string, string, int) {
+	e.t.Helper()
+	return auditExec(e.t, e.bin, e.cfg, e.dir, append(append([]string{}, e.env...), "KS_FORCE_COLUMNS="+force), "import", "list")
+}
+
+func TestLimitWordsNameTheLimitThatWasHit(t *testing.T) {
+	for why, want := range map[string]string{
+		"over the 1 GB limit":         "1 GB",
+		"over the 100,000 file limit": "100,000 files",
+		"no file to bring":            "no file is left",
+	} {
+		if got := limitWords(why); !strings.Contains(got, want) {
+			t.Errorf("%q -> %q, want %q", why, got, want)
+		}
+	}
+}

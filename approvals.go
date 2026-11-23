@@ -114,7 +114,9 @@ func hostedApprovalList(cr hostedCreds, inv *Invocation) {
 		}
 		for _, ap := range aps {
 			o.Blank()
-			o.Lines(approvalLines(ap, sess)...)
+			for _, l := range approvalLines(ap, sess) { // verbatim: the action is what the person approves
+				outRawln(l)
+			}
 		}
 	})
 }
@@ -132,8 +134,8 @@ func hostedApprovalShow(cr hostedCreds, inv *Invocation) {
 		recordShownAction(shownFrom(cr, ap))
 	}
 	emit(ap, func() {
-		for _, l := range approvalLines(ap, sess) {
-			outln(l)
+		for _, l := range approvalLines(ap, sess) { // verbatim: the action is what the person approves
+			outRawln(l)
 		}
 	})
 }

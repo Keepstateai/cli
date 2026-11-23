@@ -499,6 +499,6 @@ func printOperationText(o *remoteOp) {
 		outf("error: %s\n", o.Error)
 	}
 	if len(o.Response) > 0 {
-		outf("result: %s\n", strings.TrimSpace(string(o.Response)))
+		outRaw("result: " + strings.TrimSpace(string(o.Response)) + "\n")
 	}
 }

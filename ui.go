@@ -45,8 +45,9 @@ var uiOut, uiErr *ui
 func cmdUI() (stdout, stderr *ui) {
 	if uiOut == nil || uiErr == nil {
 		cols := termColumns()
+		forced := false
 		if v, err := strconv.Atoi(os.Getenv("KS_FORCE_COLUMNS")); err == nil && v >= 20 {
-			cols = v // draw as to a terminal of this width even into a pipe (a test, a recording)
+			cols, forced = v, true // draw as to a terminal of this width even into a pipe (a test, a recording); an invalid value is ignored
 		}
 		uiOut = newUI(os.Stdout, detectTheme(os.Getenv, stdoutIsTerminal(), true), cols, stdoutIsTerminal())
 		uiErr = newUI(os.Stderr, detectTheme(os.Getenv, stderrIsTerminal(), true), cols, stderrIsTerminal())
@@ -55,7 +56,6 @@ func cmdUI() (stdout, stderr *ui) {
 		// (COLUMNS says how wide a terminal is, not that a program is not
 		// reading: only a terminal, or the app that runs a verb for its own
 		// screen, or KS_FORCE_COLUMNS, draws to a width)
-		forced := os.Getenv("KS_FORCE_COLUMNS") != ""
 		uiOut.pipe = !stdoutIsTerminal() && !appChild() && !forced
 		uiErr.pipe = !stderrIsTerminal() && !appChild() && !forced
 		uiErr.in = bufio.NewReader(os.Stdin)
@@ -222,9 +222,15 @@ func (u *ui) Table(cols []Col, rows [][]string) {
 		// other columns leave less, the rows are stacked
 		others := total - w[wrapCol]
 		room := avail - others
+		widest := 0 // a word that cannot fit (an address, a path) is never broken: the rows stack
+		for _, r := range rows {
+			if wrapCol < len(r) {
+				widest = max(widest, widestWord(r[wrapCol]))
+			}
+		}
 		switch {
 		case room >= w[wrapCol]:
-		case room >= 24:
+		case room >= 24 && widest <= room:
 			w[wrapCol] = room
 		default:
 			u.stackedTable(cols, rows)
@@ -249,7 +255,7 @@ func (u *ui) Table(cols []Col, rows [][]string) {
 			}
 			switch {
 			case i == wrapCol && !head:
-				ws := wrapText(v, w[i])
+				ws := wrapProse(v, w[i])
 				v = ws[0]
 				tail = ws[1:]
 			case i == wrapCol:
