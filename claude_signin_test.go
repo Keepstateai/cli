@@ -37,11 +37,16 @@ func TestMachineSignInFromStartToTheCard(t *testing.T) {
 		t.Errorf("%d token requests went out; the machine keeps the token on the service", n)
 	}
 	for _, want := range []string{
-		"Start a private sign-in machine", "Starting a private sign-in machine and asking Claude for a sign-in link",
+		"Starting sign-in process, generating sign in URL",
 		"Sign in at Claude", signinTestLink, "Signed in to your Claude plan", "…9999", "22 Nov 2027",
 	} {
 		if !strings.Contains(out+errs, want) {
 			t.Errorf("the run never said %q:\n%s\n%s", want, out, errs)
+		}
+	}
+	for _, banned := range []string{"private sign-in machine", "private machine", "No Claude Code needed", "Start a private"} {
+		if strings.Contains(out+errs, banned) {
+			t.Errorf("the run still says %q:\n%s\n%s", banned, out, errs)
 		}
 	}
 	// the link is on a line of its own, whole
@@ -54,7 +59,7 @@ func TestMachineSignInFromStartToTheCard(t *testing.T) {
 	if hits := treeHoldsText(t, home, machineCode); len(hits) > 0 {
 		t.Errorf("the code was written to a file: %v", hits)
 	}
-	if strings.Contains(out+errs, "%") {
+	if strings.Contains(strings.ReplaceAll(out+errs, signinTestLink, ""), "%") {
 		t.Errorf("a percentage was shown; nothing here knows how far along the work is:\n%s%s", out, errs)
 	}
 }
@@ -87,7 +92,7 @@ func TestMachineSignInUnderAnOrganizationAsksForThatContext(t *testing.T) {
 }
 
 func TestMachineSignInEveryFailureIsInPlainWordsWithOneNext(t *testing.T) {
-	refused := sview("failed", 4, map[string]any{"words": "Claude did not accept that code. Start again to get a new link, and paste the new code.",
+	refused := sview("failed", 0, map[string]any{"words": "Claude did not accept that code. Start again to get a new link, and paste the new code.",
 		"error": map[string]any{"code": "ks_signin_code_refused", "words": "Claude did not accept that code. Start again to get a new link, and paste the new code.", "next": "ks login claude"}})
 	for _, tc := range []struct {
 		name  string
@@ -96,16 +101,16 @@ func TestMachineSignInEveryFailureIsInPlainWordsWithOneNext(t *testing.T) {
 		says  string
 	}{
 		{"the code was refused", func(s *signinScript) {
-			s.views = []map[string]any{sview("starting", 1, nil), sview("link_ready", 2, map[string]any{"url": signinTestLink}), sview("checking", 4, nil), refused}
+			s.views = []map[string]any{sview("starting", 0, nil), sview("link_ready", 1, map[string]any{"url": signinTestLink}), sview("checking", 3, nil), refused}
 		}, exitFailed, "did not accept that code"},
 		{"it expired", func(s *signinScript) {
-			s.views = []map[string]any{sview("starting", 1, nil), sview("expired", 1, nil)}
+			s.views = []map[string]any{sview("starting", 0, nil), sview("expired", 0, nil)}
 		}, exitFailed, "took too long"},
 		{"it was cancelled elsewhere", func(s *signinScript) {
-			s.views = []map[string]any{sview("starting", 1, nil), sview("cancelled", 1, nil)}
+			s.views = []map[string]any{sview("starting", 0, nil), sview("cancelled", 0, nil)}
 		}, exitFailed, "was cancelled"},
 		{"the machine could not be made", func(s *signinScript) {
-			s.views = []map[string]any{sview("starting", 1, nil), sview("failed", 1, map[string]any{"error": map[string]any{"code": "ks_signin_machine", "words": "The sign-in machine did not start.", "next": "ks login claude"}})}
+			s.views = []map[string]any{sview("starting", 0, nil), sview("failed", 0, map[string]any{"error": map[string]any{"code": "ks_signin_machine", "words": "The sign-in machine did not start.", "next": "ks login claude"}})}
 		}, exitFailed, "machine did not start"},
 		{"too many attempts", func(s *signinScript) {
 			s.startFail = &planFail{429, "ks_signin_rate", "Too many sign-ins were started in a short time."}
@@ -114,11 +119,11 @@ func TestMachineSignInEveryFailureIsInPlainWordsWithOneNext(t *testing.T) {
 		{"no machine available", func(s *signinScript) { s.startFail = &planFail{503, "ks_fleet_unavailable", "no fleet"} }, exitTemporary, "could not start a sign-in machine"},
 		{"switched off", func(s *signinScript) { s.startFail = &planFail{404, "ks_claude_plan_off", "off"} }, exitFailed, "not available"},
 		{"not the shape of a code", func(s *signinScript) {
-			s.views = []map[string]any{sview("link_ready", 2, map[string]any{"url": signinTestLink})}
+			s.views = []map[string]any{sview("link_ready", 1, map[string]any{"url": signinTestLink})}
 			s.codeFail = &planFail{422, "ks_signin_code_shape", "that is not a code"}
 		}, exitUsage, "not the code claude shows"},
 		{"a link that is not Claude's", func(s *signinScript) {
-			s.views = []map[string]any{sview("link_ready", 2, map[string]any{"url": "https://evil.example/login"})}
+			s.views = []map[string]any{sview("link_ready", 1, map[string]any{"url": "https://evil.example/login"})}
 		}, exitFailed, "not an https link to claude"},
 	} {
 		c := newPlanCtl()
@@ -141,7 +146,7 @@ func TestMachineSignInEveryFailureIsInPlainWordsWithOneNext(t *testing.T) {
 func TestMachineSignInCancelsTheMachineWhenWhatIsTypedIsNotUsable(t *testing.T) {
 	for name, in := range map[string]string{"no code": "\n", "a code with a space only": "   \n"} {
 		c := newPlanCtl()
-		c.signin = &signinScript{views: []map[string]any{sview("link_ready", 2, map[string]any{"url": signinTestLink})}}
+		c.signin = &signinScript{views: []map[string]any{sview("link_ready", 1, map[string]any{"url": signinTestLink})}}
 		bin, _, _, env := planEnv(t, c)
 		_, errs, code := runPlan(t, bin, env, in, machineArgs()...)
 		if code != exitUsage || !strings.Contains(errs, "no code was read") || !c.signinWas() {
@@ -156,7 +161,7 @@ func TestMachineProgressIsHonestAboutALongWait(t *testing.T) {
 	u := testUI(&buf, 80, false, clk)
 	r := &signinRun{ue: u}
 	p := &signinProgress{r: r, st: u.Steps(), printed: map[int]bool{}, active: -1}
-	m := sview("starting", 1, nil)
+	m := sview("starting", 0, nil)
 	p.show(asView(m))
 	m["elapsed_seconds"] = 75
 	p.show(asView(m))

@@ -432,8 +432,9 @@ func TestHumanGoldensObeyTheTextRules(t *testing.T) {
 					t.Errorf("%s: a Next command does not parse (%v): %q", where, err, line)
 				}
 			}
-			// a golden line is at most 80 columns, except a command (never cut)
-			if strings.Contains(f, "golden/ui/") && displayWidth(plain) > 80 && !strings.Contains(plain, "ks ") && !strings.HasPrefix(plain, "usage:") {
+			// a golden line is at most 80 columns, except a command or a link on a line of its own (never cut)
+			link := strings.HasPrefix(plain, "https://") && !strings.ContainsAny(plain, " \t")
+			if strings.Contains(f, "golden/ui/") && displayWidth(plain) > 80 && !strings.Contains(plain, "ks ") && !strings.HasPrefix(plain, "usage:") && !link {
 				t.Errorf("%s: %d columns: %q", where, displayWidth(plain), line)
 			}
 		}

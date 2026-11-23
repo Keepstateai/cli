@@ -1,22 +1,14 @@
 <ESC>[1mSign in to your Claude plan<ESC>[0m
-  <ESC>[38;2;138;138;138mKeepState starts a private machine that runs Claude Code's own sign-in for<ESC>[0m
-  <ESC>[38;2;138;138;138myou. You open a link, sign in to Claude, and paste the code it shows. The<ESC>[0m
-  <ESC>[38;2;138;138;138mmachine is destroyed afterwards, and the token is never shown to you or kept<ESC>[0m
-  <ESC>[38;2;138;138;138mhere.<ESC>[0m
 
-  <ESC>[38;2;138;138;138mStarting a private sign-in machine and asking Claude for a sign-in link. This<ESC>[0m
-  <ESC>[38;2;138;138;138mtakes about a minute.<ESC>[0m
-  <ESC>[38;2;138;138;138m•<ESC>[0m Start a private sign-in machine...
+  <ESC>[38;2;138;138;138m•<ESC>[0m Starting sign-in process, generating sign in URL...
   <ESC>[38;2;138;138;138mThis is taking longer than usual. It is still working, and Ctrl-C cancels it<ESC>[0m
   <ESC>[38;2;138;138;138mand cleans up.<ESC>[0m
-  <ESC>[38;2;78;186;101m✓<ESC>[0m Start a private sign-in machine                                        <ESC>[38;2;138;138;138m1m15s<ESC>[0m
 <ESC>[1mSign in at Claude<ESC>[0m
-  <ESC>[38;2;138;138;138mOpen this link and sign in to the Claude account whose plan you want to use.<ESC>[0m
-  <ESC>[38;2;138;138;138mClaude then shows a code to paste here.<ESC>[0m
+  <ESC>[38;2;138;138;138mSign in to Claude, then copy the code it shows and paste it here.<ESC>[0m
 
-https://claude.com/cai/oauth/authorize?code=true&client_id=test&state=abc123
+https://claude.ai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256&state=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gbdMbOQSY
 
-  <ESC>[38;2;78;186;101m✓<ESC>[0m Sign in at Claude
+  <ESC>[38;2;78;186;101m✓<ESC>[0m Sign in at Claude                                                      <ESC>[38;2;138;138;138m1m15s<ESC>[0m
   <ESC>[38;2;78;186;101m✓<ESC>[0m Paste the code it shows
   <ESC>[38;2;138;138;138mChecking your code with Claude.<ESC>[0m
   <ESC>[38;2;138;138;138m•<ESC>[0m Save your sign-in...
