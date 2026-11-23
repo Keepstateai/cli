@@ -267,9 +267,9 @@ func TestMachineCtrlCCancelsTheMachineAtEveryStage(t *testing.T) {
 		views   []map[string]any
 		waitFor string
 	}{
-		{"while the machine starts", []map[string]any{sview("starting", 1, nil)}, "Starting a private sign-in machine"},
-		{"at the link", []map[string]any{sview("link_ready", 2, map[string]any{"url": signinTestLink})}, "Open it in your browser?"},
-		{"at the code prompt", []map[string]any{sview("link_ready", 2, map[string]any{"url": signinTestLink})}, "Code (nothing is shown"},
+		{"while the machine starts", []map[string]any{sview("starting", 0, nil)}, "Starting sign-in process, generating sign in URL"},
+		{"at the link", []map[string]any{sview("link_ready", 1, map[string]any{"url": signinTestLink})}, "Open it in your browser?"},
+		{"at the code prompt", []map[string]any{sview("link_ready", 1, map[string]any{"url": signinTestLink})}, "Code (nothing is shown"},
 	} {
 		c := newPlanCtl()
 		c.signin = &signinScript{views: tc.views}
@@ -287,9 +287,9 @@ func TestMachineCtrlCCancelsTheMachineAtEveryStage(t *testing.T) {
 }
 
 func TestMachineRefusedCodeOffersToStartAgain(t *testing.T) {
-	refused := sview("failed", 4, map[string]any{"error": map[string]any{"code": "ks_signin_code_refused", "words": "Claude did not accept that code. Start again to get a new link, and paste the new code.", "next": "ks login claude"}})
+	refused := sview("failed", 0, map[string]any{"error": map[string]any{"code": "ks_signin_code_refused", "words": "Claude did not accept that code. Start again to get a new link, and paste the new code.", "next": "ks login claude"}})
 	c := newPlanCtl()
-	c.signin = &signinScript{views: []map[string]any{sview("link_ready", 2, map[string]any{"url": signinTestLink}), sview("checking", 4, nil), refused}}
+	c.signin = &signinScript{views: []map[string]any{sview("link_ready", 1, map[string]any{"url": signinTestLink}), sview("checking", 3, nil), refused}}
 	bin, _, _, env := ttyPlanEnv(t, c)
 	out, code := inPTYSteps(t, env, []ptyStep{
 		{waitFor: "Open it in your browser?", delay: 200 * time.Millisecond, input: "n\r"},
@@ -305,9 +305,9 @@ func TestMachineRefusedCodeOffersToStartAgain(t *testing.T) {
 }
 
 func TestMachineRefusedCodeStartsAgainWhenAsked(t *testing.T) {
-	refused := sview("failed", 4, map[string]any{"error": map[string]any{"code": "ks_signin_code_refused", "words": "Claude did not accept that code.", "next": "ks login claude"}})
+	refused := sview("failed", 0, map[string]any{"error": map[string]any{"code": "ks_signin_code_refused", "words": "Claude did not accept that code.", "next": "ks login claude"}})
 	c := newPlanCtl()
-	c.signin = &signinScript{views: []map[string]any{sview("link_ready", 2, map[string]any{"url": signinTestLink}), sview("checking", 4, nil), refused}}
+	c.signin = &signinScript{views: []map[string]any{sview("link_ready", 1, map[string]any{"url": signinTestLink}), sview("checking", 3, nil), refused}}
 	bin, _, _, env := ttyPlanEnv(t, c)
 	out, _ := inPTYSteps(t, env, []ptyStep{
 		{waitFor: "Open it in your browser?", delay: 200 * time.Millisecond, input: "n\r"},
@@ -393,9 +393,9 @@ func TestRunOnAMembersPlanInAnOrganization(t *testing.T) {
 // may still be starting.
 func TestMachineCtrlCDuringTheStartCancelsTheMachineWhenItsIdArrives(t *testing.T) {
 	c := newPlanCtl()
-	c.signin = &signinScript{startDelay: 250 * time.Millisecond, views: []map[string]any{sview("starting", 1, nil)}}
+	c.signin = &signinScript{startDelay: 250 * time.Millisecond, views: []map[string]any{sview("starting", 0, nil)}}
 	bin, _, _, env := ttyPlanEnv(t, c)
-	out, code := inPTYSteps(t, env, []ptyStep{{waitFor: "KeepState starts a private machine", delay: 20 * time.Millisecond, input: "\x03"}}, bin, "login", "claude")
+	out, code := inPTYSteps(t, env, []ptyStep{{waitFor: "Sign in to your Claude plan", delay: 20 * time.Millisecond, input: "\x03"}}, bin, "login", "claude")
 	if code != 130 || !c.signinWas() || !strings.Contains(out, "Cancelled. The sign-in machine is gone and nothing was saved.") {
 		t.Errorf("exit %d, cancelled on the service: %v\n%s", code, c.signinWas(), out)
 	}
@@ -403,9 +403,9 @@ func TestMachineCtrlCDuringTheStartCancelsTheMachineWhenItsIdArrives(t *testing.
 
 func TestMachineCtrlCWhenTheStartNeverAnswersSaysTheMachineMayStillBeStarting(t *testing.T) {
 	c := newPlanCtl()
-	c.signin = &signinScript{startDelay: 3 * time.Second, views: []map[string]any{sview("starting", 1, nil)}}
+	c.signin = &signinScript{startDelay: 3 * time.Second, views: []map[string]any{sview("starting", 0, nil)}}
 	bin, _, _, env := ttyPlanEnv(t, c)
-	out, code := inPTYSteps(t, env, []ptyStep{{waitFor: "KeepState starts a private machine", delay: 20 * time.Millisecond, input: "\x03"}}, bin, "login", "claude")
+	out, code := inPTYSteps(t, env, []ptyStep{{waitFor: "Sign in to your Claude plan", delay: 20 * time.Millisecond, input: "\x03"}}, bin, "login", "claude")
 	if code != 130 || !strings.Contains(out, "may still be starting") || !strings.Contains(out, "ends on its own") || strings.Contains(out, "The sign-in machine is gone") {
 		t.Errorf("exit %d\n%s", code, out)
 	}

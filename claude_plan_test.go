@@ -55,7 +55,7 @@ type signinScript struct {
 }
 
 func sview(state string, step int, extra map[string]any) map[string]any {
-	names := []string{"Start a private sign-in machine", "Sign in at Claude", "Paste the code it shows", "Save your sign-in"}
+	names := []string{"Sign in at Claude", "Paste the code it shows", "Save your sign-in"}
 	steps := []any{}
 	for i, n := range names {
 		st := "todo"
@@ -70,21 +70,24 @@ func sview(state string, step int, extra map[string]any) map[string]any {
 		steps = append(steps, map[string]any{"name": n, "state": st})
 	}
 	v := map[string]any{"id": "signin_0001", "state": state, "step": step, "steps": steps, "elapsed_seconds": 3, "expires_at": "2026-11-22T12:30:00Z",
-		"words": map[string]string{"starting": "Starting a private sign-in machine and asking Claude for a sign-in link. This takes about a minute.",
-			"link_ready": "Open the link, sign in to Claude, and copy the code it shows. Then paste the code here.", "checking": "Checking your code with Claude."}[state]}
+		"words": map[string]string{"starting": "Starting sign-in process, generating sign in URL",
+			"link_ready": "Sign in to Claude, then copy the code it shows and paste it here.", "checking": "Checking your code with Claude."}[state]}
 	for k, x := range extra {
 		v[k] = x
 	}
 	return v
 }
 
-const signinTestLink = "https://claude.com/cai/oauth/authorize?code=true&client_id=test&state=abc123"
+// the shape of a real link: Claude's authorize page with everything its page needs, 341 characters
+const signinTestLink = "https://claude.ai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code" +
+	"&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference" +
+	"&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256&state=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gbdMbOQSY"
 
 func goodSignin() *signinScript {
 	return &signinScript{views: []map[string]any{
-		sview("starting", 1, nil), sview("starting", 1, nil),
-		sview("link_ready", 2, map[string]any{"url": signinTestLink}),
-		sview("checking", 4, nil),
+		sview("starting", 0, nil), sview("starting", 0, nil),
+		sview("link_ready", 1, map[string]any{"url": signinTestLink}),
+		sview("checking", 3, nil),
 		sview("done", 4, map[string]any{"key": map[string]any{"id": "vlt_plan0001", "last4": "9999", "expires_at": "2027-11-22T10:00:00Z"}}),
 	}}
 }
@@ -857,7 +860,7 @@ func (c *planCtl) serveSignin(w http.ResponseWriter, r *http.Request, raw []byte
 		env(201, sc.views[0])
 	case r.Method == "GET":
 		if sc.cancelled {
-			env(200, sview("cancelled", 1, nil))
+			env(200, sview("cancelled", 0, nil))
 			return
 		}
 		if sc.at < len(sc.views)-1 {
