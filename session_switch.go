@@ -16,7 +16,7 @@
 // The network is on by default, for every session. On means web and git:
 // ports 80, 443 and 22 and DNS, at a speed limit and a daily data cap. The
 // cloud's metadata, private and shared address ranges, other machines,
-// KeepState's own services and IPv6 stay unreachable either way.
+// KeepState's internal services and IPv6 stay unreachable either way.
 package main
 
 import (
@@ -87,6 +87,42 @@ func (sw sessionSwitch) words(on bool) string {
 		return sw.onText
 	}
 	return sw.offTxt
+}
+
+// switchDay is the engine's count of the day for a session's machine, as the
+// service reports it; Known false means the machine could not be asked.
+type switchDay struct {
+	Known         bool  `json:"known"`
+	BytesToday    int64 `json:"bytes_today"`
+	DailyCapBytes int64 `json:"daily_cap_bytes"`
+	CapReached    bool  `json:"cap_reached"`
+}
+
+// fetchNetworkDay reads the day's bytes. An older service has no such route,
+// and a machine that could not be asked has no figure: both read as unknown,
+// never as zero.
+func fetchNetworkDay(cr hostedCreds, id string) switchDay {
+	var env struct {
+		Data switchDay `json:"data"`
+	}
+	if err := hostedCall(cr, "GET", "/api/v2/sessions/"+url.PathEscape(id)+"/network", nil, &env); err != nil {
+		return switchDay{}
+	}
+	return env.Data
+}
+
+// bytesWords: a count of bytes in 1024 units, one decimal.
+func bytesWords(n int64) string {
+	u := []string{"B", "KiB", "MiB", "GiB", "TiB"}
+	x, i := float64(n), 0
+	for x >= 1024 && i < len(u)-1 {
+		x /= 1024
+		i++
+	}
+	if i == 0 {
+		return fmt.Sprintf("%d B", n)
+	}
+	return fmt.Sprintf("%.1f %s", x, u[i])
 }
 
 func fetchSwitchRecord(cr hostedCreds, id string) (switchRecord, error) {
@@ -170,11 +206,26 @@ func hostedSessionSwitch(sw sessionSwitch) func(cr hostedCreds, inv *Invocation)
 				"state": map[bool]string{true: "on", false: "off"}[isOn], "runtime_state": rec.RuntimeState, "revision": rec.Revision, "words": sw.words(isOn), "note": extra}
 		}
 		if state == "" {
-			emit(show(on, ""), func() {
+			var day switchDay
+			if sw.verb == "network" && on {
+				day = fetchNetworkDay(cr, sess.RecordID)
+			}
+			doc := show(on, "")
+			if day.Known && day.DailyCapBytes > 0 {
+				doc["bytes_today"], doc["daily_cap_bytes"], doc["cap_reached"] = day.BytesToday, day.DailyCapBytes, day.CapReached
+			}
+			emit(doc, func() {
 				outf("session %s: %s is %s\n", sess.ShortID, sw.label, sw.words(on))
 				outf("  state          %s\n", stateWords("session_runtime", rec.RuntimeState))
 				if sw.verb == "network" {
-					outf("  always blocked in either position: the cloud's metadata, private and shared address ranges, other machines, KeepState's own services, IPv6; only web and git ports\n")
+					outf("  always blocked in either position: the cloud's metadata, private and shared address ranges, other machines, KeepState's internal services, IPv6; only web and git ports\n")
+				}
+				if day.Known && day.DailyCapBytes > 0 {
+					if day.CapReached {
+						outf("  today          %s of %s: daily data limit reached, the internet is closed until tomorrow (UTC); its model and KeepState still work\n", bytesWords(day.BytesToday), bytesWords(day.DailyCapBytes))
+					} else {
+						outf("  today          %s of %s\n", bytesWords(day.BytesToday), bytesWords(day.DailyCapBytes))
+					}
 				}
 				outf("  change         ks session %s %s %s\n", sw.verb, map[bool]string{true: "off", false: "on"}[on], sess.ShortID)
 			})

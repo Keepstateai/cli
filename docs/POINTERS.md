@@ -48,7 +48,7 @@ its file.
 
 ## Session switches (network, Auto Mode)
 
-- `ks session network [on|off] [session]` and `ks session auto [on|off] [session]` share one implementation: `session_switch.go` `sessionSwitch`, `networkSwitch`, `autoSwitch`, `hostedSessionSwitch` (read the record, change it with `expected_revision`, say when it takes effect), `switchState` (on or off first, then an optional session), `switchRefusal` (the service's refusals in words with a next action). The session is `binding.go` `targetSession` (named, else the project's binding). Tests: `session_switch_test.go`.
+- `ks session network [on|off] [session]` and `ks session auto [on|off] [session]` share one implementation: `session_switch.go` `sessionSwitch`, `networkSwitch`, `autoSwitch`, `hostedSessionSwitch` (read the record, change it with `expected_revision`, say when it takes effect), `switchState` (on or off first, then an optional session), `switchRefusal` (the service's refusals in words with a next action), `fetchNetworkDay` and `bytesWords` (the day's bytes against the daily cap, shown with no state; a service without the route, or a machine it could not ask, shows no figure). The session is `binding.go` `targetSession` (named, else the project's binding). Tests: `session_switch_test.go`.
 
 ## Agent
 

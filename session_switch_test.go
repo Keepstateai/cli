@@ -10,18 +10,21 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
 )
 
 type switchCtl struct {
-	mu      sync.Mutex
-	patches []map[string]any
-	net     map[string]string // record -> network_mode
-	perm    map[string]string // record -> permission_mode
-	rev     int64
-	refuse  string // a refusal type for the next change of a running session
+	mu         sync.Mutex
+	patches    []map[string]any
+	net        map[string]string // record -> network_mode
+	perm       map[string]string // record -> permission_mode
+	rev        int64
+	refuse     string // a refusal type for the next change of a running session
+	bytes      int64  // the bytes the engine counts today for the running session
+	capReached bool
 }
 
 func (c *switchCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -54,6 +57,13 @@ func (c *switchCtl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			fleet("fleetpark00000000000000000000002", "fleetpark000", "reviewer", "session_park", "parked"),
 			fleet("fleetdead00000000000000000000003", "fleetdead000", "old", "session_dead", "dead"),
 		}, "next_cursor": "", "observed_at": "x"})
+	case r.Method == "GET" && r.URL.Path == "/api/v2/sessions/session_run/network":
+		c.mu.Lock()
+		mode, bytes, capped := c.net["session_run"], c.bytes, c.capReached
+		c.mu.Unlock()
+		env(200, map[string]any{"session_id": "session_run", "network_mode": mode, "known": true, "bytes_today": bytes, "daily_cap_bytes": 5 << 30, "cap_reached": capped, "blocked_packets": 3})
+	case r.Method == "GET" && r.URL.Path == "/api/v2/sessions/session_park/network":
+		env(200, map[string]any{"session_id": "session_park", "network_mode": "open", "known": false})
 	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/v2/sessions/session_"):
 		env(200, record(strings.TrimPrefix(r.URL.Path, "/api/v2/sessions/")))
 	case r.Method == "PATCH" && strings.HasPrefix(r.URL.Path, "/api/v2/sessions/session_"):
@@ -284,5 +294,57 @@ func TestTheTwoVerbsAreInTheRegistryAndTheManifest(t *testing.T) {
 		if !found {
 			t.Errorf("%s is not in commands.json", verb)
 		}
+	}
+}
+
+// BACKLOG-806 review: the day's bytes against the cap are shown beside the
+// switch; nothing is shown when the machine could not be asked; and the words
+// do not say KeepState's own services are unreachable (its public site and API are not).
+func TestSessionNetworkShowsTheDaysBytesAgainstTheCapAndSaysWhenItIsReached(t *testing.T) {
+	c := newSwitchCtl()
+	c.bytes = 1536 << 10
+	syncFixture(t, &c.mu)
+	srv := httptest.NewServer(c)
+	defer srv.Close()
+	bin, cfg := buildAndAuth(t, srv)
+	dir := t.TempDir()
+	env := fastEnv(cfg)
+	out, errs, code := auditExec(t, bin, cfg, dir, env, "session", "network", "fleetrun")
+	if code != 0 || !strings.Contains(out, "today") || !strings.Contains(out, "1.5 MiB of 5.0 GiB") {
+		t.Fatalf("show: %d\n%s%s", code, out, errs)
+	}
+	c.mu.Lock()
+	c.bytes, c.capReached = 5<<30, true
+	c.mu.Unlock()
+	out, _, code = auditExec(t, bin, cfg, dir, env, "session", "network", "fleetrun")
+	if code != 0 || !strings.Contains(out, "daily data limit reached") || !strings.Contains(out, "5.0 GiB of 5.0 GiB") {
+		t.Fatalf("show at the cap: %d\n%s", code, out)
+	}
+	out, _, code = auditExec(t, bin, cfg, dir, env, "session", "network", "fleetrun", "--json")
+	if code != 0 || !strings.Contains(out, `"bytes_today"`) || !strings.Contains(out, `"cap_reached"`) {
+		t.Fatalf("show as json: %d\n%s", code, out)
+	}
+	// a machine the service could not ask: no figure, and no zero
+	out, _, code = auditExec(t, bin, cfg, dir, env, "session", "network", "fleetpark")
+	if code != 0 || strings.Contains(out, "today") {
+		t.Fatalf("a machine the service could not ask shows a figure: %d\n%s", code, out)
+	}
+}
+
+func TestTheNetworkWordsDoNotOverclaimWhatStaysUnreachable(t *testing.T) {
+	for _, f := range []string{"session_switch.go", "main.go", "docs/changelog.md"} {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, line := range strings.Split(string(b), "\n") {
+			if strings.Contains(line, "KeepState's own services") {
+				t.Errorf("%s says KeepState's own services stay unreachable, which its public site and API are not: %s", f, strings.TrimSpace(line))
+			}
+		}
+	}
+	b, _ := os.ReadFile("session_switch.go")
+	if !strings.Contains(string(b), "KeepState's internal services") {
+		t.Error("the verb's always-blocked note must name KeepState's internal services")
 	}
 }
