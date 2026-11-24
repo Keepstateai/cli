@@ -67,20 +67,101 @@ func transcriptFiles(tool string) []string {
 	return out
 }
 
-// localTranscripts reads every transcript of the tools asked for, newest first.
-func localTranscripts(tools ...string) []transcriptInfo {
-	var all []transcriptInfo
+// localSessions reads every transcript of the tools asked for and sorts them
+// into the person's own sessions (newest first) and helper threads. Codex
+// writes a rollout file for each helper thread (a spawned subagent, an approval
+// reviewer); those are not sessions the person can import, so they are kept
+// apart. Each session carries the count of helper threads that work for it.
+func localSessions(tools ...string) (tops, helpers []transcriptInfo) {
 	for _, tool := range tools {
 		for _, p := range transcriptFiles(tool) {
 			info, err := scanTranscript(tool, p)
 			if err != nil || info.ID == "" {
 				continue
 			}
-			all = append(all, info)
+			if info.Helper {
+				helpers = append(helpers, info)
+			} else {
+				tops = append(tops, info)
+			}
 		}
 	}
-	sort.SliceStable(all, func(i, j int) bool { return all[i].ModTime.After(all[j].ModTime) })
-	return all
+	sort.SliceStable(tops, func(i, j int) bool { return tops[i].ModTime.After(tops[j].ModTime) })
+	idx := map[string]int{}
+	for i, t := range tops {
+		idx[t.Tool+"/"+t.ID] = i
+	}
+	byID := map[string]transcriptInfo{}
+	for _, h := range helpers {
+		byID[h.Tool+"/"+h.ID] = h
+	}
+	for _, h := range helpers {
+		root := helperRoot(h, byID)
+		if i, ok := idx[h.Tool+"/"+root]; ok {
+			tops[i].Helpers++
+		}
+	}
+	return tops, helpers
+}
+
+// helperRoot is the session a helper thread works for: its parent, or, when the
+// parent is itself a helper, the one at the top.
+func helperRoot(h transcriptInfo, byID map[string]transcriptInfo) string {
+	root := h.ParentID
+	for hops := 0; hops < 8; hops++ {
+		up, ok := byID[h.Tool+"/"+root]
+		if !ok || up.ParentID == "" || up.ParentID == root {
+			break
+		}
+		root = up.ParentID
+	}
+	if root == "" {
+		root = h.ID
+	}
+	return root
+}
+
+// localTranscripts reads every session of the tools asked for, newest first.
+// Helper threads are not among them.
+func localTranscripts(tools ...string) []transcriptInfo {
+	tops, _ := localSessions(tools...)
+	return tops
+}
+
+// helperStandIns: a helper thread whose session's own file is not on this machine
+// is shown under one row for that session, so it is not lost and not repeated.
+func helperStandIns(tops, helpers []transcriptInfo) []transcriptInfo {
+	have := map[string]bool{}
+	for _, t := range tops {
+		have[t.Tool+"/"+t.ID] = true
+	}
+	byID := map[string]transcriptInfo{}
+	for _, h := range helpers {
+		byID[h.Tool+"/"+h.ID] = h
+	}
+	var out []transcriptInfo
+	at := map[string]int{}
+	for _, h := range helpers {
+		root := helperRoot(h, byID)
+		if have[h.Tool+"/"+root] {
+			continue
+		}
+		k := h.Tool + "/" + root
+		i, ok := at[k]
+		if !ok {
+			out = append(out, transcriptInfo{Tool: h.Tool, ID: root, Orphan: true, Cwd: h.Cwd, ModTime: h.ModTime})
+			i = len(out) - 1
+			at[k] = i
+		}
+		o := &out[i]
+		o.Helpers++
+		o.Messages += h.Messages
+		o.Size += h.Size
+		if h.ModTime.After(o.ModTime) {
+			o.ModTime, o.Cwd = h.ModTime, h.Cwd
+		}
+	}
+	return out
 }
 
 type importListEntry struct {
@@ -91,6 +172,7 @@ type importListEntry struct {
 	Bytes    int64  `json:"bytes"`
 	Messages int    `json:"messages"`
 	Turns    int    `json:"turns"`
+	Helpers  int    `json:"helper_threads,omitempty"`
 	Version  string `json:"version,omitempty"`
 	Model    string `json:"model,omitempty"`
 	Note     string `json:"note,omitempty"`
@@ -98,8 +180,13 @@ type importListEntry struct {
 
 func importList(inv *Invocation) {
 	var rows []importListEntry
-	for _, t := range localTranscripts("claude-code", "codex") {
-		rows = append(rows, importListEntry{Tool: t.Tool, ID: t.ID, Project: t.Cwd, Date: t.ModTime.UTC().Format(time.RFC3339), Bytes: t.Size, Messages: t.Messages, Turns: t.Turns, Version: t.Version, Model: t.Model})
+	tops, helpers := localSessions("claude-code", "codex")
+	for _, t := range append(tops, helperStandIns(tops, helpers)...) {
+		e := importListEntry{Tool: t.Tool, ID: t.ID, Project: t.Cwd, Date: t.ModTime.UTC().Format(time.RFC3339), Bytes: t.Size, Messages: t.Messages, Turns: t.Turns, Helpers: t.Helpers, Version: t.Version, Model: t.Model}
+		if t.Orphan {
+			e.Note = "its own file is not on this machine"
+		}
+		rows = append(rows, e)
 	}
 	cursorNote := ""
 	if inv.Bool("cursor") || inv.Set("store") {
@@ -123,24 +210,47 @@ func importList(inv *Invocation) {
 		}
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].Date > rows[j].Date })
+	// a session with no messages is hidden unless --all asks for it
+	hidden := 0
+	if !inv.Bool("all") {
+		kept := rows[:0:0]
+		for _, r := range rows {
+			if r.Messages == 0 {
+				hidden++
+				continue
+			}
+			kept = append(kept, r)
+		}
+		rows = kept
+	}
 	doc := map[string]any{"sessions": rows}
+	if hidden > 0 {
+		doc["hidden_empty"] = hidden
+	}
 	if cursorNote != "" {
 		doc["cursor_note"] = cursorNote
 	}
 	emit(doc, func() {
 		o, _ := cmdUI()
-		o.List(importListScreen(rows, cursorNote))
+		o.List(importListScreen(rows, cursorNote, hidden))
 	})
 }
 
 // importListScreen is ks import list as a list screen.
-func importListScreen(rows []importListEntry, cursorNote string) listScreen {
+func importListScreen(rows []importListEntry, cursorNote string, hidden int) listScreen {
 	s := listScreen{Title: "Sessions on this machine", Detail: listCount(len(rows), "session", "sessions"),
 		Cols: []Col{{Title: "Tool"}, {Title: "Session"}, {Title: "Project"}, {Title: "Last used", Second: true}, {Title: "Size", Right: true, Second: true}, {Title: "Messages", Right: true, Second: true}}}
 	for _, r := range rows {
 		tool := r.Tool
+		var notes []string
 		if r.Note != "" {
-			tool += " (" + r.Note + ")"
+			notes = append(notes, r.Note)
+		}
+		if r.Helpers > 0 {
+			notes = append(notes, nounCount(r.Helpers, "helper thread", "helper threads"))
+		}
+		if len(notes) > 0 {
+			tool += " (" + strings.Join(notes, ", ") + ")"
 		}
 		id := r.ID
 		size, msgs := "", commas(int64(r.Messages))+" messages"
@@ -153,7 +263,12 @@ func importListScreen(rows []importListEntry, cursorNote string) listScreen {
 		}
 		s.Rows = append(s.Rows, []string{tool, id, project, strings.Replace(strings.TrimSuffix(r.Date, "Z")[:16], "T", " ", 1), size, msgs})
 	}
-	if len(rows) == 0 {
+	if hidden > 0 && len(rows) > 0 {
+		s.Lead = []string{nounCount(hidden, "empty session", "empty sessions") + " hidden; ks import list --all"}
+	}
+	if len(rows) == 0 && hidden > 0 {
+		s.Empty = "There are no sessions with messages on this machine: " + nounCount(hidden, "empty session is", "empty sessions are") + " hidden (ks import list --all shows them)."
+	} else if len(rows) == 0 {
 		s.Empty = "No Claude Code or Codex session was found on this machine. Claude Code keeps them in " + visible(claudeProjectsDir()) + ", Codex in " + visible(codexSessionsDir()) + "."
 	}
 	if cursorNote != "" {
@@ -177,9 +292,21 @@ func chooseTranscript(tool string, inv *Invocation) transcriptInfo {
 	if inv.Bool("latest") == inv.Set("session") {
 		importUsage("name the session to import: --latest (the newest for this project) or --session ID, and add --yes to import it without being asked. Nothing was sent", "ks import list")
 	}
-	all := localTranscripts(tool)
+	all, helpers := localSessions(tool)
 	if inv.Set("session") {
 		id := inv.Str("session")
+		// A helper thread's own id is refused in plain words: what runs is the
+		// session it works for, which is the one to import.
+		byID := map[string]transcriptInfo{}
+		for _, h := range helpers {
+			byID[h.Tool+"/"+h.ID] = h
+		}
+		for _, h := range helpers {
+			if h.ID == id {
+				parent := helperRoot(h, byID)
+				importUsage(fmt.Sprintf("%s is a helper thread that %s started for the session %s, not a session of its own. Import that session instead. Nothing was sent", sanitize(id), tool, sanitize(parent)), "ks import "+tool+" --session "+sanitize(parent))
+			}
+		}
 		var hits []transcriptInfo
 		for _, t := range all {
 			if t.ID == id {
@@ -199,6 +326,16 @@ func chooseTranscript(tool string, inv *Invocation) transcriptInfo {
 	}
 	if len(all) == 0 {
 		fail(&cliError{Code: exitFailed, Kind: "no_sessions", Message: fmt.Sprintf("no %s session was found on this machine. Nothing was sent", tool), NextAction: "ks import list"})
+	}
+	// the newest is never an empty session
+	var withText []transcriptInfo
+	for _, t := range all {
+		if t.Messages > 0 {
+			withText = append(withText, t)
+		}
+	}
+	if len(withText) > 0 {
+		all = withText
 	}
 	project := inv.Str("project")
 	if project == "" {

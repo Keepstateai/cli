@@ -61,8 +61,9 @@ func importListRow() *Command {
 		Flags: []Flag{
 			{Name: "cursor", Kind: flagBool, Summary: "also list Cursor chats (best effort; Cursor's store is copied first and the copy is read)"},
 			{Name: "store", Kind: flagString, Value: "FILE", Summary: "Cursor's chat store to list from (implies --cursor); default: Cursor's own folder for this system"},
+			{Name: "all", Kind: flagBool, Summary: "also list the sessions with no messages, which are hidden by default"},
 		},
 		Effects:  "reads the session files under ~/.claude/projects and ~/.codex/sessions (or CLAUDE_CONFIG_DIR and CODEX_HOME) as streams for their identity and counts, never printing a message, and changes nothing; needs no sign-in",
-		Examples: []string{"ks import list", "ks import list --json", "ks import list --cursor"},
+		Examples: []string{"ks import list", "ks import list --json", "ks import list --cursor", "ks import list --all"},
 		Nothing:  "Nothing was read.", Run: importList}
 }

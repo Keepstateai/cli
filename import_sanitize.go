@@ -64,6 +64,14 @@ type transcriptInfo struct {
 	Messages  int       `json:"messages"`
 	Size      int64     `json:"size"`
 	ModTime   time.Time `json:"-"`
+	// A Codex helper thread (a spawned subagent, an approval reviewer) has a
+	// rollout file of its own: Helper says so, ParentID names the session it
+	// works for. Helpers, on a session, counts the helper threads folded into
+	// it; Orphan marks a stand-in row for a session whose own file is missing.
+	Helper   bool   `json:"-"`
+	ParentID string `json:"-"`
+	Helpers  int    `json:"-"`
+	Orphan   bool   `json:"-"`
 }
 
 // importReadProg, when set, is told how many bytes the sanitizing passes have
@@ -119,14 +127,18 @@ type claudeLight struct {
 type codexLight struct {
 	Type    string `json:"type"`
 	Payload struct {
-		Type       string          `json:"type"`
-		Role       string          `json:"role"`
-		ID         string          `json:"id"`
-		Cwd        string          `json:"cwd"`
-		CliVersion string          `json:"cli_version"`
-		Timestamp  string          `json:"timestamp"`
-		Model      string          `json:"model"`
-		Content    json.RawMessage `json:"content"`
+		Type       string `json:"type"`
+		Role       string `json:"role"`
+		ID         string `json:"id"`
+		Cwd        string `json:"cwd"`
+		CliVersion string `json:"cli_version"`
+		Timestamp  string `json:"timestamp"`
+		// the first session_meta tells whose rollout this is (see scanTranscript)
+		Source         json.RawMessage `json:"source"`
+		ParentThreadID string          `json:"parent_thread_id"`
+		ForkedFromID   string          `json:"forked_from_id"`
+		Model          string          `json:"model"`
+		Content        json.RawMessage `json:"content"`
 	} `json:"payload"`
 }
 
@@ -231,6 +243,7 @@ func scanTranscript(tool, path string) (transcriptInfo, error) {
 			return nil
 		})
 	case "codex":
+		sawMeta := false
 		err = readImportLines(path, func(line []byte) error {
 			var r codexLight
 			if json.Unmarshal(line, &r) != nil {
@@ -238,7 +251,15 @@ func scanTranscript(tool, path string) (transcriptInfo, error) {
 			}
 			switch r.Type {
 			case "session_meta":
+				// Only the first one says whose rollout this is. A helper thread's
+				// file goes on with a copy of its parent's header, which would
+				// give the helper the parent's id.
+				if sawMeta {
+					return nil
+				}
+				sawMeta = true
 				info.ID, info.Cwd, info.Version, info.StartedAt = r.Payload.ID, r.Payload.Cwd, r.Payload.CliVersion, r.Payload.Timestamp
+				info.Helper, info.ParentID = codexHelperOf(r.Payload.Source, r.Payload.ParentThreadID, r.Payload.ForkedFromID)
 				if r.Payload.Cwd != "" {
 					cwds[r.Payload.Cwd]++
 				}
@@ -279,10 +300,40 @@ func scanTranscript(tool, path string) (transcriptInfo, error) {
 	if info.Cwd == "" && len(info.Cwds) > 0 {
 		info.Cwd = info.Cwds[0]
 	}
-	if tool == "codex" && len(info.Cwds) > 0 {
+	if tool == "codex" && info.Cwd == "" && len(info.Cwds) > 0 {
 		info.Cwd = info.Cwds[0]
 	}
 	return info, nil
+}
+
+// codexHelperOf reads a rollout's first session_meta: whether the rollout is a
+// helper thread's (a spawned subagent or an approval reviewer: its source is an
+// object with "subagent" in it, or it names a parent thread) and, if so, the
+// session it works for. A plain string source ("vscode", "cli", "exec") or none
+// is a session the person started.
+func codexHelperOf(source json.RawMessage, parentThread, forkedFrom string) (bool, string) {
+	var src struct {
+		Subagent json.RawMessage `json:"subagent"`
+	}
+	sub := json.Unmarshal(source, &src) == nil && len(src.Subagent) > 0 && string(src.Subagent) != "null"
+	parent := parentThread
+	if sub && parent == "" {
+		var sa struct {
+			ThreadSpawn struct {
+				ParentThreadID string `json:"parent_thread_id"`
+			} `json:"thread_spawn"`
+		}
+		if json.Unmarshal(src.Subagent, &sa) == nil {
+			parent = sa.ThreadSpawn.ParentThreadID
+		}
+	}
+	if !sub && parent == "" {
+		return false, ""
+	}
+	if parent == "" {
+		parent = forkedFrom
+	}
+	return true, parent
 }
 
 // ---- the sanitizing -----------------------------------------------------------

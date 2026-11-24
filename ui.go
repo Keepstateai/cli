@@ -331,7 +331,7 @@ func (u *ui) stackedTable(cols []Col, rows [][]string) {
 		if multi && n > 0 {
 			out = append(out, "")
 		}
-		for i, l := range wrapProse(strings.Join(first, " \u00b7 "), u.width-4) {
+		for i, l := range wrapJoined(first, u.width-4) {
 			if i == 0 {
 				out = append(out, "  "+l)
 			} else {
@@ -339,12 +339,24 @@ func (u *ui) stackedTable(cols []Col, rows [][]string) {
 			}
 		}
 		if len(second) > 0 {
-			for _, l := range wrapProse(strings.Join(second, " \u00b7 "), u.width-4) {
+			for _, l := range wrapJoined(second, u.width-4) {
 				out = append(out, "    "+u.t.dim(l))
 			}
 		}
 	}
 	u.lines(out...)
+}
+
+// wrapJoined is cells joined with " · " and wrapped on word boundaries. A line
+// never ends on a separator: where the line breaks, the separator is dropped.
+func wrapJoined(cells []string, width int) []string {
+	ls := wrapProse(strings.Join(cells, " \u00b7 "), width)
+	for i := range ls {
+		if strings.HasSuffix(ls[i], " \u00b7") {
+			ls[i] = strings.TrimSuffix(ls[i], " \u00b7")
+		}
+	}
+	return ls
 }
 
 // cutMiddle cuts s to w columns from the middle, so a path keeps its start

@@ -10,7 +10,7 @@
     the conversation itself
 
 Sessions on this machine  3 found
-  claude-code · 2d1eb651 ·
+  claude-code · 2d1eb651
     ~/work/projects/BulkPulse-main
     open now · 137 MB
 

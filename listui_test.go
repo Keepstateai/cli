@@ -45,13 +45,24 @@ func screenCases() []screenCase {
 	return []screenCase{
 		{"import-list", func(empty bool) listScreen {
 			if empty {
-				return importListScreen(nil, "")
+				return importListScreen(nil, "", 0)
 			}
 			return importListScreen([]importListEntry{
 				{Tool: "claude-code", ID: "2d1eb651-e108-498a-88b4-dc7659a1a38a", Project: "/home/you/work/projects/BulkPulse-main", Date: "2026-11-23T20:17:00Z", Bytes: 537_000_000, Messages: 12041},
-				{Tool: "codex", ID: "01a1c2d3-e4f5-7a6b-8c9d-0e1f2a3b4c5d", Project: "/home/you/keepstate", Date: "2026-11-22T09:00:00Z", Bytes: 3_100_000, Messages: 88},
+				{Tool: "codex", ID: "01a1c2d3-e4f5-7a6b-8c9d-0e1f2a3b4c5d", Project: "/home/you/keepstate", Date: "2026-11-22T09:00:00Z", Bytes: 3_100_000, Messages: 88, Helpers: 4},
 				{Tool: "cursor", ID: "3f2a1c", Project: "", Date: "2026-11-20T09:00:00Z", Messages: 14, Note: "best effort"},
-			}, "")
+			}, "", 3)
+		}},
+		{"import-list-folded", func(empty bool) listScreen {
+			if empty {
+				return importListScreen(nil, "", 4)
+			}
+			long := "/home/you/work/projects/a-folder-with-a-rather-long-name/and/a/second/one/below-it"
+			return importListScreen([]importListEntry{
+				{Tool: "codex", ID: "01a1c2d3-e4f5-7a6b-8c9d-0e1f2a3b4c5d", Project: long, Date: "2026-11-22T09:00:00Z", Bytes: 3_100_000, Messages: 88, Helpers: 4},
+				{Tool: "codex", ID: "01a1c2d3-aaaa-7a6b-8c9d-0e1f2a3b4c5d", Project: long + "/more/folders", Date: "2026-11-21T09:00:00Z", Bytes: 31_000, Messages: 8, Note: "its own file is not on this machine", Helpers: 2},
+				{Tool: "codex", ID: "01a1c2d3-bbbb-7a6b-8c9d-0e1f2a3b4c5d", Project: "/home/you/keepstate", Date: "2026-11-20T09:00:00Z", Bytes: 90_000, Messages: 3, Helpers: 1},
+			}, "", 4)
 		}},
 		{"sessions", func(empty bool) listScreen {
 			if empty {

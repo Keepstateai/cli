@@ -4186,7 +4186,7 @@
   {
    "verb": "import list",
    "aliases": [],
-   "usage": "ks import list [--cursor] [--store FILE]",
+   "usage": "ks import list [--cursor] [--store FILE] [--all]",
    "summary": "the Claude Code and Codex sessions on this machine, newest first: tool, id, project, date, size and message count (never a message)",
    "status": "available",
    "surface": "client",
@@ -4198,6 +4198,10 @@
     {
      "flag": "--store FILE",
      "summary": "Cursor's chat store to list from (implies --cursor); default: Cursor's own folder for this system"
+    },
+    {
+     "flag": "--all",
+     "summary": "also list the sessions with no messages, which are hidden by default"
     }
    ]
   },

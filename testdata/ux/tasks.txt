@@ -18,7 +18,7 @@ Next: ks task show <instruction> --session sess_0123
 Instructions in session sess_0123  2 instructions across 3 agents
 
   Agent main
-  tsk_0123456789abcdef0123 · 1 · running · console · account acct_1 ·
+  tsk_0123456789abcdef0123 · 1 · running · console · account acct_1
     2026-11-23 10:00
   tsk_0123456789abcdef0124 · 2 · queued · cli · account acct_1 · 2026-11-23
     10:05
@@ -36,7 +36,7 @@ Instructions in session sess_0123
 2 instructions across 3 agents
 
   Agent main
-  tsk_0123456789abcdef0123 · 1 · running · console ·
+  tsk_0123456789abcdef0123 · 1 · running · console
     account acct_1 · 2026-11-23 10:00
   tsk_0123456789abcdef0124 · 2 · queued · cli · account
     acct_1 · 2026-11-23 10:05

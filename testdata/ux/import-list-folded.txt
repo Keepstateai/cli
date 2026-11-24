@@ -1,0 +1,77 @@
+=== import-list-folded, list, 120 columns ===
+Sessions on this machine  3 sessions
+  4 empty sessions hidden; ks import list --all
+
+  codex (4 helper threads) · 01a1c2d3-e4f5-7a6b-8c9d-0e1f2a3b4c5d
+    /home/you/work/projects/a-folder-with-a-rather-long-name/and/a/second/one/below-it
+    2026-11-22 09:00 · 3.1 MB · 88 messages
+
+  codex (its own file is not on this machine, 2 helper threads)
+    01a1c2d3-aaaa-7a6b-8c9d-0e1f2a3b4c5d
+    /home/you/work/projects/a-folder-with-a-rather-long-name/and/a/second/one/below-it/more/folders
+    2026-11-21 09:00 · 31.0 KB · 8 messages
+
+  codex (1 helper thread) · 01a1c2d3-bbbb-7a6b-8c9d-0e1f2a3b4c5d · /home/you/keepstate
+    2026-11-20 09:00 · 90.0 KB · 3 messages
+
+  Any unique start of a session's id works with --session.
+
+Next: ks import claude-code --latest
+=== import-list-folded, list, 80 columns ===
+Sessions on this machine  3 sessions
+  4 empty sessions hidden; ks import list --all
+
+  codex (4 helper threads) · 01a1c2d3-e4f5-7a6b-8c9d-0e1f2a3b4c5d
+    /home/you/work/projects/a-folder-with-a-rather-long-name/and/a/second/one/below-it
+    2026-11-22 09:00 · 3.1 MB · 88 messages
+
+  codex (its own file is not on this machine, 2 helper threads)
+    01a1c2d3-aaaa-7a6b-8c9d-0e1f2a3b4c5d
+    /home/you/work/projects/a-folder-with-a-rather-long-name/and/a/second/one/below-it/more/folders
+    2026-11-21 09:00 · 31.0 KB · 8 messages
+
+  codex (1 helper thread) · 01a1c2d3-bbbb-7a6b-8c9d-0e1f2a3b4c5d
+    /home/you/keepstate
+    2026-11-20 09:00 · 90.0 KB · 3 messages
+
+  Any unique start of a session's id works with --session.
+
+Next: ks import claude-code --latest
+=== import-list-folded, list, 60 columns ===
+Sessions on this machine  3 sessions
+  4 empty sessions hidden; ks import list --all
+
+  codex (4 helper threads)
+    01a1c2d3-e4f5-7a6b-8c9d-0e1f2a3b4c5d
+    /home/you/work/projects/a-folder-with-a-rather-long-name/and/a/second/one/below-it
+    2026-11-22 09:00 · 3.1 MB · 88 messages
+
+  codex (its own file is not on this machine, 2 helper
+    threads) · 01a1c2d3-aaaa-7a6b-8c9d-0e1f2a3b4c5d
+    /home/you/work/projects/a-folder-with-a-rather-long-name/and/a/second/one/below-it/more/folders
+    2026-11-21 09:00 · 31.0 KB · 8 messages
+
+  codex (1 helper thread)
+    01a1c2d3-bbbb-7a6b-8c9d-0e1f2a3b4c5d
+    /home/you/keepstate
+    2026-11-20 09:00 · 90.0 KB · 3 messages
+
+  Any unique start of a session's id works with --session.
+
+Next: ks import claude-code --latest
+=== import-list-folded, empty, 120 columns ===
+Sessions on this machine  no sessions
+
+  There are no sessions with messages on this machine: 4 empty sessions are hidden (ks import
+  list --all shows them).
+=== import-list-folded, empty, 80 columns ===
+Sessions on this machine  no sessions
+
+  There are no sessions with messages on this machine: 4 empty sessions are
+  hidden (ks import list --all shows them).
+=== import-list-folded, empty, 60 columns ===
+Sessions on this machine  no sessions
+
+  There are no sessions with messages on this machine: 4
+  empty sessions are hidden (ks import list --all shows
+  them).
