@@ -297,7 +297,7 @@ func TestTheTwoVerbsAreInTheRegistryAndTheManifest(t *testing.T) {
 	}
 }
 
-// BACKLOG-806 review: the day's bytes against the cap are shown beside the
+// review: the day's bytes against the cap are shown beside the
 // switch; nothing is shown when the machine could not be asked; and the words
 // do not say KeepState's own services are unreachable (its public site and API are not).
 func TestSessionNetworkShowsTheDaysBytesAgainstTheCapAndSaysWhenItIsReached(t *testing.T) {
