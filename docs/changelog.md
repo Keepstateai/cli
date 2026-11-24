@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The Claude Code plugin now runs `@keepstateai/cli@0.1.48`.
+
 ## v0.1.48 (2026-11-24)
 
 - Signing in with a Claude plan (`ks login claude`) is fixed. The service's
