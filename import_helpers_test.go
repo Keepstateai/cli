@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -279,5 +280,36 @@ func TestStackedRowsNeverEndOnASeparator(t *testing.T) {
 				t.Errorf("at %d columns a line ends on a separator: %q", width, l)
 			}
 		}
+	}
+}
+
+// Every session with messages is listed, in a pipe and on a terminal: the list
+// never collapses rows behind a "more" count.
+func TestEveryNonEmptySessionIsListed(t *testing.T) {
+	e := newImportEnv(t)
+	home := filepath.Join(e.home, ".codex")
+	base := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+	var ids []string
+	for i := 0; i < 14; i++ {
+		id := fmt.Sprintf("%08x-0000-7000-8000-0000000000%02d", 0x10000000+i, i)
+		ids = append(ids, id)
+		when := base.Add(time.Duration(i) * time.Hour)
+		fxWrite(t, home, id, when, fxMeta(t, id, "/work/demo", when.Format(time.RFC3339), nil), fxMsg(t, "user"), fxMsg(t, "assistant"))
+	}
+	check := func(label, out string) {
+		for _, id := range ids {
+			if !strings.Contains(out, id) {
+				t.Errorf("%s: session %s is not listed:\n%s", label, id, out)
+			}
+		}
+		if strings.Contains(out, " more") || strings.Contains(out, "...") {
+			t.Errorf("%s: rows were collapsed:\n%s", label, out)
+		}
+	}
+	pipe, _, _ := e.run("import", "list")
+	check("pipe", pipe)
+	for _, w := range []string{"100", "80", "60"} {
+		out, _, _ := auditExec(t, e.bin, e.cfg, e.dir, append(append([]string{}, e.env...), "KS_FORCE_COLUMNS="+w), "import", "list")
+		check("terminal at "+w, out)
 	}
 }
