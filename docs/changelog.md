@@ -3,6 +3,20 @@
 ## Unreleased
 
 - The Claude Code plugin now runs `@keepstateai/cli@0.1.49`.
+- `ks session network [on|off] [session]` shows and switches whether a
+  session's machine can reach the public internet. It is on by default, for
+  every session. On means web and git only (ports 80, 443 and 22, and DNS
+  through two public resolvers), at a speed limit and a daily data cap; the
+  cloud's metadata, private and shared address ranges, other machines,
+  KeepState's own services and IPv6 stay unreachable either way. A running
+  session's machine takes the change now and a paused one when it next starts;
+  the service gives the machine the setting before it records it, so a change
+  the machine could not take changes nothing.
+- `ks session auto [on|off] [session]` shows and switches Auto Mode (the agent
+  runs everything without asking, except deleting files) from the terminal, as
+  the console's switch does. Both verbs use the session you name, else this
+  project's binding (`ks session use`), and change it against the revision just
+  read.
 
 ## v0.1.49 (2026-11-24)
 

@@ -4738,6 +4738,22 @@
    "summary": "disconnect one app: its sign-in, every token it holds and every request it had asked you to confirm end at once",
    "status": "available",
    "surface": "hosted"
+  },
+  {
+   "verb": "session network",
+   "aliases": [],
+   "usage": "ks session network [state] [session]",
+   "summary": "whether a session's machine can reach the public internet (on by default); with on or off, switch it, in effect now on a running machine and when it next starts on a paused one",
+   "status": "available",
+   "surface": "hosted"
+  },
+  {
+   "verb": "session auto",
+   "aliases": [],
+   "usage": "ks session auto [state] [session]",
+   "summary": "whether a session's agent runs everything without asking, except deleting files (Auto Mode, on by default); with on or off, switch it",
+   "status": "available",
+   "surface": "hosted"
   }
  ]
 }
