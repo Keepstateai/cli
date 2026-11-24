@@ -10,7 +10,7 @@
     the conversation itself
 
 <ESC>[1mSessions on this machine<ESC>[0m  <ESC>[38;2;138;138;138m3 found<ESC>[0m
-  claude-code · 2d1eb651 ·
+  claude-code · 2d1eb651
     ~/work/projects/BulkPulse-main
     <ESC>[38;2;138;138;138mopen now · 137 MB<ESC>[0m
 

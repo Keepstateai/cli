@@ -390,6 +390,9 @@ func guidedRows(tool string) []guidedRow {
 	if len(tools) > 0 {
 		all := localTranscripts(tools...)
 		for _, t := range all {
+			if t.Messages == 0 {
+				continue // an empty session is not worth a pick
+			}
 			rows = append(rows, guidedRow{Tool: t.Tool, ID: t.ID, Project: t.Cwd, Mod: t.ModTime, Size: -2, Title: "\x00" + t.Path})
 		}
 	}
