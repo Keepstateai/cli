@@ -1,18 +1,19 @@
 # Changelog
 
-## Unreleased
+## v0.1.49 (2026-11-24)
 
 - The Claude Code plugin now runs `@keepstateai/cli@0.1.48`.
 - `ks import list` no longer shows one Codex session many times. Codex writes
   a separate file for each helper thread it starts, and the client took the
   wrong header from them, so every helper showed its parent's id. The list now
-  has one row per session of yours, with a note such as "4 helper threads";
-  helper threads are never rows of their own. Sessions with no messages are
-  hidden, and the list says how many and how to see them (`ks import list
-  --all`). `ks import codex --latest` never picks a helper thread, and
-  `--session` with a helper thread's own id says which session to import
-  instead. The guided picker follows the same rules, and a list row whose
-  folder wraps no longer ends its first line with a dangling separator.
+  has one row per session of yours, with its helper threads folded in and a
+  note such as "4 helper threads"; helper threads are never rows of their own.
+  Sessions with no messages are hidden, and the list says how many and how to
+  see them (`ks import list --all`). `ks import codex --latest` never picks a
+  helper thread, and `--session` with a helper thread's own id refuses it and
+  names the session to import instead. The guided picker follows the same
+  rules, and a list row whose folder wraps no longer ends its first line with
+  a dangling separator.
 
 ## v0.1.48 (2026-11-24)
 
