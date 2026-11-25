@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.50 (2026-11-25)
 
 - The Claude Code plugin now runs `@keepstateai/cli@0.1.49`.
 - `ks session network [on|off] [session]` shows and switches whether a
