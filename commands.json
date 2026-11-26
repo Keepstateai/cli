@@ -3225,14 +3225,14 @@
   {
    "verb": "file upload",
    "aliases": [],
-   "usage": "ks file upload <local path> [--to PATH] [--agent NAME] [--session ID] [--replace] [--with-git] [--tell] [--tell-text TEXT] [--discard]",
-   "summary": "one file or a folder, up to 1 GB, into a session's workspace: sent in chunks that resume, checked by sha256, never replacing a path unless --replace",
+   "usage": "ks file upload <local path>... [--to PATH] [--agent NAME] [--session ID] [--replace] [--with-git] [--tell] [--tell-text TEXT] [--discard]",
+   "summary": "files or a folder, up to 12 paths at once and up to 1 GB each, into a session's workspace: sent one after the other in chunks that resume, checked by sha256, never replacing a path unless --replace",
    "status": "available",
    "surface": "hosted",
    "flags": [
     {
      "flag": "--to PATH",
-     "summary": "where it goes in the workspace, a relative path (default: its own name at the workspace root); missing folders on the way are made"
+     "summary": "where it goes in the workspace, a relative path (default: its own name at the workspace root); missing folders on the way are made. With several paths it is the folder they go into, each keeping its own name"
     },
     {
      "flag": "--agent NAME",

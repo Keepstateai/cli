@@ -131,7 +131,6 @@ type uploadView struct {
 	LimitBytes   int64  `json:"limit_bytes"`
 	FreeBytes    int64  `json:"free_bytes"`
 	Replace      bool   `json:"replace"`
-	StorageNote  string `json:"storage_note"`
 	Placed       *struct {
 		Path     string `json:"path"`
 		Kind     string `json:"kind"`
@@ -143,23 +142,20 @@ type uploadView struct {
 
 // fileUpload is what --json reports.
 type fileUpload struct {
-	SessionID   string       `json:"session_id"`
-	UploadID    string       `json:"upload_id"`
-	Kind        string       `json:"kind"`
-	Path        string       `json:"path"`
-	Bytes       int64        `json:"bytes"`
-	Sent        int64        `json:"sent_bytes"`
-	Files       int          `json:"files"`
-	SHA256      string       `json:"sha256"`
-	Replaced    bool         `json:"replaced"`
-	Resumed     bool         `json:"resumed"`
-	Skipped     []uploadSkip `json:"skipped"`
-	Told        bool         `json:"told"`
-	Tell        any          `json:"tell"`
-	StorageNote string       `json:"storage_note"`
+	SessionID string       `json:"session_id"`
+	UploadID  string       `json:"upload_id"`
+	Kind      string       `json:"kind"`
+	Path      string       `json:"path"`
+	Bytes     int64        `json:"bytes"`
+	Sent      int64        `json:"sent_bytes"`
+	Files     int          `json:"files"`
+	SHA256    string       `json:"sha256"`
+	Replaced  bool         `json:"replaced"`
+	Resumed   bool         `json:"resumed"`
+	Skipped   []uploadSkip `json:"skipped"`
+	Told      bool         `json:"told"`
+	Tell      any          `json:"tell"`
 }
-
-const uploadStorageNote = "Uploaded files count toward your storage."
 
 // uploadTarget refuses, before anything is sent, what can never be a path
 // in the workspace, and anything not already in its plain form.
@@ -952,6 +948,10 @@ func noun(n int, one, many string) string {
 	return many
 }
 
+// uploadMaxPaths is the most paths one command uploads (ks file upload a b c):
+// each goes the way a single path does, one after the other.
+const uploadMaxPaths = 12
+
 func hostedFileUpload(cr hostedCreds, inv *Invocation) {
 	tellText := inv.Str("tell-text")
 	tell := inv.Bool("tell") || inv.Set("tell-text")
@@ -961,12 +961,16 @@ func hostedFileUpload(cr hostedCreds, inv *Invocation) {
 	if inv.Bool("discard") && (tell || inv.Bool("replace")) {
 		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--discard throws an unfinished upload away; it takes no --tell, --tell-text or --replace"})
 	}
-	// everything that can be refused here is refused before any request
-	p := planUpload(inv.Arg(0), inv.Str("to"), inv.Bool("with-git"))
-	if inv.Bool("with-git") && p.Kind != "folder" {
-		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--with-git carries a folder's .git; " + sanitize(p.Name) + " is a file. Nothing was sent."})
+	if len(inv.Args) > 1 {
+		hostedFileUploadMany(cr, inv)
+		return
 	}
+	hostedFileUploadOne(cr, inv, inv.Arg(0), inv.Str("to"), tell, tellText)
+}
 
+// uploadSessionAgent is the session that takes the upload and, when the
+// agent is to be told, the agent.
+func uploadSessionAgent(cr hostedCreds, inv *Invocation, tell bool) (inventoryRow, *agentRow, string) {
 	var sess inventoryRow
 	agentName := "main"
 	var agent *agentRow
@@ -985,6 +989,138 @@ func hostedFileUpload(cr hostedCreds, inv *Invocation) {
 			agent = &a
 		}
 	}
+	return sess, agent, agentName
+}
+
+type uploadExit struct{ code int }
+
+// uploadGuarded runs one path's upload; a failure that would end the process
+// ends only this path, and its exit code is answered.
+func uploadGuarded(cr hostedCreds, inv *Invocation, local, to string) (res fileUpload, code int) {
+	prev := exitFn
+	exitFn = func(c int) { panic(uploadExit{c}) }
+	defer func() {
+		exitFn = prev
+		if r := recover(); r != nil {
+			e, ok := r.(uploadExit)
+			if !ok {
+				panic(r)
+			}
+			code = e.code
+		}
+	}()
+	res = hostedFileUploadOne(cr, inv, local, to, false, "")
+	return
+}
+
+// hostedFileUploadMany uploads several paths, up to 12, one after the other.
+// --to names the folder they go into (each path keeps its own name there);
+// a refusal of one path is said and the others still go; the exit code is the
+// first refusal's.
+func hostedFileUploadMany(cr hostedCreds, inv *Invocation) {
+	paths := inv.Args
+	if len(paths) > uploadMaxPaths {
+		fail(&cliError{Code: exitUsage, Kind: "usage", Message: fmt.Sprintf("%d paths were given, and one command uploads up to %d. Nothing was sent. Run it with the first %d, then again with the rest.", len(paths), uploadMaxPaths, uploadMaxPaths)})
+	}
+	if inv.Bool("discard") {
+		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--discard throws away the unfinished upload of one path; give one path. Nothing was sent."})
+	}
+	dest := strings.TrimSuffix(inv.Str("to"), "/")
+	if inv.Set("to") {
+		if dest == "" {
+			fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--to names the folder the files go into; it is empty. Nothing was sent."})
+		}
+		uploadTarget(dest)
+	}
+	tos := make([]string, len(paths))
+	seen := map[string]string{}
+	for i, lp := range paths {
+		name := filepath.Base(filepath.Clean(lp))
+		to := name
+		if dest != "" {
+			to = dest + "/" + name
+		}
+		if first, dup := seen[to]; dup {
+			fail(&cliError{Code: exitUsage, Kind: "usage", Message: fmt.Sprintf("%s and %s both go to %s. Nothing was sent. Upload them with one command each and a --to for each.", sanitize(first), sanitize(lp), sanitize(to))})
+		}
+		seen[to] = lp
+		tos[i] = to
+		// everything that can be refused here is refused before any request
+		planUpload(lp, to, inv.Bool("with-git"))
+	}
+	tell := inv.Bool("tell") || inv.Set("tell-text")
+	sess, agent, agentName := uploadSessionAgent(cr, inv, tell)
+	var placed []fileUpload
+	var bytes int64
+	failed, firstCode := 0, 0
+	for i, lp := range paths {
+		res, code := uploadGuarded(cr, inv, lp, tos[i])
+		if code == 0 {
+			placed = append(placed, res)
+			bytes += res.Bytes
+			continue
+		}
+		failed++
+		if firstCode == 0 {
+			firstCode = code
+		}
+		if code == exitInterrupt {
+			break
+		}
+	}
+	summary := fmt.Sprintf("Uploaded %d of %d paths (%s) to %s in session %s.", len(placed), len(paths), bytesText(bytes), visible(firstNonEmpty(dest, "the workspace root")), sess.ShortID)
+	var told any
+	var tellLine, tellFail string
+	if tell && agent != nil && len(placed) > 0 {
+		files := 0
+		for _, r := range placed {
+			files += r.Files
+		}
+		text := inv.Str("tell-text")
+		if text == "" {
+			text = fmt.Sprintf("I uploaded %d %s (%s) to %s in your workspace.", files, noun(files, "file", "files"), bytesText(bytes), firstNonEmpty(dest, "the root of"))
+		}
+		sid, err := newSubmissionID()
+		if err == nil {
+			var t submittedTask
+			t, _, err = sendInstruction(cr, agent.ID, sid, map[string]any{"submission_id": sid, "text": text})
+			if err == nil {
+				told = map[string]any{"agent": agent.Name, "agent_id": agent.ID, "task_id": t.ID, "submission_id": sid, "text": text}
+				tellLine = fmt.Sprintf("told %s: %s", visible(sanitize(firstNonEmpty(agent.Name, agentName))), visible(sanitize(text)))
+			}
+		}
+		if err != nil {
+			tellFail = fmt.Sprintf("the uploads are done, but %s was not told (%s); tell it with: ks agent send %s %s --session %s",
+				firstNonEmpty(agent.Name, agentName), sanitize(err.Error()), firstNonEmpty(agent.Name, agentName), shellWord(text), sess.ShortID)
+		}
+	}
+	emit(map[string]any{"session_id": agentSessionID(sess), "paths": len(paths), "uploaded": len(placed), "failed": failed, "bytes": bytes, "told": told != nil, "tell": told}, func() {
+		outln(summary)
+		if failed > 0 {
+			outf("%d %s not uploaded: each refusal is above, with what to do. The others are in place.\n", failed, noun(failed, "path was", "paths were"))
+		}
+		if tellLine != "" {
+			outln(tellLine)
+		}
+	})
+	if tellFail != "" {
+		progress("%s", tellFail)
+	}
+	if firstCode != 0 {
+		exitFn(firstCode)
+	}
+}
+
+// hostedFileUploadOne uploads one path, to a workspace path, and answers what
+// it placed.
+func hostedFileUploadOne(cr hostedCreds, inv *Invocation, local, to string, tell bool, tellText string) fileUpload {
+	// everything that can be refused here is refused before any request
+	p := planUpload(local, to, inv.Bool("with-git"))
+	if inv.Bool("with-git") && p.Kind != "folder" {
+		fail(&cliError{Code: exitUsage, Kind: "usage", Message: "--with-git carries a folder's .git; " + sanitize(p.Name) + " is a file. Nothing was sent."})
+	}
+
+	sess, agent, agentName := uploadSessionAgent(cr, inv, tell)
 	hashUpload(p)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1019,7 +1155,7 @@ func hostedFileUpload(cr hostedCreds, inv *Invocation) {
 		emit(map[string]any{"session_id": agentSessionID(sess), "upload_id": u.view.UploadID, "discarded": true, "received": had, "size": p.Size}, func() {
 			outf("discarded the unfinished upload of %s to %s: %s of %s had arrived. Nothing in the workspace changed.\n", visible(p.Name), visible(p.To), bytesText(had), bytesText(p.Size))
 		})
-		return
+		return fileUpload{}
 	}
 	switch {
 	case u.view.State == "placed":
@@ -1037,7 +1173,7 @@ func hostedFileUpload(cr hostedCreds, inv *Invocation) {
 		u.view = u.complete()
 	}
 	res := fileUpload{SessionID: agentSessionID(sess), UploadID: u.view.UploadID, Kind: p.Kind, Path: p.To, Bytes: p.Content, Sent: p.Size,
-		Files: len(p.Entries), SHA256: p.SHA256, Resumed: u.view.Resumed, Skipped: p.Skipped, StorageNote: uploadStorageNote}
+		Files: len(p.Entries), SHA256: p.SHA256, Resumed: u.view.Resumed, Skipped: p.Skipped}
 	if p.Kind == "file" {
 		res.Files = 1
 	}
@@ -1077,7 +1213,7 @@ func hostedFileUpload(cr hostedCreds, inv *Invocation) {
 		if res.Replaced {
 			outf("replaced the existing %s\n", visible(res.Path))
 		}
-		outf("Uploaded %s (%s) to %s (session %s, sha256 %s, checked). %s\n", visible(p.Name), size, visible(res.Path), sess.ShortID, short64(p.SHA256), uploadStorageNote)
+		outf("Uploaded %s (%s) to %s (session %s, sha256 %s, checked).\n", visible(p.Name), size, visible(res.Path), sess.ShortID, short64(p.SHA256))
 		if tellLine != "" {
 			outln(tellLine)
 		}
@@ -1085,4 +1221,5 @@ func hostedFileUpload(cr hostedCreds, inv *Invocation) {
 	if tellFail != "" {
 		progress("%s", tellFail)
 	}
+	return res
 }

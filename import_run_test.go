@@ -219,7 +219,7 @@ func (c *importCtl) uploads(w http.ResponseWriter, r *http.Request, base string,
 			}
 		}
 		v := map[string]any{"upload_id": u.ID, "session_id": "session_abc123", "kind": u.Kind, "to": u.To, "size": u.Size, "sha256": u.SHA, "content_bytes": u.Size,
-			"received": len(u.Got), "state": state, "chunk_bytes": 256 << 10, "limit_bytes": 1000000000, "storage_note": "Uploaded files count toward your storage."}
+			"received": len(u.Got), "state": state, "chunk_bytes": 256 << 10, "limit_bytes": 1000000000}
 		if u.Done && u.Kind != "conversation" {
 			v["placed"] = map[string]any{"path": u.To, "kind": u.Kind, "bytes": u.Size, "files": 1, "replaced": false}
 		}
