@@ -45,6 +45,7 @@ its file.
 - `ks run`, checkpoint, wake, meter: `hosted.go` `hostedRun`, `hostedCheckpoint`, `hostedWake`, `hostedMeter`. The agent start path and its phases: `run_agent.go` `hostedRunAgent`, `phaseDone`.
 - Session list and show, the inventory table: `session.go` `sessionListScreen`, `inventoryCols`, `inventoryCells`; fork and restore: `fork_restore.go`.
 - Upload of a folder or file with progress: `file_upload.go` `progressBytes`, `stderrIsTerminal`.
+- Several paths in one `ks file upload` (up to 12, one after the other): `file_upload.go` `hostedFileUpload` (the one entry), `hostedFileUploadMany` (the checks before anything is sent, the loop, the summary, the single tell), `uploadGuarded` (a refusal ends only its own path), `hostedFileUploadOne` (one path, as it always was), `uploadMaxPaths`. A refusal ends only its path because `output.go` `exitFn` is swapped for the length of that path. The parser's last positional repeats through the `command.go` field `More` of `Arg`. Test: `file_upload_many_test.go`.
 
 ## Session switches (network, Auto Mode)
 

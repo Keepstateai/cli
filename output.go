@@ -272,6 +272,11 @@ func classify(err error) *cliError {
 // terminal (a spinner) is closed before the failure's words are printed.
 var failPrelude func()
 
+// exitFn ends the process by the table; a command that carries on past one
+// path's failure (ks file upload with several paths) swaps it for the length
+// of that path.
+var exitFn = os.Exit
+
 func fail(err error) {
 	if f := failPrelude; f != nil {
 		failPrelude = nil
@@ -312,7 +317,7 @@ func fail(err error) {
 		}
 	}
 	runExitHooks()
-	os.Exit(ce.Code)
+	exitFn(ce.Code)
 }
 
 // exitHooks run once before a failure exits the process: what a stream
@@ -354,7 +359,7 @@ func failInApp(ce *cliError) {
 	if ce.Kind == "confirmation_required" && ce.NextAction != "" {
 		b, _ := json.Marshal(map[string]string{"message": ce.Message, "next": ce.NextAction})
 		fmt.Fprintln(os.Stderr, appConfirmMarker+string(b))
-		os.Exit(ce.Code)
+		exitFn(ce.Code)
 	}
 	if d, ok := ce.Detail.(errorDetail); ok {
 		for _, line := range d.detailLines() {

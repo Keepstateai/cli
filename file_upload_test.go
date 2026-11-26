@@ -67,7 +67,7 @@ func (c *uploadCtl) view(u *fakeUpload) map[string]any {
 	}
 	v := map[string]any{"upload_id": u.ID, "session_id": "session_1", "kind": u.Kind, "to": u.To, "size": u.Size, "sha256": u.SHA,
 		"content_bytes": u.Content, "files": len(u.Files), "received": len(u.Got), "state": state, "chunk_bytes": c.chunk,
-		"limit_bytes": 1000000000, "free_bytes": c.free, "replace": u.Replace, "storage_note": "Uploaded files count toward your storage."}
+		"limit_bytes": 1000000000, "free_bytes": c.free, "replace": u.Replace}
 	if u.Placed {
 		n := len(u.Files)
 		if u.Kind == "file" {
@@ -279,7 +279,7 @@ func TestFileUploadOneFileVerifiedAndNeverReplacing(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, errs, code := run("file", "upload", "data.bin", "--session", "fleetins")
-	if code != 0 || !strings.Contains(out, "Uploaded data.bin (1 MB) to data.bin") || !strings.Contains(out, "count toward your storage") {
+	if code != 0 || !strings.Contains(out, "Uploaded data.bin (1 MB) to data.bin") || strings.Contains(out, "toward your storage") {
 		t.Fatalf("upload: %d %q\n%s", code, out, errs)
 	}
 	sum := sha256.Sum256(data)
@@ -592,7 +592,7 @@ func TestFileUploadSnapshots(t *testing.T) {
 		}
 	}
 	drive("file-progress-and-result", []string{"file", "upload", filepath.Join(dir, "dataset.bin"), "--session", "fleetins"},
-		[][]string{{"MB of 25.2 MB", "", "snap:progress"}, {"count toward your storage", "", "snap:result"}})
+		[][]string{{"MB of 25.2 MB", "", "snap:progress"}, {"checked)", "", "snap:result"}})
 	drive("folder-left-out", []string{"file", "upload", root, "--session", "fleetins", "--tell"},
 		[][]string{{"told main", "", "snap:result"}})
 	drive("refusal-too-large", []string{"file", "upload", big, "--session", "fleetins"},

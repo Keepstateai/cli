@@ -3,6 +3,16 @@
 ## Unreleased
 
 - The Claude Code plugin now runs `@keepstateai/cli@0.1.50`.
+- `ks file upload` takes up to 12 paths in one command (`ks file upload a.csv
+  b.csv notes.md --to inputs`), as the console's Upload dialog now takes up to
+  12 files at once. With several paths, `--to` is the folder they go into and
+  each keeps its own name; they go one after the other, each checked and placed
+  on its own, a refusal of one is said and the others still go, and the exit
+  code is the first refusal's. A folder is one path. More than 12 paths, two
+  paths that would land on the same name, or `--discard` with several paths are
+  refused before anything is sent. `--tell` tells the agent once, at the end. A
+  path already in the workspace is still refused unless `--replace`. The line
+  about storage is no longer printed after an upload.
 
 ## v0.1.50 (2026-11-25)
 

@@ -50,6 +50,7 @@ type Flag struct {
 type Arg struct {
 	Name     string
 	Required bool
+	More     bool // the last positional may be given more than once (ks file upload a b c)
 }
 
 // Command is one row of the schema.
@@ -85,10 +86,14 @@ func (c *Command) Usage() string {
 	b.WriteString("ks " + c.Name())
 	args := func() {
 		for _, a := range c.Args {
+			more := ""
+			if a.More {
+				more = "..."
+			}
 			if a.Required {
-				b.WriteString(" <" + a.Name + ">")
+				b.WriteString(" <" + a.Name + ">" + more)
 			} else {
-				b.WriteString(" [" + a.Name + "]")
+				b.WriteString(" [" + a.Name + "]" + more)
 			}
 		}
 	}
@@ -385,7 +390,7 @@ func (c *Command) parse(tokens []string) (*Invocation, *UsageError) {
 		positional = append(positional, t)
 		i++
 	}
-	if len(positional) > len(c.Args) && c.Rest == "" {
+	if len(positional) > len(c.Args) && c.Rest == "" && !(len(c.Args) > 0 && c.Args[len(c.Args)-1].More) {
 		extra := positional[len(c.Args)]
 		if c.HideExtra {
 			return fail("Unexpected argument (not repeated here). A token is never taken from the command line: it is read from a prompt or standard input. One typed on the command line is in your shell history now, so treat it as seen and replace it.", "")
