@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.51 (2026-11-26)
 
 - The Claude Code plugin now runs `@keepstateai/cli@0.1.50`.
 - `ks file upload` takes up to 12 paths in one command (`ks file upload a.csv
