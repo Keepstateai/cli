@@ -575,7 +575,7 @@ type modelTable struct {
 var embeddedModels = modelTable{
 	Version: "v1",
 	Families: map[string]modelFamily{
-		"anthropic": {Provider: "anthropic", Rungs: []string{"claude-haiku-4-5-20251001", "claude-sonnet-5", "claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5"}},
+		"anthropic": {Provider: "anthropic", Rungs: []string{"claude-haiku-4-5-20251001", "claude-sonnet-5", "claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-2"}},
 		"openai":    {Provider: "openrouter", Rungs: []string{"openai/gpt-4o-mini", "openai/gpt-4o"}},
 	},
 	DefaultLadder: []rung{
