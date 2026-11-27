@@ -3,6 +3,7 @@
 ## Unreleased
 
 - The Claude Code plugin now runs `@keepstateai/cli@0.1.51`.
+- The embedded Cruise model table lists Claude Fable 5.2 (`claude-fable-5-2`) after Claude Opus 5.5, as the service's table does; the service offers it only once its Claude Code runner lists it.
 
 ## v0.1.51 (2026-11-26)
 
