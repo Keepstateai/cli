@@ -4754,6 +4754,20 @@
    "summary": "whether a session's agent runs everything without asking, except deleting files (Auto Mode, on by default); with on or off, switch it",
    "status": "available",
    "surface": "hosted"
+  },
+  {
+   "verb": "key usage",
+   "aliases": [],
+   "usage": "ks key usage [key] [--period PERIOD]",
+   "summary": "what each key has been used for in a period: tokens in and out, cache tokens and spend, with a total; KeepState's key shows its charge, your own key an estimate at list price (your provider bills you), a Claude plan its tokens only",
+   "status": "available",
+   "surface": "hosted",
+   "flags": [
+    {
+     "flag": "--period PERIOD",
+     "summary": "month (this month, UTC; the default), 30d (the last 30 days) or all (all recorded time)"
+    }
+   ]
   }
  ]
 }

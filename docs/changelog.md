@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `ks key usage [key] [--period month|30d|all]` shows what each key has been used for: tokens in and out, cache tokens and spend, with a total. On KeepState's key the spend is a charge; on your own provider key it is an estimate at list price, labelled as one (your provider bills you); a Claude plan shows tokens only. Calls from before keys were recorded per call are shown together, not split by key. In an organization's context it shows the organization's keys, to the people who can see them.
 - The Claude Code plugin now runs `@keepstateai/cli@0.1.51`.
 - The embedded Cruise model table lists Claude Fable 5.2 (`claude-fable-5-2`) after Claude Opus 5.5, as the service's table does; the service offers it only once its Claude Code runner lists it.
 
